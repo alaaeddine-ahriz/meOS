@@ -11,3 +11,8 @@ export function resolveWikiLinks(text: string, entities: EntitySummary[]): strin
     return slug ? `[${name}](/wiki/${slug})` : name;
   });
 }
+
+/** Plain-text rendering of [[wiki-link]] markup, for one-line summaries. */
+export function stripWikiMarkup(text: string): string {
+  return text.replace(/\[\[([^\]]+)\]\]/g, "$1");
+}

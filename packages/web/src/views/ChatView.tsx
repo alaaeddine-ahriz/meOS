@@ -3,24 +3,23 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { useNavigate } from "react-router-dom";
 import { api, streamChat, type Conversation as ConversationRecord, type EntitySummary, type Message as MessageRecord, type SourceRef } from "../api.js";
 import { SourceList } from "../components/SourceList.js";
+import { Plus } from "lucide-react";
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
-  PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { InputGroupAddon } from "@/components/ui/input-group";
 import { resolveWikiLinks } from "@/lib/wikilinks";
 import { cn } from "@/lib/utils";
 
@@ -129,25 +128,26 @@ export function ChatView() {
   return (
     <div className="flex h-full">
       <div className="flex w-56 shrink-0 flex-col border-r border-line">
-        <div className="flex items-center justify-between px-4 py-4">
+        <div className="flex items-center justify-between px-4 pb-1 pt-4">
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-dim">history</span>
           <Button
-            variant="outline"
-            size="sm"
+            variant="ghost"
+            size="icon-sm"
             onClick={startNew}
-            className="h-6 rounded border-line bg-transparent px-2 text-xs text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+            aria-label="New conversation"
+            className="size-6 text-dim hover:bg-card hover:text-paper"
           >
-            + new
+            <Plus className="size-3.5" />
           </Button>
         </div>
-        <ScrollArea className="min-h-0 flex-1">
-          <ul className="px-2 pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <ul className="space-y-0.5 px-2 pb-4">
             {conversations.map((conversation) => (
               <li key={conversation.id}>
                 <button
                   onClick={() => setActiveId(conversation.id)}
                   className={cn(
-                    "w-full truncate rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
+                    "block w-full truncate rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
                     conversation.id === activeId ? "bg-card text-paper" : "text-faded hover:text-paper",
                   )}
                 >
@@ -156,23 +156,23 @@ export function ChatView() {
               </li>
             ))}
           </ul>
-        </ScrollArea>
+        </div>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Conversation className="flex-1">
-          <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
-            {messages.length === 0 ? (
-              <ConversationEmptyState className="h-full">
-                <div className="rise max-w-md text-center">
-                  <p className="font-serif text-3xl italic text-faded">What do you want to recall?</p>
-                  <p className="mt-3 text-sm text-dim">
-                    Ask about anything you've captured — people, projects, decisions. Answers come only
-                    from your own knowledge base.
-                  </p>
-                </div>
-              </ConversationEmptyState>
-            ) : (
+        {messages.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center px-6">
+            <div className="rise max-w-md text-center">
+              <p className="font-serif text-3xl italic text-faded">What do you want to recall?</p>
+              <p className="mt-3 text-sm text-dim">
+                Ask about anything you've captured — people, projects, decisions. Answers come only
+                from your own knowledge base.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <Conversation className="flex-1">
+            <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
               <>
                 {messages.map((message, index) => (
                   <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
@@ -203,28 +203,28 @@ export function ChatView() {
                 ))}
                 {error && <p className="text-sm text-ember">⚠ {error}</p>}
               </>
-            )}
-          </ConversationContent>
-          <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
-        </Conversation>
+            </ConversationContent>
+            <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
+          </Conversation>
+        )}
 
-        <div className="border-t border-line px-6 py-4">
+        <div className="px-6 pb-5 pt-1">
           <PromptInput
             onSubmit={onSubmit}
             className="mx-auto max-w-2xl rounded-xl border-line bg-desk shadow-none focus-within:border-lamp-dim"
           >
             <PromptInputBody>
               <PromptInputTextarea
-                placeholder="Ask your second brain..."
-                className="min-h-12 text-[14px] text-paper placeholder:text-dim"
+                placeholder="Ask your second brain…"
+                className="min-h-10 text-[14px] text-paper placeholder:text-dim"
               />
+              <InputGroupAddon align="inline-end">
+                <PromptInputSubmit
+                  status={status}
+                  className="rounded-lg bg-lamp text-ink hover:bg-lamp/85"
+                />
+              </InputGroupAddon>
             </PromptInputBody>
-            <PromptInputFooter className="justify-end p-2 pt-0">
-              <PromptInputSubmit
-                status={status}
-                className="bg-lamp text-ink hover:bg-lamp/85"
-              />
-            </PromptInputFooter>
           </PromptInput>
         </div>
       </div>

@@ -1,21 +1,24 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Badge } from "@/components/ui/badge";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { api, type InboxItem } from "../api.js";
 
-const STATUS_COLORS: Record<string, string> = {
-  queued: "text-dim border-line",
-  parsing: "text-lamp border-lamp-dim",
-  extracting: "text-lamp border-lamp-dim",
-  merging: "text-lamp border-lamp-dim",
-  done: "text-moss border-moss/40",
-  failed: "text-ember border-ember/40",
-  unsupported: "text-ember border-ember/40",
+const DOT_COLORS: Record<string, string> = {
+  queued: "bg-dim",
+  parsing: "bg-lamp",
+  extracting: "bg-lamp",
+  merging: "bg-lamp",
+  done: "bg-moss",
+  failed: "bg-ember",
+  unsupported: "bg-dim",
 };
 
 const ACTIVE_STATUSES = new Set(["queued", "parsing", "extracting", "merging"]);
+
+function timeOf(item: InboxItem): string {
+  return new Date(item.created_at + "Z").toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
 
 export function InboxView() {
   const [items, setItems] = useState<InboxItem[]>([]);
@@ -52,28 +55,27 @@ export function InboxView() {
         </header>
 
         <section className="rise rise-1 mt-8">
-          <ul className="divide-y divide-line border-y border-line">
-            {items.map((item) => (
-              <li key={item.id} className="flex items-baseline gap-4 py-3">
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "w-24 shrink-0 justify-center rounded font-mono text-[10px] uppercase tracking-wide",
-                    STATUS_COLORS[item.status] ?? "text-dim border-line",
-                    ACTIVE_STATUSES.has(item.status) && "working-dot",
-                  )}
-                >
-                  {item.status}
-                </Badge>
-                <div className="min-w-0">
-                  <p className="truncate text-sm text-paper">{item.title}</p>
-                  {item.detail && <p className="mt-0.5 truncate text-[13px] text-dim">{item.detail}</p>}
-                </div>
-                <span className="ml-auto shrink-0 font-mono text-[11px] text-dim">
-                  {new Date(item.created_at + "Z").toLocaleTimeString()}
-                </span>
-              </li>
-            ))}
+          <ul className="divide-y divide-line">
+            {items.map((item) => {
+              const muted = item.status === "unsupported";
+              return (
+                <li key={item.id} className={cn("flex items-baseline gap-3 py-3", muted && "opacity-50")}>
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full",
+                      DOT_COLORS[item.status] ?? "bg-dim",
+                      ACTIVE_STATUSES.has(item.status) && "working-dot",
+                    )}
+                    title={item.status}
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm text-paper">{item.title}</p>
+                    {item.detail && <p className="mt-0.5 truncate text-[13px] text-dim">{item.detail}</p>}
+                  </div>
+                  <span className="ml-auto shrink-0 font-mono text-[11px] text-dim">{timeOf(item)}</span>
+                </li>
+              );
+            })}
             {items.length === 0 && (
               <li className="py-6 text-sm text-dim">
                 Nothing yet. Capture a thought with <Kbd className="text-dim">⌘J</Kbd> or add{" "}

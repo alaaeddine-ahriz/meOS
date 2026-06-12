@@ -64,9 +64,8 @@ export function App() {
         <h1 className="font-serif text-2xl italic tracking-tight text-paper">
           Me<span className="text-lamp">OS</span>
         </h1>
-        <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.2em] text-dim">second brain</p>
 
-        <nav className="mt-10 flex flex-col gap-1">
+        <nav className="mt-8 flex flex-col gap-1">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -79,19 +78,21 @@ export function App() {
                 )
               }
             >
-              <span>{item.label}</span>
+              <span className="flex items-center gap-2">
+                {item.label}
+                {item.to === "/inbox" && queuePending > 0 && (
+                  <span
+                    className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp"
+                    title={`absorbing ${queuePending} item${queuePending > 1 ? "s" : ""}`}
+                  />
+                )}
+              </span>
               <Kbd className="bg-transparent text-[10px] text-dim">⌘{item.key}</Kbd>
             </NavLink>
           ))}
         </nav>
 
         <div className="mt-auto flex flex-col gap-1">
-          {queuePending > 0 && (
-            <p className="mb-2 flex items-center gap-2 px-3 font-mono text-[11px] text-faded">
-              <span className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp" />
-              absorbing {queuePending} item{queuePending > 1 ? "s" : ""}
-            </p>
-          )}
           <button
             onClick={() => setCaptureOpen(true)}
             className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-faded transition-colors hover:bg-card/60 hover:text-paper"

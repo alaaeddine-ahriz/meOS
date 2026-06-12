@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { stripWikiMarkup } from "@/lib/wikilinks";
 import { api, type EntitySummary } from "../api.js";
 
 const TYPE_ORDER = ["person", "project", "organisation", "concept", "place", "decision"];
+
+const TYPE_LABELS: Record<string, string> = {
+  person: "people",
+  project: "projects",
+  organisation: "organisations",
+  concept: "concepts",
+  place: "places",
+  decision: "decisions",
+};
 
 export function WikiView() {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
@@ -46,7 +56,7 @@ export function WikiView() {
         {groups.map((group, index) => (
           <section key={group.type} className={`rise-${Math.min(index + 1, 3)} rise mt-10`}>
             <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
-              {group.type}s · {group.entities.length}
+              {TYPE_LABELS[group.type] ?? `${group.type}s`} · {group.entities.length}
             </h3>
             <ul className="mt-3 divide-y divide-line border-y border-line">
               {group.entities.map((entity) => (
@@ -58,7 +68,9 @@ export function WikiView() {
                     <span className="shrink-0 font-serif text-lg text-paper group-hover:text-lamp">
                       {entity.name}
                     </span>
-                    <span className="truncate text-sm text-faded">{entity.summary}</span>
+                    <span className="truncate text-sm text-faded">
+                      {entity.summary ? stripWikiMarkup(entity.summary) : ""}
+                    </span>
                   </Link>
                 </li>
               ))}

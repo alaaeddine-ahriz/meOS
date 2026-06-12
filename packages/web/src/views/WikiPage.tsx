@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { stripWikiMarkup } from "@/lib/wikilinks";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
 import { SourceList } from "../components/SourceList.js";
@@ -48,7 +49,9 @@ export function WikiPageView() {
 
         <header className="rise rise-1 mt-4">
           <h2 className="font-serif text-4xl text-paper">{page.entity.name}</h2>
-          {page.entity.summary && <p className="mt-2 text-[15px] italic text-faded">{page.entity.summary}</p>}
+          {page.entity.summary && (
+            <p className="mt-2 text-[15px] italic text-faded">{stripWikiMarkup(page.entity.summary)}</p>
+          )}
           <p className="mt-2 font-mono text-[11px] text-dim">
             updated {new Date(page.entity.updatedAt + "Z").toLocaleString()}
             {page.entity.stale && " · refresh pending"}
