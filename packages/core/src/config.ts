@@ -1,19 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export type LlmProvider = "anthropic" | "openai" | "google" | "ollama" | "stub";
+
+export interface LlmConfig {
+  provider: LlmProvider;
+  anthropic: {
+    model: string;
+    extractionModel: string;
+    apiKey?: string;
+  };
+  openai: {
+    model: string;
+    apiKey?: string;
+  };
+  google: {
+    model: string;
+    apiKey?: string;
+  };
+  ollama: {
+    baseUrl: string;
+    model: string;
+  };
+}
+
 export interface MeosConfig {
   dataDir: string;
-  llm: {
-    provider: "anthropic" | "ollama" | "stub";
-    anthropic: {
-      model: string;
-      extractionModel: string;
-    };
-    ollama: {
-      baseUrl: string;
-      model: string;
-    };
-  };
+  llm: LlmConfig;
   embedding: {
     provider: "local" | "hash";
     model: string;
@@ -34,6 +47,12 @@ export const defaultConfig: MeosConfig = {
       model: "claude-opus-4-8",
       extractionModel: "claude-opus-4-8",
     },
+    openai: {
+      model: "gpt-5.1",
+    },
+    google: {
+      model: "gemini-2.5-pro",
+    },
     ollama: {
       baseUrl: "http://localhost:11434",
       model: "llama3.1",
@@ -50,6 +69,8 @@ export const defaultConfig: MeosConfig = {
     cron: "0 3 * * *",
   },
 };
+
+export const LLM_PROVIDERS: LlmProvider[] = ["anthropic", "openai", "google", "ollama", "stub"];
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
   const result = { ...base };
@@ -78,14 +99,37 @@ export function loadConfig(rootDir: string): MeosConfig {
   }
   const config = deepMerge(defaultConfig, fileConfig);
 
-  const envProvider = process.env.MEOS_LLM_PROVIDER;
-  if (envProvider === "anthropic" || envProvider === "ollama" || envProvider === "stub") {
+  const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;
+  if (envProvider && LLM_PROVIDERS.includes(envProvider)) {
     config.llm.provider = envProvider;
   }
   if (!path.isAbsolute(config.dataDir)) {
     config.dataDir = path.join(rootDir, config.dataDir);
   }
   return config;
+}
+
+/**
+ * Overlay LLM settings saved from the UI (a complete LlmConfig snapshot in
+ * the settings table) onto the code/file defaults. The Settings UI is the
+ * source of truth for provider, model, and API keys; meos.config.json holds
+ * only infrastructure config. MEOS_LLM_PROVIDER still wins for one-off runs
+ * and tests.
+ */
+export function overlayStoredLlmConfig(config: MeosConfig, stored: Partial<LlmConfig> | undefined): void {
+  if (stored) {
+    config.llm = {
+      provider: stored.provider ?? config.llm.provider,
+      anthropic: { ...config.llm.anthropic, ...stored.anthropic },
+      openai: { ...config.llm.openai, ...stored.openai },
+      google: { ...config.llm.google, ...stored.google },
+      ollama: { ...config.llm.ollama, ...stored.ollama },
+    };
+  }
+  const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;
+  if (envProvider && LLM_PROVIDERS.includes(envProvider)) {
+    config.llm.provider = envProvider;
+  }
 }
 
 export function ensureDataDirs(config: MeosConfig): void {

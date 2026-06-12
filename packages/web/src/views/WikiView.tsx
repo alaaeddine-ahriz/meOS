@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER } from "@/lib/entity-meta";
-import { stripWikiMarkup } from "@/lib/wikilinks";
 import { cn } from "@/lib/utils";
 import { api, type EntitySummary } from "../api.js";
 
@@ -94,9 +93,6 @@ export function WikiView() {
                   >
                     <group.meta.icon className="size-4 shrink-0 text-dim transition-colors group-hover:text-lamp" />
                     <span className="shrink-0 font-serif text-base text-paper">{entity.name}</span>
-                    <span className="truncate text-[13px] text-faded">
-                      {entity.summary ? stripWikiMarkup(entity.summary) : ""}
-                    </span>
                   </Link>
                 </li>
               ))}

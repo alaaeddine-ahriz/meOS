@@ -7,8 +7,30 @@ export interface ParsedDocument {
 
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text", ".csv", ".json", ".org"]);
 
-/** Everything parseDocument can read — watchers use this to skip the rest silently. */
-export const SUPPORTED_EXTENSIONS = new Set([...TEXT_EXTENSIONS, ".pdf", ".docx"]);
+const IMAGE_MEDIA_TYPES: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+/** Everything the pipeline can absorb — watchers use this to skip the rest silently. */
+export const SUPPORTED_EXTENSIONS = new Set([
+  ...TEXT_EXTENSIONS,
+  ".pdf",
+  ".docx",
+  ...Object.keys(IMAGE_MEDIA_TYPES),
+]);
+
+/**
+ * Media type for image files the LLM can read directly, or undefined for
+ * non-images. Images bypass parseDocument: the pipeline sends them to the
+ * LLM's vision input instead.
+ */
+export function imageMediaType(filename: string): string | undefined {
+  return IMAGE_MEDIA_TYPES[path.extname(filename).toLowerCase()];
+}
 
 /**
  * Extract plain text from an uploaded file. Returns null for formats MeOS

@@ -136,6 +136,16 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_message_sources_message ON message_sources(message_id);
   `,
+  // 5 — app settings configured in the UI (LLM provider, model, API keys);
+  // values are JSON. Lives in the DB so saving never touches source-adjacent
+  // files (a config-file write restarts the dev server mid-request).
+  `
+  CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

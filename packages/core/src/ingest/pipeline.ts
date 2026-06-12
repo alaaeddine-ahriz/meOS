@@ -1,11 +1,12 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
+import { readImage } from "../extract/image.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { LlmClient } from "../llm/types.js";
 import type { WikiWriter } from "../wiki/writer.js";
 import { chunkText } from "./chunk.js";
-import { parseDocument } from "./parse.js";
+import { imageMediaType, parseDocument } from "./parse.js";
 
 export type IngestInput =
   | { kind: "file"; filename: string; buffer: Buffer; origin?: string; path?: string }
@@ -28,6 +29,13 @@ export type PostMergeHook = (context: {
 }) => Promise<string | void>;
 
 export class IngestionPipeline {
+  /**
+   * Ingest jobs may run concurrently (parse/embed/extract are independent),
+   * but merges are serialized through this chain so two documents mentioning
+   * the same new entity cannot both create it.
+   */
+  private mergeLock: Promise<void> = Promise.resolve();
+
   constructor(
     private readonly deps: {
       store: KnowledgeStore;
@@ -35,8 +43,23 @@ export class IngestionPipeline {
       embedder: Embedder;
       wiki: WikiWriter;
       postMerge?: PostMergeHook;
+      /**
+       * When provided, wiki regeneration is handed off here instead of running
+       * inline — the server coalesces a batch of ingests into one regen pass
+       * and the inbox item completes as soon as knowledge is merged.
+       */
+      scheduleWikiRefresh?: () => void;
     },
   ) {}
+
+  private withMergeLock<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.mergeLock.then(fn);
+    this.mergeLock = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
 
   async ingest(input: IngestInput, existingInboxItemId?: number): Promise<IngestOutcome> {
     const { store, embedder, wiki } = this.deps;
@@ -47,7 +70,18 @@ export class IngestionPipeline {
       store.updateInboxItem(inboxItemId, "parsing");
       let parsed: { title: string; text: string } | null;
       if (input.kind === "file") {
-        parsed = await parseDocument(input.filename, input.buffer);
+        const mediaType = imageMediaType(input.filename);
+        if (mediaType) {
+          // Images carry no extractable text — the LLM reads them (OCR +
+          // description) and the result flows through the text pipeline.
+          const text = await readImage(this.deps.llm, input.filename, {
+            mediaType,
+            data: input.buffer.toString("base64"),
+          });
+          parsed = { title: title.replace(/\.[^.]+$/, ""), text };
+        } else {
+          parsed = await parseDocument(input.filename, input.buffer);
+        }
       } else {
         parsed = { title: input.title, text: input.text };
       }
@@ -79,11 +113,17 @@ export class IngestionPipeline {
       const extraction = await extractKnowledge(this.deps.llm, parsed);
 
       store.updateInboxItem(inboxItemId, "merging");
-      const merge = await mergeExtraction(store, embedder, extraction, sourceId);
+      const { merge, postMergeNote } = await this.withMergeLock(async () => {
+        const merge = await mergeExtraction(store, embedder, extraction, sourceId);
+        const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
+        return { merge, postMergeNote };
+      });
 
-      const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
-
-      await wiki.regenerateStale();
+      if (this.deps.scheduleWikiRefresh) {
+        this.deps.scheduleWikiRefresh();
+      } else {
+        await wiki.regenerateStale();
+      }
 
       store.updateInboxItem(
         inboxItemId,

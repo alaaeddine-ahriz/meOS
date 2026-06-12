@@ -13,15 +13,18 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
   });
 
   app.post("/api/jobs/consolidate", async (_request, reply) => {
-    ctx.queue.push(async () => {
-      const report = await runConsolidation({
-        store: ctx.store,
-        llm: ctx.llm,
-        wiki: ctx.wiki,
-        digestDir: path.join(ctx.config.dataDir, "digests"),
-      });
-      app.log.info({ report }, "consolidation finished");
-    });
+    ctx.queue.push(
+      async () => {
+        const report = await runConsolidation({
+          store: ctx.store,
+          llm: ctx.llm,
+          wiki: ctx.wiki,
+          digestDir: path.join(ctx.config.dataDir, "digests"),
+        });
+        app.log.info({ report }, "consolidation finished");
+      },
+      { exclusive: true },
+    );
     return reply.code(202).send({ started: true });
   });
 

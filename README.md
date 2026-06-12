@@ -8,11 +8,10 @@ This implements **Phases 1 + 2** of the [intent document](./MeOS_Intent_Document
 
 ```sh
 pnpm install
-export ANTHROPIC_API_KEY=sk-ant-...   # cloud mode (default)
 pnpm dev
 ```
 
-Open <http://localhost:5173>. The API server runs on `:4321`; the Vite dev server proxies `/api` to it.
+Open <http://localhost:5173>, then open **Settings (⌘,)** and pick an LLM provider — paste your API key and choose a model there. (Exporting `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` before launch works too, as a fallback.) The API server runs on `:4321`; the Vite dev server proxies `/api` to it.
 
 For a production build served from one process:
 
@@ -33,14 +32,14 @@ server's lifecycle: on launch it health-checks `127.0.0.1:4321` and, if nothing
 is listening, spawns `node packages/server/dist/main.js` (built by
 `pnpm build`) and tears it down on quit — even if the shell is killed, the
 server notices the orphaning and exits on its own. A dev server you started
-yourself is detected and left untouched. Launch from a terminal so the spawned
-server inherits `ANTHROPIC_API_KEY`. Overrides: `MEOS_PORT`,
+yourself is detected and left untouched. The LLM provider and API key are
+configured in Settings, so no environment is needed. Overrides: `MEOS_PORT`,
 `MEOS_SERVER_ENTRY`, `MEOS_ROOT`.
 
 ## Using it
 
 - **Capture (⌘J)** — jot a thought from anywhere in the app; MeOS files it in the background.
-- **Settings (⌘,)** — pick the folders MeOS should watch (native folder picker in the desktop app) and choose light / dark / system appearance. Everything readable in watched folders (`.md .txt .csv .json .org .pdf .docx`) is absorbed automatically — new files and edits alike, across restarts, exactly once per file version. Your files are never moved or modified.
+- **Settings (⌘,)** — pick the folders MeOS should watch (native folder picker in the desktop app), choose light / dark / system appearance, and pick the LLM provider (Anthropic, OpenAI, Google, or local Ollama — paste an API key, choose a model; applies immediately, no restart). Everything readable in watched folders (`.md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp`) is absorbed automatically — new files and edits alike, across restarts, exactly once per file version. Images are read by the LLM (text transcribed, content described) and absorbed like any note. Your files are never moved or modified.
 - **Inbox** — what came in: each item's processing status and what the system learned from it.
 - **Wiki** — pages per person / project / organisation / concept / place / decision, written and continuously rewritten by the LLM from accumulated facts. You never edit them.
 - **Chat** (home, ⌘1) — ask "What do I know about X?". Answers are synthesised from your knowledge base only, hedge on weak evidence, and say so when the knowledge base can't answer. Each answer lists the source documents it drew on; wiki pages do the same — in the desktop app, clicking a source reveals the original file in Finder.
@@ -49,9 +48,10 @@ server inherits `ANTHROPIC_API_KEY`. Overrides: `MEOS_PORT`,
 
 ## Configuration
 
-`meos.config.json` at the repo root (all fields optional; defaults shown there). Notable:
+The LLM provider, model, and API key are defined in **Settings** only (persisted in `data/meos.db`) — Anthropic (default), OpenAI, Google, or Ollama for fully local operation (`ollama pull llama3.1`, no API key, nothing leaves the machine). Environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) act as fallbacks when no key was pasted in Settings; `MEOS_LLM_PROVIDER` overrides the provider per-run.
 
-- `llm.provider`: `anthropic` (default) or `ollama` for fully local operation (`ollama pull llama3.1`, no API key, nothing leaves the machine). Override per-run with `MEOS_LLM_PROVIDER`.
+`meos.config.json` at the repo root holds infrastructure config only (all fields optional; defaults shown there). Notable:
+
 - `consolidation.cron`: when nightly maintenance runs.
 
 Embeddings always run on-device (transformers.js, all-MiniLM-L6-v2 — downloaded once to the local cache), regardless of provider.
@@ -66,13 +66,13 @@ Everything lives in `data/` in portable formats: wiki pages and digests are plai
 packages/
 ├── core/    domain logic, no HTTP — ingestion pipeline, knowledge store,
 │            extraction, wiki writer, memory maintenance, LLM + embedding
-│            abstractions (Anthropic / Ollama / deterministic test stub)
+│            abstractions (Anthropic / OpenAI / Google / Ollama / test stub)
 ├── server/  Fastify API, background job queue, watch folder, cron scheduler
 ├── web/     React + Vite UI (chat, wiki, inbox, digest) — shadcn/ui + ai-elements
 └── desktop/ Tauri 2 shell: native window + server lifecycle (Rust)
 ```
 
-The ingestion pipeline: parse → chunk + embed (locally) → structured LLM extraction → entity resolution & merge (near-duplicate facts reinforce confidence instead of duplicating) → contradiction check (supersede or flag, never silently keep) → wiki regeneration.
+The ingestion pipeline: parse (images are read by the LLM: OCR + description) → chunk + embed (locally) → structured LLM extraction → entity resolution & merge (near-duplicate facts reinforce confidence instead of duplicating) → contradiction check (supersede or flag, never silently keep). Several documents move through this concurrently (merges are serialized), and wiki regeneration runs decoupled in the background — a batch of files triggers one coalesced regen pass, a few pages at a time in parallel, instead of one pass per file.
 
 Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind the `LlmClient` interface).
 
@@ -80,7 +80,7 @@ Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind 
 
 | Dependency | Why |
 |---|---|
-| `@anthropic-ai/sdk` | Cloud LLM provider (extraction, wiki writing, chat, digest) |
+| `@anthropic-ai/sdk` | Default cloud LLM provider (OpenAI / Gemini / Ollama are plain `fetch` — no extra SDKs) |
 | `@huggingface/transformers` | On-device embeddings — privacy + offline by construction |
 | `better-sqlite3` | Synchronous, in-process, standard-format storage |
 | `fastify` + `@fastify/multipart` + `@fastify/static` | HTTP API, uploads, serving the built UI |

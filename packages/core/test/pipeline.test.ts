@@ -124,4 +124,59 @@ describe("IngestionPipeline", () => {
     expect(outcome.status).toBe("unsupported");
     expect(store.listInbox()[0]!.status).toBe("unsupported");
   });
+
+  it("reads images through the LLM and ingests the transcription", async () => {
+    const store = new KnowledgeStore(db);
+    const llm = new StubLlmClient({
+      onComplete: () => "Whiteboard notes about Ada Lovelace and the Analytical Engine.",
+      onStructured: (request) => {
+        if (request.schemaName === "knowledge_extraction") return sampleExtraction;
+        return { summary: "A generated one-line summary.", body: "A page." };
+      },
+    });
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({ store, llm, embedder: new HashEmbedder(), wiki });
+
+    const outcome = await pipeline.ingest({
+      kind: "file",
+      filename: "whiteboard.png",
+      buffer: Buffer.from("not-a-real-png"),
+    });
+
+    expect(outcome.status).toBe("done");
+    // The vision call carried the image bytes...
+    const visionCall = llm.requests.find((r) => r.kind === "complete")!;
+    const content = visionCall.request.messages[0]!.content;
+    expect(Array.isArray(content) && content.some((p) => p.type === "image")).toBe(true);
+    // ...and the stored source is the transcription, not the binary.
+    const source = db
+      .prepare("SELECT content FROM sources WHERE id = ?")
+      .get(outcome.sourceId!) as { content: string };
+    expect(source.content).toContain("Whiteboard notes");
+  });
+
+  it("defers wiki regeneration when a scheduler is provided", async () => {
+    const store = new KnowledgeStore(db);
+    const llm = makeStub();
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    let scheduled = 0;
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder: new HashEmbedder(),
+      wiki,
+      scheduleWikiRefresh: () => {
+        scheduled++;
+      },
+    });
+
+    const outcome = await pipeline.ingest({ kind: "text", title: "Notes", text: "Ada Lovelace." });
+
+    expect(outcome.status).toBe("done");
+    expect(scheduled).toBe(1);
+    // Pages stay stale until the deferred pass runs them.
+    expect(store.staleEntities().length).toBeGreaterThan(0);
+    await wiki.regenerateStale();
+    expect(store.staleEntities()).toHaveLength(0);
+  });
 });

@@ -56,6 +56,19 @@ export interface WatchedFolder {
   path: string;
 }
 
+export type LlmProvider = "anthropic" | "openai" | "google" | "ollama";
+
+export interface LlmSettings {
+  provider: LlmProvider;
+  models: Record<"anthropic" | "openai" | "google", string[]>;
+  providers: {
+    anthropic: { model: string; hasKey: boolean };
+    openai: { model: string; hasKey: boolean };
+    google: { model: string; hasKey: boolean };
+    ollama: { model: string; baseUrl: string };
+  };
+}
+
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
@@ -97,6 +110,13 @@ export const api = {
     }),
   removeFolder: (id: number) =>
     json<{ removed: boolean }>(`/api/settings/folders/${id}`, { method: "DELETE" }),
+  getLlmSettings: () => json<LlmSettings>("/api/settings/llm"),
+  updateLlmSettings: (update: { provider: LlmProvider; model?: string; apiKey?: string; baseUrl?: string }) =>
+    json<LlmSettings>("/api/settings/llm", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(update),
+    }),
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   getLatestDigest: () => json<{ date: string; content: string }>("/api/digest/latest"),

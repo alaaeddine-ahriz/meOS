@@ -1,7 +1,29 @@
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
-import { SUPPORTED_EXTENSIONS, type IngestionPipeline, type KnowledgeStore, type SerialQueue } from "@meos/core";
+import { SUPPORTED_EXTENSIONS, type IngestionPipeline, type JobQueue, type KnowledgeStore } from "@meos/core";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * macOS cloud placeholders ("online-only" iCloud/Dropbox/OneDrive files):
+ * reading one blocks in the kernel until the provider materializes it, which
+ * can be forever if the provider is gone. st_flags carries the SF_DATALESS
+ * bit but Node's Stats doesn't expose st_flags, so ask stat(1).
+ */
+const SF_DATALESS = 0x40000000;
+
+async function isDatalessPlaceholder(filePath: string): Promise<boolean> {
+  if (process.platform !== "darwin") return false;
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/stat", ["-f", "%f", filePath]);
+    return (Number.parseInt(stdout.trim(), 10) & SF_DATALESS) !== 0;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Watches the folders the user registered in Settings. Files are read in
@@ -13,7 +35,7 @@ export class FolderWatcher {
   private readonly watcher: FSWatcher;
 
   constructor(
-    private readonly deps: { store: KnowledgeStore; pipeline: IngestionPipeline; queue: SerialQueue },
+    private readonly deps: { store: KnowledgeStore; pipeline: IngestionPipeline; queue: JobQueue },
   ) {
     this.watcher = chokidar.watch([], {
       ignoreInitial: false,
@@ -58,7 +80,27 @@ export class FolderWatcher {
     const filename = path.basename(filePath);
     const inboxItemId = this.deps.store.createInboxItem(filename);
     this.deps.queue.push(async () => {
-      const buffer = fs.readFileSync(filePath);
+      // Never read synchronously here: one file with stuck I/O would wedge
+      // the whole event loop, taking the API down with it.
+      if (await isDatalessPlaceholder(filePath)) {
+        this.deps.store.updateInboxItem(
+          inboxItemId,
+          "failed",
+          "Online-only cloud placeholder — download the file locally and it will be retried",
+        );
+        return;
+      }
+      let buffer: Buffer;
+      try {
+        buffer = await fs.promises.readFile(filePath);
+      } catch (error) {
+        this.deps.store.updateInboxItem(
+          inboxItemId,
+          "failed",
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
       const outcome = await this.deps.pipeline.ingest(
         { kind: "file", filename, buffer, origin: "watch", path: filePath },
         inboxItemId,

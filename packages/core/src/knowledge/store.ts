@@ -547,6 +547,24 @@ export class KnowledgeStore {
       .run(id);
   }
 
+  // --- app settings ----------------------------------------------------
+
+  getSetting<T>(key: string): T | undefined {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+      | { value: string }
+      | undefined;
+    return row ? (JSON.parse(row.value) as T) : undefined;
+  }
+
+  setSetting(key: string, value: unknown): void {
+    this.db
+      .prepare(
+        `INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+      )
+      .run(key, JSON.stringify(value));
+  }
+
   // --- watched folders -------------------------------------------------
 
   listWatchedFolders(): Array<{ id: number; path: string; created_at: string }> {

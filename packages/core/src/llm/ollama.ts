@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CompletionRequest, LlmClient, StructuredRequest } from "./types.js";
+import { contentToText, type CompletionRequest, type LlmClient, type StructuredRequest } from "./types.js";
 
 export interface OllamaClientOptions {
   baseUrl: string;
@@ -17,7 +17,17 @@ export class OllamaClient implements LlmClient {
   private buildMessages(request: CompletionRequest) {
     return [
       ...(request.system ? [{ role: "system", content: request.system }] : []),
-      ...request.messages,
+      ...request.messages.map((message) => {
+        const images =
+          typeof message.content === "string"
+            ? []
+            : message.content.filter((part) => part.type === "image").map((part) => part.data);
+        return {
+          role: message.role,
+          content: contentToText(message.content),
+          ...(images.length > 0 ? { images } : {}),
+        };
+      }),
     ];
   }
 

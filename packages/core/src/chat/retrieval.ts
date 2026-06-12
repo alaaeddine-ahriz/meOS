@@ -21,7 +21,7 @@ export async function buildContextPack(
   query: string,
   chunkCount = 8,
 ): Promise<ContextPack> {
-  const [queryVector] = await embedder.embed([query]);
+  const [queryVector] = await embedder.embed([query], { interactive: true });
   const chunkHits = topK(store.allChunks(), queryVector!, (chunk) => chunk.vector, chunkCount);
 
   const queryLower = query.toLowerCase();

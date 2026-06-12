@@ -103,12 +103,26 @@ export class WikiWriter {
     this.store.clearWikiStale(entity.id);
   }
 
-  /** Regenerate every page flagged stale; returns the number regenerated. */
-  async regenerateStale(): Promise<number> {
-    const stale = this.store.staleEntities();
-    for (const entity of stale) {
-      await this.regenerate(entity.id);
+  /**
+   * Regenerate every page flagged stale, a few at a time in parallel (each
+   * page is an independent LLM call). Loops until no stale pages remain, so
+   * entities marked stale mid-pass are picked up too. Returns the number
+   * regenerated.
+   */
+  async regenerateStale(concurrency = 3): Promise<number> {
+    let total = 0;
+    while (true) {
+      const stale = this.store.staleEntities();
+      if (stale.length === 0) return total;
+      total += stale.length;
+      let next = 0;
+      const workers = Array.from({ length: Math.min(concurrency, stale.length) }, async () => {
+        while (next < stale.length) {
+          const entity = stale[next++]!;
+          await this.regenerate(entity.id);
+        }
+      });
+      await Promise.all(workers);
     }
-    return stale.length;
   }
 }
