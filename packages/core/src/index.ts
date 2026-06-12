@@ -6,3 +6,23 @@ export { createEmbedder, HashEmbedder, LocalEmbedder } from "./embedding/embedde
 export type { Embedder } from "./embedding/embedder.js";
 export { cosineSimilarity, deserializeVector, serializeVector, topK } from "./embedding/vectors.js";
 export * from "./llm/index.js";
+export { parseDocument } from "./ingest/parse.js";
+export type { ParsedDocument } from "./ingest/parse.js";
+export { chunkText } from "./ingest/chunk.js";
+export { IngestionPipeline } from "./ingest/pipeline.js";
+export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
+export { entityTypeSchema, extractionSchema } from "./extract/schema.js";
+export type { EntityType, Extraction } from "./extract/schema.js";
+export { extractKnowledge } from "./extract/extractor.js";
+export { KnowledgeStore, slugify } from "./knowledge/store.js";
+export type {
+  ChunkWithVector,
+  EntityRow,
+  InboxItemRow,
+  ObservationRow,
+  RelationshipView,
+} from "./knowledge/store.js";
+export { mergeExtraction } from "./knowledge/merge.js";
+export type { MergeResult } from "./knowledge/merge.js";
+export { WikiWriter } from "./wiki/writer.js";
+export { SerialQueue } from "./jobs/queue.js";
