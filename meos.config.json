@@ -1,0 +1,24 @@
+{
+  "dataDir": "data",
+  "llm": {
+    "provider": "anthropic",
+    "anthropic": {
+      "model": "claude-opus-4-8",
+      "extractionModel": "claude-opus-4-8"
+    },
+    "ollama": {
+      "baseUrl": "http://localhost:11434",
+      "model": "llama3.1"
+    }
+  },
+  "embedding": {
+    "provider": "local",
+    "model": "Xenova/all-MiniLM-L6-v2"
+  },
+  "server": {
+    "port": 4321
+  },
+  "consolidation": {
+    "cron": "0 3 * * *"
+  }
+}
