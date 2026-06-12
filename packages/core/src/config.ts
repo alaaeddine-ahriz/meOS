@@ -89,7 +89,7 @@ export function loadConfig(rootDir: string): MeosConfig {
 }
 
 export function ensureDataDirs(config: MeosConfig): void {
-  for (const dir of ["", "wiki", "digests", "inbox", "inbox/watch", "uploads"]) {
+  for (const dir of ["", "wiki", "digests"]) {
     fs.mkdirSync(path.join(config.dataDir, dir), { recursive: true });
   }
 }

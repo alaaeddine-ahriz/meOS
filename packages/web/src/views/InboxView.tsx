@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,7 +25,6 @@ export function InboxView() {
   const [captureText, setCaptureText] = useState("");
   const [captureTitle, setCaptureTitle] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const refresh = () =>
     api
@@ -47,14 +47,6 @@ export function InboxView() {
     setCaptureText("");
     setCaptureTitle("");
     setNotice("Captured. Processing in the background.");
-    setTimeout(() => setNotice(null), 4000);
-    refresh();
-  };
-
-  const upload = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const result = await api.uploadFiles(files);
-    setNotice(`${result.accepted.length} file(s) accepted.`);
     setTimeout(() => setNotice(null), 4000);
     refresh();
   };
@@ -101,26 +93,11 @@ export function InboxView() {
             >
               Capture
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
-            >
-              Upload files…
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              hidden
-              accept=".md,.markdown,.txt,.text,.csv,.json,.org,.pdf,.docx"
-              onChange={(event) => void upload(event.target.files)}
-            />
             {notice && <span className="text-sm text-moss">{notice}</span>}
+            <span className="ml-auto font-mono text-[11px] text-dim">
+              files arrive via <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>
+            </span>
           </div>
-          <p className="mt-3 font-mono text-[11px] text-dim">
-            Files dropped into <span className="text-faded">data/inbox/watch/</span> are ingested automatically.
-          </p>
         </section>
 
         <section className="rise rise-2 mt-8">

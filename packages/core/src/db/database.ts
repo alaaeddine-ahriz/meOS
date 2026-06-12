@@ -106,6 +106,21 @@ const migrations: string[] = [
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 2 — user-configured watch folders + ledger of files already absorbed
+  `
+  CREATE TABLE watched_folders (
+    id INTEGER PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE ingested_files (
+    path TEXT PRIMARY KEY,
+    mtime_ms INTEGER NOT NULL,
+    size INTEGER NOT NULL,
+    ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

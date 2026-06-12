@@ -42,6 +42,11 @@ export interface Message {
   created_at: string;
 }
 
+export interface WatchedFolder {
+  id: number;
+  path: string;
+}
+
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "delta"; text: string }
@@ -73,14 +78,15 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ title: title || undefined, text }),
     }),
-  uploadFiles: (files: FileList) => {
-    const form = new FormData();
-    for (const file of files) form.append("files", file);
-    return json<{ accepted: Array<{ inboxItemId: number; filename: string }> }>("/api/ingest/upload", {
+  listFolders: () => json<{ folders: WatchedFolder[] }>("/api/settings/folders"),
+  addFolder: (path: string) =>
+    json<{ folder: WatchedFolder }>("/api/settings/folders", {
       method: "POST",
-      body: form,
-    });
-  },
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  removeFolder: (id: number) =>
+    json<{ removed: boolean }>(`/api/settings/folders/${id}`, { method: "DELETE" }),
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   getLatestDigest: () => json<{ date: string; content: string }>("/api/digest/latest"),

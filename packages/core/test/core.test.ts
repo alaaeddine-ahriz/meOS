@@ -3,6 +3,7 @@ import { z } from "zod";
 import { openDatabase } from "../src/db/database.js";
 import { HashEmbedder } from "../src/embedding/embedder.js";
 import { cosineSimilarity, deserializeVector, serializeVector } from "../src/embedding/vectors.js";
+import { KnowledgeStore } from "../src/knowledge/store.js";
 import { StubLlmClient } from "../src/llm/stub.js";
 
 describe("database", () => {
@@ -15,7 +16,31 @@ describe("database", () => {
     expect(tables).toContain("entities");
     expect(tables).toContain("observations");
     expect(tables).toContain("contradictions");
-    expect(db.pragma("user_version", { simple: true })).toBe(1);
+    expect(tables).toContain("watched_folders");
+    expect(tables).toContain("ingested_files");
+    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    db.close();
+  });
+});
+
+describe("watched folders", () => {
+  it("registers folders and tracks absorbed file versions", () => {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+
+    const folder = store.addWatchedFolder("/tmp/notes");
+    expect(store.addWatchedFolder("/tmp/notes").id).toBe(folder.id); // idempotent
+    expect(store.listWatchedFolders().map((f) => f.path)).toEqual(["/tmp/notes"]);
+
+    // a file version (path + mtime + size) is absorbed exactly once
+    expect(store.fileNeedsIngest("/tmp/notes/a.md", 1000.7, 5)).toBe(true);
+    store.recordIngestedFile("/tmp/notes/a.md", 1000.7, 5);
+    expect(store.fileNeedsIngest("/tmp/notes/a.md", 1000.7, 5)).toBe(false);
+    expect(store.fileNeedsIngest("/tmp/notes/a.md", 2000, 5)).toBe(true); // edited
+
+    expect(store.removeWatchedFolder(folder.id)).toBe("/tmp/notes");
+    expect(store.removeWatchedFolder(folder.id)).toBeUndefined();
+    expect(store.listWatchedFolders()).toHaveLength(0);
     db.close();
   });
 });

@@ -16,6 +16,7 @@ import {
   type MeosConfig,
   type MeosDatabase,
 } from "@meos/core";
+import { FolderWatcher } from "./watcher.js";
 
 export interface AppContext {
   config: MeosConfig;
@@ -26,6 +27,7 @@ export interface AppContext {
   wiki: WikiWriter;
   pipeline: IngestionPipeline;
   queue: SerialQueue;
+  watcher: FolderWatcher;
 }
 
 export function findRootDir(start = process.cwd()): string {
@@ -61,6 +63,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
     },
   });
   const queue = new SerialQueue();
+  const watcher = new FolderWatcher({ store, pipeline, queue });
 
-  return { config, db, store, llm, embedder, wiki, pipeline, queue };
+  return { config, db, store, llm, embedder, wiki, pipeline, queue, watcher };
 }

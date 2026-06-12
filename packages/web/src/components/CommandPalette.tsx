@@ -15,6 +15,7 @@ const VIEWS = [
   { label: "Wiki", to: "/wiki" },
   { label: "Inbox", to: "/inbox" },
   { label: "Digest", to: "/digest" },
+  { label: "Settings", to: "/settings" },
 ];
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {

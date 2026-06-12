@@ -7,6 +7,7 @@ import { cn } from "./lib/utils.js";
 import { ChatView } from "./views/ChatView.js";
 import { DigestView } from "./views/DigestView.js";
 import { InboxView } from "./views/InboxView.js";
+import { SettingsView } from "./views/SettingsView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
 
@@ -87,6 +88,17 @@ export function App() {
           >
             ⌘K — jump anywhere
           </button>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              cn(
+                "block px-3 font-mono text-[11px] transition-colors",
+                isActive ? "text-paper" : "text-dim hover:text-faded",
+              )
+            }
+          >
+            settings
+          </NavLink>
         </div>
       </aside>
 
@@ -97,6 +109,7 @@ export function App() {
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/inbox" element={<InboxView />} />
           <Route path="/digest" element={<DigestView />} />
+          <Route path="/settings" element={<SettingsView />} />
         </Routes>
       </main>
 

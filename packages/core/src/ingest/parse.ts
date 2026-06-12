@@ -7,6 +7,9 @@ export interface ParsedDocument {
 
 const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text", ".csv", ".json", ".org"]);
 
+/** Everything parseDocument can read — watchers use this to skip the rest silently. */
+export const SUPPORTED_EXTENSIONS = new Set([...TEXT_EXTENSIONS, ".pdf", ".docx"]);
+
 /**
  * Extract plain text from an uploaded file. Returns null for formats MeOS
  * cannot read yet — the caller surfaces those in the Inbox as "unsupported".

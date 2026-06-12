@@ -469,4 +469,47 @@ export class KnowledgeStore {
       )
       .run(id);
   }
+
+  // --- watched folders -------------------------------------------------
+
+  listWatchedFolders(): Array<{ id: number; path: string; created_at: string }> {
+    return this.db
+      .prepare("SELECT id, path, created_at FROM watched_folders ORDER BY path")
+      .all() as Array<{ id: number; path: string; created_at: string }>;
+  }
+
+  addWatchedFolder(folderPath: string): { id: number; path: string } {
+    this.db.prepare("INSERT OR IGNORE INTO watched_folders (path) VALUES (?)").run(folderPath);
+    return this.db
+      .prepare("SELECT id, path FROM watched_folders WHERE path = ?")
+      .get(folderPath) as { id: number; path: string };
+  }
+
+  /** Returns the removed folder's path, or undefined when the id is unknown. */
+  removeWatchedFolder(id: number): string | undefined {
+    const row = this.db.prepare("SELECT path FROM watched_folders WHERE id = ?").get(id) as
+      | { path: string }
+      | undefined;
+    if (!row) return undefined;
+    this.db.prepare("DELETE FROM watched_folders WHERE id = ?").run(id);
+    return row.path;
+  }
+
+  /** True unless this exact file version (path + mtime + size) was absorbed before. */
+  fileNeedsIngest(filePath: string, mtimeMs: number, size: number): boolean {
+    const row = this.db
+      .prepare("SELECT mtime_ms, size FROM ingested_files WHERE path = ?")
+      .get(filePath) as { mtime_ms: number; size: number } | undefined;
+    return !row || row.mtime_ms !== Math.floor(mtimeMs) || row.size !== size;
+  }
+
+  recordIngestedFile(filePath: string, mtimeMs: number, size: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO ingested_files (path, mtime_ms, size) VALUES (?, ?, ?)
+         ON CONFLICT(path) DO UPDATE SET mtime_ms = excluded.mtime_ms, size = excluded.size,
+           ingested_at = datetime('now')`,
+      )
+      .run(filePath, Math.floor(mtimeMs), size);
+  }
 }
