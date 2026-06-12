@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import multipart from "@fastify/multipart";
 import type { AppContext } from "./context.js";
+import { registerChatRoutes } from "./routes/chat.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
@@ -12,6 +13,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
 
   registerIngestRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
+  registerChatRoutes(app, ctx);
 
   return app;
 }

@@ -291,6 +291,50 @@ export class KnowledgeStore {
       .get(id) as ObservationRow | undefined;
   }
 
+  // --- conversations ---
+
+  createConversation(title?: string): number {
+    const result = this.db.prepare("INSERT INTO conversations (title) VALUES (?)").run(title ?? null);
+    return Number(result.lastInsertRowid);
+  }
+
+  listConversations(): Array<{ id: number; title: string | null; created_at: string }> {
+    return this.db
+      .prepare("SELECT id, title, created_at FROM conversations ORDER BY id DESC")
+      .all() as Array<{ id: number; title: string | null; created_at: string }>;
+  }
+
+  setConversationTitle(id: number, title: string): void {
+    this.db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title, id);
+  }
+
+  conversationExists(id: number): boolean {
+    return this.db.prepare("SELECT 1 FROM conversations WHERE id = ?").get(id) !== undefined;
+  }
+
+  addMessage(conversationId: number, role: "user" | "assistant", content: string): number {
+    const result = this.db
+      .prepare("INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)")
+      .run(conversationId, role, content);
+    return Number(result.lastInsertRowid);
+  }
+
+  listMessages(conversationId: number): Array<{
+    id: number;
+    role: "user" | "assistant";
+    content: string;
+    created_at: string;
+  }> {
+    return this.db
+      .prepare("SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id")
+      .all(conversationId) as Array<{
+      id: number;
+      role: "user" | "assistant";
+      content: string;
+      created_at: string;
+    }>;
+  }
+
   reinforceObservation(id: number): void {
     this.db
       .prepare(

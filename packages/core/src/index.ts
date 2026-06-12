@@ -26,3 +26,6 @@ export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
 export { WikiWriter } from "./wiki/writer.js";
 export { SerialQueue } from "./jobs/queue.js";
+export { buildContextPack } from "./chat/retrieval.js";
+export type { ContextPack } from "./chat/retrieval.js";
+export { ChatService } from "./chat/chat.js";
