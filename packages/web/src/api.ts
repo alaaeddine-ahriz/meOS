@@ -47,6 +47,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  /** Documents the reply drew on; persisted server-side, absent on pending messages. */
+  sources?: SourceRef[];
 }
 
 export interface WatchedFolder {
@@ -80,11 +82,11 @@ export const api = {
   listEntities: () => json<{ entities: EntitySummary[] }>("/api/wiki"),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),
-  ingestText: (title: string, text: string) =>
+  ingestText: (text: string) =>
     json<{ inboxItemId: number }>("/api/ingest/text", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ title: title || undefined, text }),
+      body: JSON.stringify({ text }),
     }),
   listFolders: () => json<{ folders: WatchedFolder[] }>("/api/settings/folders"),
   addFolder: (path: string) =>

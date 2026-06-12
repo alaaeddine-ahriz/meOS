@@ -65,6 +65,8 @@ describe("ChatService", () => {
     expect(sourceTitles).toContain("Project notes");
     const messages = store.listMessages(conversationId);
     expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    // citations survive a reload: the assistant message keeps its sources
+    expect(messages[1]!.sources.map((s) => s.title)).toContain("Project notes");
 
     // the model saw the knowledge context, not just the bare question
     const streamed = llm.requests.find((r) => r.kind === "stream")!;

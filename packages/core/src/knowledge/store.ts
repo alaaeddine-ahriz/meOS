@@ -133,6 +133,17 @@ export class KnowledgeStore {
       | undefined;
   }
 
+  /** Sources whose recorded path is only a basename (legacy ingest bug). */
+  sourcesWithRelativePaths(): Array<{ id: number; path: string }> {
+    return this.db
+      .prepare("SELECT id, path FROM sources WHERE path IS NOT NULL AND path NOT LIKE '/%'")
+      .all() as Array<{ id: number; path: string }>;
+  }
+
+  updateSourcePath(id: number, absolutePath: string): void {
+    this.db.prepare("UPDATE sources SET path = ? WHERE id = ?").run(absolutePath, id);
+  }
+
   /** Distinct sources backing an entity's active observations. */
   sourcesForEntity(entityId: number): SourceRef[] {
     return this.db
@@ -456,9 +467,13 @@ export class KnowledgeStore {
     return Number(result.lastInsertRowid);
   }
 
+  /** Conversations ordered by most recent activity (last message, else creation). */
   listConversations(): Array<{ id: number; title: string | null; created_at: string }> {
     return this.db
-      .prepare("SELECT id, title, created_at FROM conversations ORDER BY id DESC")
+      .prepare(
+        `SELECT c.id, c.title, c.created_at FROM conversations c
+         ORDER BY COALESCE((SELECT MAX(m.id) FROM messages m WHERE m.conversation_id = c.id), 0) DESC, c.id DESC`,
+      )
       .all() as Array<{ id: number; title: string | null; created_at: string }>;
   }
 
@@ -477,13 +492,25 @@ export class KnowledgeStore {
     return Number(result.lastInsertRowid);
   }
 
+  /** Record which documents an assistant reply drew on. */
+  linkMessageSources(messageId: number, sourceIds: number[]): void {
+    const insert = this.db.prepare(
+      "INSERT OR IGNORE INTO message_sources (message_id, source_id) VALUES (?, ?)",
+    );
+    const insertAll = this.db.transaction(() => {
+      for (const sourceId of sourceIds) insert.run(messageId, sourceId);
+    });
+    insertAll();
+  }
+
   listMessages(conversationId: number): Array<{
     id: number;
     role: "user" | "assistant";
     content: string;
     created_at: string;
+    sources: SourceRef[];
   }> {
-    return this.db
+    const messages = this.db
       .prepare("SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id")
       .all(conversationId) as Array<{
       id: number;
@@ -491,6 +518,23 @@ export class KnowledgeStore {
       content: string;
       created_at: string;
     }>;
+    const refs = this.db
+      .prepare(
+        `SELECT ms.message_id, s.id, s.title, s.path
+         FROM message_sources ms
+         JOIN sources s ON s.id = ms.source_id
+         JOIN messages m ON m.id = ms.message_id
+         WHERE m.conversation_id = ?
+         ORDER BY s.title`,
+      )
+      .all(conversationId) as Array<SourceRef & { message_id: number }>;
+    const byMessage = new Map<number, SourceRef[]>();
+    for (const { message_id, ...source } of refs) {
+      const list = byMessage.get(message_id) ?? [];
+      list.push(source);
+      byMessage.set(message_id, list);
+    }
+    return messages.map((message) => ({ ...message, sources: byMessage.get(message.id) ?? [] }));
   }
 
   reinforceObservation(id: number): void {

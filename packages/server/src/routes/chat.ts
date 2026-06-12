@@ -33,11 +33,20 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
       return reply.code(404).send({ error: "No such conversation" });
     }
 
-    reply.raw.writeHead(200, {
+    // Writing to the raw socket bypasses Fastify, which would otherwise both
+    // drop the CORS headers @fastify/cors put on the reply (the desktop shell
+    // is cross-origin — WebKit then fails the fetch with "Load failed") and
+    // try to send a second response when the handler returns.
+    reply.hijack();
+    const headers: Record<string, string | number | string[]> = {
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
       connection: "keep-alive",
-    });
+    };
+    for (const [name, value] of Object.entries(reply.getHeaders())) {
+      if (value !== undefined && !(name in headers)) headers[name] = value;
+    }
+    reply.raw.writeHead(200, headers);
     const send = (event: object) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 
     send({ type: "start", conversationId });

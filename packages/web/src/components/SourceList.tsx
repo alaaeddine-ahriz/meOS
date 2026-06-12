@@ -1,6 +1,6 @@
 import { ChevronDown, FileText } from "lucide-react";
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
-import { isTauri, revealInFinder } from "@/lib/platform";
+import { isRevealablePath, isTauri, revealInFinder } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SourceRef } from "../api.js";
 
@@ -25,14 +25,14 @@ export function SourceList({ sources, defaultOpen = false }: { sources: SourceRe
       </SourcesTrigger>
       <SourcesContent>
         {sources.map((source) => {
-          const revealable = isTauri && !!source.path;
+          const revealable = isTauri && isRevealablePath(source.path);
           return (
             <Source
               key={source.id}
               href="#"
               onClick={(event) => {
                 event.preventDefault();
-                if (source.path) void revealInFinder(source.path);
+                if (revealable) void revealInFinder(source.path!);
               }}
               title={source.path ?? undefined}
               className={cn(

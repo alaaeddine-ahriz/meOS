@@ -1,9 +1,11 @@
 import { createContext } from "./context.js";
+import { repairSourcePaths } from "./repair.js";
 import { startScheduler } from "./scheduler.js";
 import { buildServer } from "./server.js";
 
 const ctx = createContext();
 const app = await buildServer(ctx);
+repairSourcePaths(ctx.store);
 ctx.watcher.start();
 const scheduler = startScheduler(ctx);
 

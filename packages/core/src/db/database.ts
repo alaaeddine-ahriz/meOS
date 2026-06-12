@@ -126,6 +126,16 @@ const migrations: string[] = [
   `
   UPDATE sources SET path = type, type = 'watch' WHERE type LIKE '/%';
   `,
+  // 4 — which documents each assistant reply drew on, so citations survive
+  // reloading a conversation
+  `
+  CREATE TABLE message_sources (
+    message_id INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    UNIQUE(message_id, source_id)
+  );
+  CREATE INDEX idx_message_sources_message ON message_sources(message_id);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

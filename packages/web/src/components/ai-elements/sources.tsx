@@ -59,9 +59,9 @@ export const SourcesContent = ({
 
 export type SourceProps = ComponentProps<"a">;
 
-export const Source = ({ href, title, children, ...props }: SourceProps) => (
+export const Source = ({ href, title, className, children, ...props }: SourceProps) => (
   <a
-    className="flex items-center gap-2"
+    className={cn("flex items-center gap-2", className)}
     href={href}
     rel="noreferrer"
     target="_blank"

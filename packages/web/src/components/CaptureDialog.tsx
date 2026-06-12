@@ -7,7 +7,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "../api.js";
@@ -17,13 +16,11 @@ import { api } from "../api.js";
  * dialog closes, processing happens in the background.
  */
 export function CaptureDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
-      setTitle("");
       setText("");
       setSaving(false);
     }
@@ -33,7 +30,7 @@ export function CaptureDialog({ open, onOpenChange }: { open: boolean; onOpenCha
     if (!text.trim() || saving) return;
     setSaving(true);
     try {
-      await api.ingestText(title.trim(), text);
+      await api.ingestText(text);
       onOpenChange(false);
     } finally {
       setSaving(false);
@@ -55,12 +52,6 @@ export function CaptureDialog({ open, onOpenChange }: { open: boolean; onOpenCha
             A thought, a meeting note, a draft. MeOS files it for you.
           </DialogDescription>
         </DialogHeader>
-        <Input
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          placeholder="Title (optional)"
-          className="border-line bg-transparent text-sm text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
-        />
         <Textarea
           value={text}
           onChange={(event) => setText(event.target.value)}

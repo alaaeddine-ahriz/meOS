@@ -11,6 +11,7 @@ const SYSTEM_PROMPT = `You are MeOS, the user's personal second brain. You answe
 
 Rules:
 - Synthesise across sources rather than quoting isolated fragments. Mention which sources or entities an answer draws on, in prose.
+- When you mention an entity that appears in the context (a "### Entity:" heading), wrap its name in double brackets — e.g. [[Orion]] — so it links to that entity's wiki page. Never bracket names that are not in the context.
 - The context annotates facts with confidence scores. State well-supported facts (>= 0.7) plainly; explicitly hedge weakly-supported ones ("a single note from March suggests...").
 - Surface relevant connections the user may not have asked about directly ("this relates to...").
 - If the knowledge base does not contain enough information to answer confidently, say so plainly. Never fill gaps with general world knowledge or invention — you are an interface to the user's knowledge, not a general assistant.
@@ -64,6 +65,9 @@ export class ChatService {
       reply += delta;
       yield { type: "delta", text: delta };
     }
-    this.store.addMessage(conversationId, "assistant", reply);
+    const messageId = this.store.addMessage(conversationId, "assistant", reply);
+    if (context.sources.length > 0) {
+      this.store.linkMessageSources(messageId, context.sources.map((source) => source.id));
+    }
   }
 }
