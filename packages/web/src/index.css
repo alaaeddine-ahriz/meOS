@@ -1,0 +1,158 @@
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/ibm-plex-sans";
+@import "@fontsource/ibm-plex-mono";
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Newsreader Variable", Georgia, serif;
+  --font-sans: "IBM Plex Sans Variable", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+
+  /* midnight study: warm charcoal, paper text, candlelight accent */
+  --color-ink: #131210;
+  --color-desk: #1a1816;
+  --color-card: #201d1a;
+  --color-line: #2c2823;
+  --color-paper: #e8e2d3;
+  --color-faded: #8f8779;
+  --color-dim: #5f594e;
+  --color-lamp: #d4a24e;
+  --color-lamp-dim: #8a6c38;
+  --color-ember: #c25e4c;
+  --color-moss: #7a9461;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* faint paper grain so surfaces aren't dead-flat */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-lamp) 35%, transparent);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 5px;
+  border: 2px solid var(--color-ink);
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.rise-1 { animation-delay: 0.05s; }
+.rise-2 { animation-delay: 0.12s; }
+.rise-3 { animation-delay: 0.19s; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.working-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+/* rendered markdown (wiki pages, chat replies, digest) */
+.prose-meos {
+  line-height: 1.7;
+  color: var(--color-paper);
+}
+.prose-meos h1,
+.prose-meos h2,
+.prose-meos h3 {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  color: var(--color-paper);
+  margin: 1.4em 0 0.5em;
+  line-height: 1.25;
+}
+.prose-meos h1 { font-size: 1.7rem; }
+.prose-meos h2 { font-size: 1.25rem; }
+.prose-meos h3 { font-size: 1.05rem; }
+.prose-meos p { margin: 0.7em 0; }
+.prose-meos ul,
+.prose-meos ol {
+  margin: 0.7em 0;
+  padding-left: 1.4em;
+}
+.prose-meos ul { list-style: disc; }
+.prose-meos ol { list-style: decimal; }
+.prose-meos li { margin: 0.25em 0; }
+.prose-meos a {
+  color: var(--color-lamp);
+  text-decoration: none;
+  border-bottom: 1px solid var(--color-lamp-dim);
+  transition: border-color 0.15s;
+}
+.prose-meos a:hover {
+  border-color: var(--color-lamp);
+}
+.prose-meos code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-card);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+.prose-meos pre {
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+  margin: 0.9em 0;
+}
+.prose-meos pre code {
+  background: none;
+  padding: 0;
+}
+.prose-meos blockquote {
+  border-left: 2px solid var(--color-lamp-dim);
+  padding-left: 1em;
+  color: var(--color-faded);
+  font-style: italic;
+  margin: 0.9em 0;
+}
+.prose-meos strong { color: var(--color-paper); font-weight: 600; }
+.prose-meos hr {
+  border: none;
+  border-top: 1px solid var(--color-line);
+  margin: 1.5em 0;
+}
