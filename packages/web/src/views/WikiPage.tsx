@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { stripWikiMarkup } from "@/lib/wikilinks";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
@@ -43,8 +44,14 @@ export function WikiPageView() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="mx-auto max-w-2xl px-8 py-10">
-        <nav className="rise font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
-          <Link to="/wiki" className="hover:text-faded">wiki</Link> / {page.entity.type}
+        <nav className="rise flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+          <Link to="/wiki" className="hover:text-faded">wiki</Link>
+          <span>/</span>
+          {(() => {
+            const Icon = ENTITY_TYPES[page.entity.type]?.icon;
+            return Icon ? <Icon className="size-3.5" /> : null;
+          })()}
+          <span>{page.entity.type}</span>
         </nav>
 
         <header className="rise rise-1 mt-4">
