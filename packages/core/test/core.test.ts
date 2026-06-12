@@ -18,7 +18,8 @@ describe("database", () => {
     expect(tables).toContain("contradictions");
     expect(tables).toContain("watched_folders");
     expect(tables).toContain("ingested_files");
-    expect(db.pragma("user_version", { simple: true })).toBe(2);
+    // all migrations applied; exact count changes as the schema grows
+    expect(db.pragma("user_version", { simple: true })).toBeGreaterThanOrEqual(3);
     db.close();
   });
 });

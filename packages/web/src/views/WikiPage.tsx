@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
+import { SourceList } from "../components/SourceList.js";
 
 /** Strip the YAML frontmatter and duplicate H1 — the header is rendered natively. */
 function pageBody(markdown: string): string {
@@ -85,6 +86,15 @@ export function WikiPageView() {
                 );
               })}
             </ul>
+          </section>
+        )}
+
+        {page.sources.length > 0 && (
+          <section className="rise rise-3 mt-10">
+            <Separator className="bg-line" />
+            <div className="mt-6">
+              <SourceList sources={page.sources} defaultOpen />
+            </div>
           </section>
         )}
 

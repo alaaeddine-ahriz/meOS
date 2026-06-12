@@ -1,7 +1,8 @@
 import type { ChatStatus } from "ai";
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, streamChat, type Conversation as ConversationRecord, type EntitySummary, type Message as MessageRecord } from "../api.js";
+import { api, streamChat, type Conversation as ConversationRecord, type EntitySummary, type Message as MessageRecord, type SourceRef } from "../api.js";
+import { SourceList } from "../components/SourceList.js";
 import {
   Conversation,
   ConversationContent,
@@ -30,6 +31,11 @@ export function ChatView() {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<string | null>(null);
+  // sources arrive per streamed reply, keyed by the assistant message's index
+  const [liveSources, setLiveSources] = useState<ReadonlyMap<number, SourceRef[]>>(new Map());
+  // set when the stream itself assigns the conversation id, so the id change
+  // doesn't trigger a refetch that would clobber the in-flight reply
+  const streamAssignedId = useRef(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -38,6 +44,11 @@ export function ChatView() {
   }, []);
 
   useEffect(() => {
+    if (streamAssignedId.current) {
+      streamAssignedId.current = false;
+      return;
+    }
+    setLiveSources(new Map());
     if (activeId === null) {
       setMessages([]);
       return;
@@ -61,6 +72,7 @@ export function ChatView() {
   const busy = status === "submitted" || status === "streaming";
 
   const send = async (text: string) => {
+    const assistantIndex = messages.length + 1;
     setError(null);
     setStatus("submitted");
     setMessages((current) => [
@@ -72,8 +84,13 @@ export function ChatView() {
     try {
       for await (const event of streamChat(text, activeId ?? undefined)) {
         if (event.type === "start") {
-          setActiveId(event.conversationId);
+          if (event.conversationId !== activeId) {
+            streamAssignedId.current = true;
+            setActiveId(event.conversationId);
+          }
           api.listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
+        } else if (event.type === "sources") {
+          setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
         } else if (event.type === "delta") {
           setStatus("streaming");
           setMessages((current) => {
@@ -169,6 +186,9 @@ export function ChatView() {
                             >
                               {resolveWikiLinks(message.content, entities)}
                             </MessageResponse>
+                            <div className="mt-3">
+                              <SourceList sources={liveSources.get(index) ?? []} />
+                            </div>
                           </div>
                         ) : (
                           <Shimmer className="text-sm" duration={1.6}>

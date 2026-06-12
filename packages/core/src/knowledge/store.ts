@@ -49,8 +49,15 @@ export interface ChunkWithVector {
   id: number;
   source_id: number;
   source_title: string;
+  source_path: string | null;
   text: string;
   vector: Float32Array;
+}
+
+export interface SourceRef {
+  id: number;
+  title: string;
+  path: string | null;
 }
 
 export function slugify(name: string): string {
@@ -98,18 +105,44 @@ export class KnowledgeStore {
   allChunks(): ChunkWithVector[] {
     const rows = this.db
       .prepare(
-        `SELECT c.id, c.source_id, c.text, c.embedding, s.title AS source_title
+        `SELECT c.id, c.source_id, c.text, c.embedding, s.title AS source_title, s.path AS source_path
          FROM chunks c JOIN sources s ON s.id = c.source_id
          WHERE c.embedding IS NOT NULL`,
       )
-      .all() as Array<{ id: number; source_id: number; text: string; embedding: Buffer; source_title: string }>;
+      .all() as Array<{
+      id: number;
+      source_id: number;
+      text: string;
+      embedding: Buffer;
+      source_title: string;
+      source_path: string | null;
+    }>;
     return rows.map((row) => ({
       id: row.id,
       source_id: row.source_id,
       source_title: row.source_title,
+      source_path: row.source_path,
       text: row.text,
       vector: deserializeVector(row.embedding),
     }));
+  }
+
+  getSource(id: number): SourceRef | undefined {
+    return this.db.prepare("SELECT id, title, path FROM sources WHERE id = ?").get(id) as
+      | SourceRef
+      | undefined;
+  }
+
+  /** Distinct sources backing an entity's active observations. */
+  sourcesForEntity(entityId: number): SourceRef[] {
+    return this.db
+      .prepare(
+        `SELECT DISTINCT s.id, s.title, s.path
+         FROM observations o JOIN sources s ON s.id = o.source_id
+         WHERE o.entity_id = ? AND o.status = 'active'
+         ORDER BY s.title`,
+      )
+      .all(entityId) as SourceRef[];
   }
 
   // --- inbox ---

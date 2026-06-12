@@ -21,6 +21,7 @@ export type {
   InboxItemRow,
   ObservationRow,
   RelationshipView,
+  SourceRef,
 } from "./knowledge/store.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
@@ -29,6 +30,7 @@ export { SerialQueue } from "./jobs/queue.js";
 export { buildContextPack } from "./chat/retrieval.js";
 export type { ContextPack } from "./chat/retrieval.js";
 export { ChatService } from "./chat/chat.js";
+export type { ChatResponseEvent } from "./chat/chat.js";
 export { detectContradictions } from "./memory/contradictions.js";
 export type { ContradictionSummary } from "./memory/contradictions.js";
 export { runConsolidation } from "./memory/consolidate.js";

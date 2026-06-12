@@ -42,8 +42,8 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
 
     send({ type: "start", conversationId });
     try {
-      for await (const delta of chat.respond(conversationId, message)) {
-        send({ type: "delta", text: delta });
+      for await (const event of chat.respond(conversationId, message)) {
+        send(event);
       }
       send({ type: "done" });
     } catch (error) {
@@ -60,7 +60,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     const context = await buildContextPack(ctx.store, ctx.embedder, query);
     return {
       entities: context.matchedEntities.map((e) => ({ name: e.name, slug: e.slug, type: e.type })),
-      sources: context.sourceTitles,
+      sources: context.sources,
     };
   });
 }

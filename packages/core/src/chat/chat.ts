@@ -1,7 +1,11 @@
 import type { Embedder } from "../embedding/embedder.js";
-import type { KnowledgeStore } from "../knowledge/store.js";
+import type { KnowledgeStore, SourceRef } from "../knowledge/store.js";
 import type { ChatMessage, LlmClient } from "../llm/types.js";
 import { buildContextPack } from "./retrieval.js";
+
+export type ChatResponseEvent =
+  | { type: "sources"; sources: SourceRef[] }
+  | { type: "delta"; text: string };
 
 const SYSTEM_PROMPT = `You are MeOS, the user's personal second brain. You answer questions using ONLY the user's own accumulated knowledge base, provided as context with each question.
 
@@ -22,10 +26,11 @@ export class ChatService {
   ) {}
 
   /**
-   * Persist the user message, retrieve context, and stream the assistant
-   * reply (persisted once the stream completes).
+   * Persist the user message, retrieve context, announce which sources the
+   * answer draws on, then stream the assistant reply (persisted once the
+   * stream completes).
    */
-  async *respond(conversationId: number, userMessage: string): AsyncIterable<string> {
+  async *respond(conversationId: number, userMessage: string): AsyncIterable<ChatResponseEvent> {
     const history = this.store
       .listMessages(conversationId)
       .slice(-HISTORY_LIMIT)
@@ -46,6 +51,10 @@ export class ChatService {
       },
     ];
 
+    if (context.sources.length > 0) {
+      yield { type: "sources", sources: context.sources };
+    }
+
     let reply = "";
     for await (const delta of this.llm.stream({
       system: SYSTEM_PROMPT,
@@ -53,7 +62,7 @@ export class ChatService {
       messages,
     })) {
       reply += delta;
-      yield delta;
+      yield { type: "delta", text: delta };
     }
     this.store.addMessage(conversationId, "assistant", reply);
   }

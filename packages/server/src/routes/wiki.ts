@@ -36,6 +36,7 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
       },
       markdown,
       relationships,
+      sources: ctx.store.sourcesForEntity(entity.id),
       observations: ctx.store.activeObservations(entity.id).map((o) => ({
         text: o.text,
         confidence: o.confidence,

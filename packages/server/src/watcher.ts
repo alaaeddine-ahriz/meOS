@@ -60,7 +60,7 @@ export class FolderWatcher {
     this.deps.queue.push(async () => {
       const buffer = fs.readFileSync(filePath);
       const outcome = await this.deps.pipeline.ingest(
-        { kind: "file", filename, buffer, origin: filePath },
+        { kind: "file", filename, buffer, origin: "watch", path: filePath },
         inboxItemId,
       );
       // A failure (e.g. LLM outage) stays off the ledger so the file is

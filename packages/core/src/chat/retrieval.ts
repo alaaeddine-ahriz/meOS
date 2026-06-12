@@ -1,12 +1,13 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { topK } from "../embedding/vectors.js";
-import type { EntityRow, KnowledgeStore } from "../knowledge/store.js";
+import type { EntityRow, KnowledgeStore, SourceRef } from "../knowledge/store.js";
 
 export interface ContextPack {
   /** Formatted knowledge context ready to inject into the prompt. */
   text: string;
   matchedEntities: EntityRow[];
-  sourceTitles: string[];
+  /** Distinct source documents the context draws on. */
+  sources: SourceRef[];
 }
 
 /**
@@ -30,7 +31,7 @@ export async function buildContextPack(
   });
 
   const sections: string[] = [];
-  const sourceTitles = new Set<string>();
+  const sources = new Map<number, SourceRef>();
 
   for (const entity of matchedEntities.slice(0, 6)) {
     const observations = store.activeObservations(entity.id).slice(0, 25);
@@ -39,9 +40,9 @@ export async function buildContextPack(
       `### Entity: ${entity.name} (${entity.type})`,
       entity.summary ? `Summary: ${entity.summary}` : "",
       ...observations.map((o) => {
-        const sourceTitle = o.source_id ? store.getSourceTitle(o.source_id) : undefined;
-        if (sourceTitle) sourceTitles.add(sourceTitle);
-        return `- [confidence ${o.confidence.toFixed(2)}${sourceTitle ? `, source: ${sourceTitle}` : ""}] ${o.text}`;
+        const source = o.source_id ? store.getSource(o.source_id) : undefined;
+        if (source) sources.set(source.id, source);
+        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}] ${o.text}`;
       }),
       ...relationships.map((r) =>
         r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
@@ -53,7 +54,7 @@ export async function buildContextPack(
   if (chunkHits.length > 0) {
     const lines = ["### Relevant source excerpts:"];
     for (const { item, score } of chunkHits) {
-      sourceTitles.add(item.source_title);
+      sources.set(item.source_id, { id: item.source_id, title: item.source_title, path: item.source_path });
       lines.push(`[from "${item.source_title}", relevance ${score.toFixed(2)}]\n${item.text}`);
     }
     sections.push(lines.join("\n\n"));
@@ -62,6 +63,6 @@ export async function buildContextPack(
   return {
     text: sections.join("\n\n") || "(the knowledge base contains nothing relevant)",
     matchedEntities,
-    sourceTitles: [...sourceTitles],
+    sources: [...sources.values()],
   };
 }

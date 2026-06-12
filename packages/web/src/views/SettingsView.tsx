@@ -1,14 +1,28 @@
-import { FolderPlus, X } from "lucide-react";
+import { FolderPlus, Laptop, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { isTauri } from "@/lib/platform";
+import { setTheme, storedTheme, type ThemePreference } from "@/lib/theme";
+import { cn } from "@/lib/utils";
 import { api, type WatchedFolder } from "../api.js";
+
+const THEMES: Array<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Laptop },
+];
 
 export function SettingsView() {
   const [folders, setFolders] = useState<WatchedFolder[]>([]);
   const [manualPath, setManualPath] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [theme, setThemeState] = useState<ThemePreference>(storedTheme());
+
+  const chooseTheme = (preference: ThemePreference) => {
+    setTheme(preference);
+    setThemeState(preference);
+  };
 
   const refresh = () => api.listFolders().then((r) => setFolders(r.folders)).catch(() => {});
 
@@ -49,6 +63,27 @@ export function SettingsView() {
         </header>
 
         <section className="rise rise-1 mt-10">
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">appearance</h3>
+          <div className="mt-4 flex gap-2">
+            {THEMES.map(({ value, label, icon: Icon }) => (
+              <Button
+                key={value}
+                variant="outline"
+                size="sm"
+                onClick={() => chooseTheme(value)}
+                className={cn(
+                  "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
+                  theme === value && "border-lamp-dim text-paper",
+                )}
+              >
+                <Icon className="size-3.5" />
+                {label}
+              </Button>
+            ))}
+          </div>
+        </section>
+
+        <section className="rise rise-2 mt-10">
           <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">watched folders</h3>
           <p className="mt-2 text-sm text-faded">
             Everything readable in these folders is absorbed automatically — new files and edits alike.

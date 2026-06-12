@@ -77,6 +77,7 @@ fn stop_server(mut child: Child) {
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let port = server_port();
             let child = if server_reachable(port) {

@@ -121,6 +121,11 @@ const migrations: string[] = [
     ingested_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 3 — repair: early watch ingests stored the absolute file path in 'type'
+  // and only the basename in 'path'; reveal-in-Finder needs the full path
+  `
+  UPDATE sources SET path = type, type = 'watch' WHERE type LIKE '/%';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

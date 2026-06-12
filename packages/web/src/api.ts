@@ -7,10 +7,17 @@ export interface EntitySummary {
   updatedAt: string;
 }
 
+export interface SourceRef {
+  id: number;
+  title: string;
+  path: string | null;
+}
+
 export interface WikiPage {
   entity: EntitySummary & { stale: boolean };
   markdown: string | null;
   relationships: Array<{ label: string; direction: "in" | "out"; other: string }>;
+  sources: SourceRef[];
   observations: Array<{
     text: string;
     confidence: number;
@@ -49,6 +56,7 @@ export interface WatchedFolder {
 
 export type ChatEvent =
   | { type: "start"; conversationId: number }
+  | { type: "sources"; sources: SourceRef[] }
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; message: string };

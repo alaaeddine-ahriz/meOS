@@ -18,7 +18,15 @@ const VIEWS = [
   { label: "Settings", to: "/settings" },
 ];
 
-export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+export function CommandPalette({
+  open,
+  onOpenChange,
+  onCapture,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCapture?: () => void;
+}) {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const navigate = useNavigate();
 
@@ -42,6 +50,18 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
       <CommandInput placeholder="Jump to a view or wiki page..." className="text-paper placeholder:text-dim" />
       <CommandList className="max-h-72">
         <CommandEmpty className="py-3 text-sm text-dim">Nothing matches.</CommandEmpty>
+        <CommandGroup heading="Actions">
+          <CommandItem
+            value="capture-thought"
+            onSelect={() => {
+              onOpenChange(false);
+              onCapture?.();
+            }}
+          >
+            <span>Capture a thought</span>
+            <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">⌘J</span>
+          </CommandItem>
+        </CommandGroup>
         <CommandGroup heading="Views">
           {VIEWS.map((view) => (
             <CommandItem key={view.to} value={`view-${view.label}`} onSelect={() => choose(view.to)}>

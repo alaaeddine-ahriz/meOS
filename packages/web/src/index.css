@@ -5,32 +5,64 @@
 @import "tw-animate-css";
 @source "../node_modules/streamdown/dist/index.js";
 
+@custom-variant dark (&:is(.dark *));
+
 /*
- * midnight study: warm charcoal, paper text, candlelight accent.
- * One dark theme only — the palette doubles as the shadcn token set so
- * every ui/ and ai-elements/ component arrives already in-theme.
+ * Two studies, one lamp. The palette is expressed as role variables that flip
+ * with the theme; the shadcn token set aliases them, so ui/ and ai-elements/
+ * components arrive in-theme in both modes.
+ *
+ * daylight study: warm paper, ink text, burnished gold accent.
  */
 :root {
-  --background: #131210; /* ink */
-  --foreground: #e8e2d3; /* paper */
-  --card: #201d1a;
-  --card-foreground: #e8e2d3;
-  --popover: #1a1816; /* desk */
-  --popover-foreground: #e8e2d3;
-  --primary: #d4a24e; /* lamp */
-  --primary-foreground: #131210;
-  --secondary: #201d1a;
-  --secondary-foreground: #e8e2d3;
-  --muted: #201d1a;
-  --muted-foreground: #8f8779; /* faded */
-  --accent: #2c2823;
-  --accent-foreground: #e8e2d3;
-  --destructive: #c25e4c; /* ember */
-  --destructive-foreground: #e8e2d3;
-  --border: #2c2823; /* line */
-  --input: #2c2823;
-  --ring: #8a6c38; /* lamp-dim */
+  --ink: #f6f2e9; /* the room (app background) */
+  --desk: #efe9db; /* raised surface */
+  --card: #e8e1cf; /* card surface */
+  --line: #d9d0bb; /* borders */
+  --paper: #2c271f; /* primary text */
+  --faded: #6e6553; /* secondary text */
+  --dim: #9c9279; /* tertiary text */
+  --lamp: #9a6a16; /* accent */
+  --lamp-dim: #c0a05c;
+  --ember: #b1472f; /* warnings, contradictions */
+  --moss: #57763e; /* success, high confidence */
+  --grain-opacity: 0.05;
+
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --card-foreground: var(--paper);
+  --popover: var(--desk);
+  --popover-foreground: var(--paper);
+  --primary: var(--lamp);
+  --primary-foreground: var(--ink);
+  --secondary: var(--card);
+  --secondary-foreground: var(--paper);
+  --muted: var(--card);
+  --muted-foreground: var(--faded);
+  --accent: var(--line);
+  --accent-foreground: var(--paper);
+  --destructive: var(--ember);
+  --destructive-foreground: var(--ink);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--lamp-dim);
   --radius: 0.625rem;
+}
+
+/* midnight study: warm charcoal, paper text, candlelight accent. */
+.dark {
+  --ink: #131210;
+  --desk: #1a1816;
+  --card: #201d1a;
+  --line: #2c2823;
+  --paper: #e8e2d3;
+  --faded: #8f8779;
+  --dim: #5f594e;
+  --lamp: #d4a24e;
+  --lamp-dim: #8a6c38;
+  --ember: #c25e4c;
+  --moss: #7a9461;
+  --grain-opacity: 0.04;
 }
 
 @theme inline {
@@ -63,17 +95,17 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* the original midnight-study names, still used throughout the views */
-  --color-ink: #131210;
-  --color-desk: #1a1816;
-  --color-line: #2c2823;
-  --color-paper: #e8e2d3;
-  --color-faded: #8f8779;
-  --color-dim: #5f594e;
-  --color-lamp: #d4a24e;
-  --color-lamp-dim: #8a6c38;
-  --color-ember: #c25e4c;
-  --color-moss: #7a9461;
+  /* role names used throughout the views */
+  --color-ink: var(--ink);
+  --color-desk: var(--desk);
+  --color-line: var(--line);
+  --color-paper: var(--paper);
+  --color-faded: var(--faded);
+  --color-dim: var(--dim);
+  --color-lamp: var(--lamp);
+  --color-lamp-dim: var(--lamp-dim);
+  --color-ember: var(--ember);
+  --color-moss: var(--moss);
 }
 
 @layer base {
@@ -104,12 +136,12 @@ body::after {
   inset: 0;
   z-index: 100;
   pointer-events: none;
-  opacity: 0.04;
+  opacity: var(--grain-opacity);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--color-lamp) 35%, transparent);
+  background: color-mix(in srgb, var(--lamp) 30%, transparent);
 }
 
 *::-webkit-scrollbar {
@@ -117,9 +149,9 @@ body::after {
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-line);
+  background: var(--line);
   border-radius: 5px;
-  border: 2px solid var(--color-ink);
+  border: 2px solid var(--ink);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -154,14 +186,14 @@ body::after {
 /* rendered markdown (wiki pages, chat replies, digest) */
 .prose-meos {
   line-height: 1.7;
-  color: var(--color-paper);
+  color: var(--paper);
 }
 .prose-meos h1,
 .prose-meos h2,
 .prose-meos h3 {
   font-family: var(--font-serif);
   font-weight: 500;
-  color: var(--color-paper);
+  color: var(--paper);
   margin: 1.4em 0 0.5em;
   line-height: 1.25;
 }
@@ -178,24 +210,24 @@ body::after {
 .prose-meos ol { list-style: decimal; }
 .prose-meos li { margin: 0.25em 0; }
 .prose-meos a {
-  color: var(--color-lamp);
+  color: var(--lamp);
   text-decoration: none;
-  border-bottom: 1px solid var(--color-lamp-dim);
+  border-bottom: 1px solid var(--lamp-dim);
   transition: border-color 0.15s;
 }
 .prose-meos a:hover {
-  border-color: var(--color-lamp);
+  border-color: var(--lamp);
 }
 .prose-meos code {
   font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--color-card);
+  background: var(--card);
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
 .prose-meos pre {
-  background: var(--color-card);
-  border: 1px solid var(--color-line);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0.9em 1.1em;
   overflow-x: auto;
@@ -206,15 +238,15 @@ body::after {
   padding: 0;
 }
 .prose-meos blockquote {
-  border-left: 2px solid var(--color-lamp-dim);
+  border-left: 2px solid var(--lamp-dim);
   padding-left: 1em;
-  color: var(--color-faded);
+  color: var(--faded);
   font-style: italic;
   margin: 0.9em 0;
 }
-.prose-meos strong { color: var(--color-paper); font-weight: 600; }
+.prose-meos strong { color: var(--paper); font-weight: 600; }
 .prose-meos hr {
   border: none;
-  border-top: 1px solid var(--color-line);
+  border-top: 1px solid var(--line);
   margin: 1.5em 0;
 }

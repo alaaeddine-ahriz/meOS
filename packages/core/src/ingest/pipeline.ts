@@ -8,7 +8,7 @@ import { chunkText } from "./chunk.js";
 import { parseDocument } from "./parse.js";
 
 export type IngestInput =
-  | { kind: "file"; filename: string; buffer: Buffer; origin?: string }
+  | { kind: "file"; filename: string; buffer: Buffer; origin?: string; path?: string }
   | { kind: "text"; title: string; text: string; origin?: string };
 
 export interface IngestOutcome {
@@ -63,7 +63,7 @@ export class IngestionPipeline {
       const sourceId = store.createSource({
         type: input.origin ?? input.kind,
         title: parsed.title,
-        path: input.kind === "file" ? input.filename : undefined,
+        path: input.kind === "file" ? (input.path ?? input.filename) : undefined,
         content: parsed.text,
       });
       store.updateInboxItem(inboxItemId, "parsing", undefined, sourceId);

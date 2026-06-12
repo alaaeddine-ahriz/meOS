@@ -42,7 +42,7 @@ describe("buildContextPack", () => {
     expect(pack.matchedEntities.map((e) => e.name)).toContain("Orion");
     expect(pack.text).toContain("Orion is led by Dana.");
     expect(pack.text).toContain("confidence 0.80");
-    expect(pack.sourceTitles).toContain("Project notes");
+    expect(pack.sources.map((s) => s.title)).toContain("Project notes");
   });
 });
 
@@ -54,11 +54,15 @@ describe("ChatService", () => {
 
     const conversationId = store.createConversation();
     let reply = "";
-    for await (const delta of chat.respond(conversationId, "Who leads Orion?")) {
-      reply += delta;
+    let sourceTitles: string[] = [];
+    for await (const event of chat.respond(conversationId, "Who leads Orion?")) {
+      if (event.type === "delta") reply += event.text;
+      else if (event.type === "sources") sourceTitles = event.sources.map((s) => s.title);
     }
 
     expect(reply).toBe("Orion is led by Dana.");
+    // the answer announces which documents it draws on
+    expect(sourceTitles).toContain("Project notes");
     const messages = store.listMessages(conversationId);
     expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
 

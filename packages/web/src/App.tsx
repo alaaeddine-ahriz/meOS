@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Kbd } from "@/components/ui/kbd";
 import { api } from "./api.js";
+import { CaptureDialog } from "./components/CaptureDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
@@ -20,18 +22,26 @@ const NAV = [
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [captureOpen, setCaptureOpen] = useState(false);
   const [queuePending, setQueuePending] = useState(0);
   const navigate = useNavigate();
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "k") {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const nav = NAV.find((n) => n.key === event.key);
+      if (nav) {
+        event.preventDefault();
+        navigate(nav.to);
+      } else if (event.key === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
-      }
-      if ((event.metaKey || event.ctrlKey) && NAV.some((n) => n.key === event.key)) {
+      } else if (event.key === "j") {
         event.preventDefault();
-        navigate(NAV.find((n) => n.key === event.key)!.to);
+        setCaptureOpen((open) => !open);
+      } else if (event.key === ",") {
+        event.preventDefault();
+        navigate("/settings");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -64,40 +74,49 @@ export function App() {
               end={item.to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-baseline justify-between rounded-md px-3 py-2 text-sm transition-colors",
+                  "flex items-center justify-between rounded-md px-3 py-2 text-sm transition-colors",
                   isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper",
                 )
               }
             >
               <span>{item.label}</span>
-              <kbd className="font-mono text-[10px] text-dim">⌘{item.key}</kbd>
+              <Kbd className="bg-transparent text-[10px] text-dim">⌘{item.key}</Kbd>
             </NavLink>
           ))}
         </nav>
 
-        <div className="mt-auto space-y-3">
+        <div className="mt-auto flex flex-col gap-1">
           {queuePending > 0 && (
-            <p className="flex items-center gap-2 font-mono text-[11px] text-faded">
+            <p className="mb-2 flex items-center gap-2 px-3 font-mono text-[11px] text-faded">
               <span className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp" />
-              processing {queuePending} item{queuePending > 1 ? "s" : ""}
+              absorbing {queuePending} item{queuePending > 1 ? "s" : ""}
             </p>
           )}
           <button
-            onClick={() => setPaletteOpen(true)}
-            className="w-full rounded-md border border-line px-3 py-1.5 text-left font-mono text-[11px] text-dim transition-colors hover:border-lamp-dim hover:text-faded"
+            onClick={() => setCaptureOpen(true)}
+            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-faded transition-colors hover:bg-card/60 hover:text-paper"
           >
-            ⌘K — jump anywhere
+            <span>Capture</span>
+            <Kbd className="bg-transparent text-[10px] text-dim">⌘J</Kbd>
+          </button>
+          <button
+            onClick={() => setPaletteOpen(true)}
+            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-faded transition-colors hover:bg-card/60 hover:text-paper"
+          >
+            <span>Jump to…</span>
+            <Kbd className="bg-transparent text-[10px] text-dim">⌘K</Kbd>
           </button>
           <NavLink
             to="/settings"
             className={({ isActive }) =>
               cn(
-                "block px-3 font-mono text-[11px] transition-colors",
-                isActive ? "text-paper" : "text-dim hover:text-faded",
+                "flex items-center justify-between rounded-md px-3 py-1.5 text-sm transition-colors",
+                isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper",
               )
             }
           >
-            settings
+            <span>Settings</span>
+            <Kbd className="bg-transparent text-[10px] text-dim">⌘,</Kbd>
           </NavLink>
         </div>
       </aside>
@@ -113,7 +132,8 @@ export function App() {
         </Routes>
       </main>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onCapture={() => setCaptureOpen(true)} />
+      <CaptureDialog open={captureOpen} onOpenChange={setCaptureOpen} />
     </div>
   );
 }

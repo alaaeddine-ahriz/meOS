@@ -1,9 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { api, type InboxItem } from "../api.js";
 
@@ -22,34 +20,20 @@ const ACTIVE_STATUSES = new Set(["queued", "parsing", "extracting", "merging"]);
 export function InboxView() {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [queuePending, setQueuePending] = useState(0);
-  const [captureText, setCaptureText] = useState("");
-  const [captureTitle, setCaptureTitle] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const refresh = () =>
-    api
-      .getInbox()
-      .then((r) => {
-        setItems(r.items);
-        setQueuePending(r.queuePending);
-      })
-      .catch(() => {});
 
   useEffect(() => {
+    const refresh = () =>
+      api
+        .getInbox()
+        .then((r) => {
+          setItems(r.items);
+          setQueuePending(r.queuePending);
+        })
+        .catch(() => {});
     refresh();
     const interval = setInterval(refresh, 2500);
     return () => clearInterval(interval);
   }, []);
-
-  const capture = async () => {
-    if (!captureText.trim()) return;
-    await api.ingestText(captureTitle.trim(), captureText);
-    setCaptureText("");
-    setCaptureTitle("");
-    setNotice("Captured. Processing in the background.");
-    setTimeout(() => setNotice(null), 4000);
-    refresh();
-  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -67,40 +51,7 @@ export function InboxView() {
           )}
         </header>
 
-        <section className="rise rise-1 mt-8 rounded-xl border border-line bg-desk p-5">
-          <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">quick capture</h3>
-          <Input
-            value={captureTitle}
-            onChange={(event) => setCaptureTitle(event.target.value)}
-            placeholder="Title (optional)"
-            className="mt-3 border-line bg-transparent text-sm text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
-          />
-          <Textarea
-            value={captureText}
-            onChange={(event) => setCaptureText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void capture();
-            }}
-            rows={3}
-            placeholder="A thought, meeting note, or draft. ⌘↵ to capture."
-            className="mt-2 resize-y border-line bg-transparent text-sm text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
-          />
-          <div className="mt-3 flex items-center gap-3">
-            <Button
-              onClick={() => void capture()}
-              disabled={!captureText.trim()}
-              className="bg-lamp text-ink hover:bg-lamp/85"
-            >
-              Capture
-            </Button>
-            {notice && <span className="text-sm text-moss">{notice}</span>}
-            <span className="ml-auto font-mono text-[11px] text-dim">
-              files arrive via <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>
-            </span>
-          </div>
-        </section>
-
-        <section className="rise rise-2 mt-8">
+        <section className="rise rise-1 mt-8">
           <ul className="divide-y divide-line border-y border-line">
             {items.map((item) => (
               <li key={item.id} className="flex items-baseline gap-4 py-3">
@@ -123,7 +74,12 @@ export function InboxView() {
                 </span>
               </li>
             ))}
-            {items.length === 0 && <li className="py-6 text-sm text-dim">Nothing has come in yet.</li>}
+            {items.length === 0 && (
+              <li className="py-6 text-sm text-dim">
+                Nothing yet. Capture a thought with <Kbd className="text-dim">⌘J</Kbd> or add{" "}
+                <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>.
+              </li>
+            )}
           </ul>
         </section>
       </div>
