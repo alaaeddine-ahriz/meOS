@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   createEmbedder,
   createLlmClient,
+  detectContradictions,
   ensureDataDirs,
   IngestionPipeline,
   KnowledgeStore,
@@ -46,7 +47,19 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const llm = createLlmClient(config);
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"));
-  const pipeline = new IngestionPipeline({ store, llm, embedder, wiki });
+  const pipeline = new IngestionPipeline({
+    store,
+    llm,
+    embedder,
+    wiki,
+    postMerge: async ({ merge }) => {
+      const result = await detectContradictions(store, llm, merge.newObservationIds);
+      const notes: string[] = [];
+      if (result.superseded > 0) notes.push(`${result.superseded} fact(s) superseded`);
+      if (result.contradictions > 0) notes.push(`${result.contradictions} contradiction(s) flagged`);
+      return notes.join(", ") || undefined;
+    },
+  });
   const queue = new SerialQueue();
 
   return { config, db, store, llm, embedder, wiki, pipeline, queue };

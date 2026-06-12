@@ -291,6 +291,131 @@ export class KnowledgeStore {
       .get(id) as ObservationRow | undefined;
   }
 
+  // --- memory maintenance (Phase 2) ---
+
+  /** New knowledge replaces old: the old observation is retired, never silently kept. */
+  markSuperseded(oldId: number, newId: number): void {
+    this.db
+      .prepare("UPDATE observations SET status = 'superseded', superseded_by = ? WHERE id = ?")
+      .run(newId, oldId);
+  }
+
+  createContradiction(observationA: number, observationB: number, note?: string): number {
+    const result = this.db
+      .prepare("INSERT INTO contradictions (observation_a, observation_b, note) VALUES (?, ?, ?)")
+      .run(observationA, observationB, note ?? null);
+    return Number(result.lastInsertRowid);
+  }
+
+  unresolvedContradictions(): Array<{
+    id: number;
+    note: string | null;
+    entity_name: string;
+    text_a: string;
+    text_b: string;
+    created_at: string;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT c.id, c.note, c.created_at, e.name AS entity_name,
+                oa.text AS text_a, ob.text AS text_b
+         FROM contradictions c
+         JOIN observations oa ON oa.id = c.observation_a
+         JOIN observations ob ON ob.id = c.observation_b
+         JOIN entities e ON e.id = oa.entity_id
+         WHERE c.resolved = 0
+         ORDER BY c.id DESC`,
+      )
+      .all() as Array<{
+      id: number;
+      note: string | null;
+      entity_name: string;
+      text_a: string;
+      text_b: string;
+      created_at: string;
+    }>;
+  }
+
+  /** Observations corroborated past the threshold graduate to established facts. */
+  promoteFacts(confidenceThreshold = 0.75): number {
+    const result = this.db
+      .prepare(
+        "UPDATE observations SET tier = 'fact' WHERE tier = 'observation' AND status = 'active' AND confidence >= ?",
+      )
+      .run(confidenceThreshold);
+    return result.changes;
+  }
+
+  /** Knowledge that hasn't been reinforced for a while is gradually deprioritised. */
+  decayStaleConfidence(olderThanDays = 30, amount = 0.01, floor = 0.05): number {
+    const result = this.db
+      .prepare(
+        `UPDATE observations
+         SET confidence = MAX(?, confidence - ?)
+         WHERE status = 'active' AND confidence > ?
+           AND last_confirmed_at < datetime('now', '-' || ? || ' days')`,
+      )
+      .run(floor, amount, floor, olderThanDays);
+    return result.changes;
+  }
+
+  /** Wiki pages with no connections to the rest of the graph, surfaced for review. */
+  orphanEntities(): EntityRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM entities e
+         WHERE NOT EXISTS (
+           SELECT 1 FROM relationships r WHERE r.from_entity = e.id OR r.to_entity = e.id
+         )
+         ORDER BY e.name`,
+      )
+      .all() as EntityRow[];
+  }
+
+  recentSources(sinceIso: string): Array<{ id: number; title: string; type: string; created_at: string }> {
+    return this.db
+      .prepare("SELECT id, title, type, created_at FROM sources WHERE created_at >= ? ORDER BY id DESC")
+      .all(sinceIso) as Array<{ id: number; title: string; type: string; created_at: string }>;
+  }
+
+  recentObservations(sinceIso: string): Array<{ text: string; entity_name: string; confidence: number }> {
+    return this.db
+      .prepare(
+        `SELECT o.text, o.confidence, e.name AS entity_name
+         FROM observations o JOIN entities e ON e.id = o.entity_id
+         WHERE o.created_at >= ? AND o.status = 'active'
+         ORDER BY o.id DESC LIMIT 100`,
+      )
+      .all(sinceIso) as Array<{ text: string; entity_name: string; confidence: number }>;
+  }
+
+  recentlySuperseded(sinceIso: string): Array<{ old_text: string; new_text: string; entity_name: string }> {
+    return this.db
+      .prepare(
+        `SELECT old.text AS old_text, new.text AS new_text, e.name AS entity_name
+         FROM observations old
+         JOIN observations new ON new.id = old.superseded_by
+         JOIN entities e ON e.id = old.entity_id
+         WHERE old.status = 'superseded' AND new.created_at >= ?`,
+      )
+      .all(sinceIso) as Array<{ old_text: string; new_text: string; entity_name: string }>;
+  }
+
+  saveDigest(date: string, content: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO digests (date, content) VALUES (?, ?)
+         ON CONFLICT(date) DO UPDATE SET content = excluded.content`,
+      )
+      .run(date, content);
+  }
+
+  latestDigest(): { date: string; content: string } | undefined {
+    return this.db
+      .prepare("SELECT date, content FROM digests ORDER BY date DESC LIMIT 1")
+      .get() as { date: string; content: string } | undefined;
+  }
+
   // --- conversations ---
 
   createConversation(title?: string): number {

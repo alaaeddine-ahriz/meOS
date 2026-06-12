@@ -29,3 +29,7 @@ export { SerialQueue } from "./jobs/queue.js";
 export { buildContextPack } from "./chat/retrieval.js";
 export type { ContextPack } from "./chat/retrieval.js";
 export { ChatService } from "./chat/chat.js";
+export { detectContradictions } from "./memory/contradictions.js";
+export type { ContradictionSummary } from "./memory/contradictions.js";
+export { runConsolidation } from "./memory/consolidate.js";
+export type { ConsolidationReport } from "./memory/consolidate.js";

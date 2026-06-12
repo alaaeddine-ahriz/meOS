@@ -19,12 +19,13 @@ export interface IngestOutcome {
 
 /**
  * Hook invoked after merge, before wiki regeneration. Phase 2 wires
- * contradiction detection through this seam.
+ * contradiction detection through this seam; a returned string is appended
+ * to the inbox item's final status detail.
  */
 export type PostMergeHook = (context: {
   sourceId: number;
   merge: MergeResult;
-}) => Promise<void>;
+}) => Promise<string | void>;
 
 export class IngestionPipeline {
   constructor(
@@ -80,7 +81,7 @@ export class IngestionPipeline {
       store.updateInboxItem(inboxItemId, "merging");
       const merge = await mergeExtraction(store, embedder, extraction, sourceId);
 
-      await this.deps.postMerge?.({ sourceId, merge });
+      const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
 
       await wiki.regenerateStale();
 
@@ -89,7 +90,8 @@ export class IngestionPipeline {
         "done",
         `${merge.affectedEntityIds.length} entities touched, ` +
           `${merge.newObservationIds.length} new observations, ` +
-          `${merge.reinforcedObservationIds.length} reinforced`,
+          `${merge.reinforcedObservationIds.length} reinforced` +
+          (postMergeNote ? ` — ${postMergeNote}` : ""),
       );
       return { inboxItemId, sourceId, status: "done" };
     } catch (error) {
