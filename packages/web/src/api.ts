@@ -48,8 +48,14 @@ export type ChatEvent =
   | { type: "done" }
   | { type: "error"; message: string };
 
+import { isTauri } from "./lib/platform.js";
+
+// In the browser the dev proxy / same-origin server handles /api; inside the
+// Tauri shell the page is served from tauri:// so the API needs an absolute base.
+const API_BASE = isTauri ? "http://127.0.0.1:4321" : "";
+
 async function json<T>(input: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(input, init);
+  const response = await fetch(API_BASE + input, init);
   if (!response.ok) {
     const body = await response.text().catch(() => "");
     throw new Error(`${response.status}: ${body || response.statusText}`);
@@ -82,7 +88,7 @@ export const api = {
 };
 
 export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {
-  const response = await fetch("/api/chat", {
+  const response = await fetch(API_BASE + "/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message, conversationId }),

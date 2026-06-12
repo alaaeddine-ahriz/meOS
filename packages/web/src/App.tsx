@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { api } from "./api.js";
 import { CommandPalette } from "./components/CommandPalette.js";
+import { isTauri } from "./lib/platform.js";
+import { cn } from "./lib/utils.js";
 import { ChatView } from "./views/ChatView.js";
 import { DigestView } from "./views/DigestView.js";
 import { InboxView } from "./views/InboxView.js";
@@ -30,7 +32,6 @@ export function App() {
         event.preventDefault();
         navigate(NAV.find((n) => n.key === event.key)!.to);
       }
-      if (event.key === "Escape") setPaletteOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -45,7 +46,10 @@ export function App() {
 
   return (
     <div className="flex h-full">
-      <aside className="flex w-52 shrink-0 flex-col border-r border-line bg-desk/60 px-5 py-6">
+      {/* under the overlay titlebar the window is dragged from this strip */}
+      {isTauri && <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-50 h-7" />}
+
+      <aside className={cn("flex w-52 shrink-0 flex-col border-r border-line bg-desk/60 px-5 py-6", isTauri && "pt-10")}>
         <h1 className="font-serif text-2xl italic tracking-tight text-paper">
           Me<span className="text-lamp">OS</span>
         </h1>
@@ -58,9 +62,10 @@ export function App() {
               to={item.to}
               end={item.to === "/"}
               className={({ isActive }) =>
-                `flex items-baseline justify-between rounded-md px-3 py-2 text-sm transition-colors ${
-                  isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper"
-                }`
+                cn(
+                  "flex items-baseline justify-between rounded-md px-3 py-2 text-sm transition-colors",
+                  isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper",
+                )
               }
             >
               <span>{item.label}</span>
@@ -95,7 +100,7 @@ export function App() {
         </Routes>
       </main>
 
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

@@ -2,16 +2,70 @@
 @import "@fontsource-variable/ibm-plex-sans";
 @import "@fontsource/ibm-plex-mono";
 @import "tailwindcss";
+@import "tw-animate-css";
+@source "../node_modules/streamdown/dist/index.js";
 
-@theme {
+/*
+ * midnight study: warm charcoal, paper text, candlelight accent.
+ * One dark theme only — the palette doubles as the shadcn token set so
+ * every ui/ and ai-elements/ component arrives already in-theme.
+ */
+:root {
+  --background: #131210; /* ink */
+  --foreground: #e8e2d3; /* paper */
+  --card: #201d1a;
+  --card-foreground: #e8e2d3;
+  --popover: #1a1816; /* desk */
+  --popover-foreground: #e8e2d3;
+  --primary: #d4a24e; /* lamp */
+  --primary-foreground: #131210;
+  --secondary: #201d1a;
+  --secondary-foreground: #e8e2d3;
+  --muted: #201d1a;
+  --muted-foreground: #8f8779; /* faded */
+  --accent: #2c2823;
+  --accent-foreground: #e8e2d3;
+  --destructive: #c25e4c; /* ember */
+  --destructive-foreground: #e8e2d3;
+  --border: #2c2823; /* line */
+  --input: #2c2823;
+  --ring: #8a6c38; /* lamp-dim */
+  --radius: 0.625rem;
+}
+
+@theme inline {
   --font-serif: "Newsreader Variable", Georgia, serif;
   --font-sans: "IBM Plex Sans Variable", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
-  /* midnight study: warm charcoal, paper text, candlelight accent */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* the original midnight-study names, still used throughout the views */
   --color-ink: #131210;
   --color-desk: #1a1816;
-  --color-card: #201d1a;
   --color-line: #2c2823;
   --color-paper: #e8e2d3;
   --color-faded: #8f8779;
@@ -22,18 +76,25 @@
   --color-moss: #7a9461;
 }
 
-html,
-body,
-#root {
-  height: 100%;
-}
+@layer base {
+  * {
+    border-color: var(--color-border);
+    outline-color: color-mix(in srgb, var(--ring) 50%, transparent);
+  }
 
-body {
-  background: var(--color-ink);
-  color: var(--color-paper);
-  font-family: var(--font-sans);
-  font-size: 15px;
-  -webkit-font-smoothing: antialiased;
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    background: var(--color-ink);
+    color: var(--color-paper);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
 }
 
 /* faint paper grain so surfaces aren't dead-flat */
@@ -41,6 +102,7 @@ body::after {
   content: "";
   position: fixed;
   inset: 0;
+  z-index: 100;
   pointer-events: none;
   opacity: 0.04;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");

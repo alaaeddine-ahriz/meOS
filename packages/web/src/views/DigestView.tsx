@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { api, type EntitySummary } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
 
@@ -49,13 +50,14 @@ export function DigestView() {
               {digest ? `Morning briefing for ${digest.date}.` : "A two-minute briefing on what changed."}
             </p>
           </div>
-          <button
+          <Button
+            variant="outline"
             onClick={() => void consolidate()}
             disabled={running}
-            className="rounded-lg border border-line px-4 py-1.5 text-sm text-faded transition-colors hover:border-lamp-dim hover:text-paper disabled:opacity-40"
+            className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
           >
             {running ? "Consolidating…" : "Run consolidation"}
-          </button>
+          </Button>
         </header>
 
         <article className="rise rise-1 mt-8 pb-16">

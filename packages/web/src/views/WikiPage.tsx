@@ -1,5 +1,9 @@
+import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
 
@@ -16,12 +20,10 @@ export function WikiPageView() {
   const [page, setPage] = useState<WikiPage | null>(null);
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showSources, setShowSources] = useState(false);
 
   useEffect(() => {
     setPage(null);
     setError(null);
-    setShowSources(false);
     if (!slug) return;
     api.getWikiPage(slug).then(setPage).catch((e) => setError(String(e)));
     api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
@@ -61,31 +63,23 @@ export function WikiPageView() {
         </article>
 
         {page.relationships.length > 0 && (
-          <section className="rise rise-3 mt-10 border-t border-line pt-6">
-            <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">connections</h3>
+          <section className="rise rise-3 mt-10">
+            <Separator className="bg-line" />
+            <h3 className="mt-6 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">connections</h3>
             <ul className="mt-3 space-y-1.5">
               {page.relationships.map((relationship, index) => {
                 const other = entities.find((e) => e.name === relationship.other);
+                const otherLink = other ? (
+                  <Link className="text-lamp" to={`/wiki/${other.slug}`}>{relationship.other}</Link>
+                ) : (
+                  relationship.other
+                );
                 return (
                   <li key={index} className="text-sm text-faded">
                     {relationship.direction === "out" ? (
-                      <>
-                        {relationship.label}{" "}
-                        {other ? (
-                          <Link className="text-lamp" to={`/wiki/${other.slug}`}>{relationship.other}</Link>
-                        ) : (
-                          relationship.other
-                        )}
-                      </>
+                      <>{relationship.label} {otherLink}</>
                     ) : (
-                      <>
-                        {other ? (
-                          <Link className="text-lamp" to={`/wiki/${other.slug}`}>{relationship.other}</Link>
-                        ) : (
-                          relationship.other
-                        )}{" "}
-                        {relationship.label} this
-                      </>
+                      <>{otherLink} {relationship.label} this</>
                     )}
                   </li>
                 );
@@ -94,29 +88,31 @@ export function WikiPageView() {
           </section>
         )}
 
-        <section className="mt-10 border-t border-line pt-6 pb-16">
-          <button
-            onClick={() => setShowSources((s) => !s)}
-            className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim transition-colors hover:text-faded"
-          >
-            {showSources ? "▾" : "▸"} underlying facts · {page.observations.length}
-          </button>
-          {showSources && (
-            <ul className="mt-3 space-y-2">
-              {page.observations.map((observation, index) => (
-                <li key={index} className="flex items-baseline gap-3 text-sm">
-                  <span
-                    className={`shrink-0 font-mono text-[11px] ${
-                      observation.confidence >= 0.7 ? "text-moss" : observation.confidence >= 0.4 ? "text-lamp" : "text-ember"
-                    }`}
-                  >
-                    {observation.confidence.toFixed(2)}
-                  </span>
-                  <span className="text-faded">{observation.text}</span>
-                </li>
-              ))}
-            </ul>
-          )}
+        <section className="mt-10 pb-16">
+          <Separator className="bg-line" />
+          <Collapsible className="mt-6">
+            <CollapsibleTrigger className="group flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.25em] text-dim transition-colors hover:text-faded">
+              <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
+              underlying facts · {page.observations.length}
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <ul className="mt-3 space-y-2">
+                {page.observations.map((observation, index) => (
+                  <li key={index} className="flex items-baseline gap-3 text-sm">
+                    <span
+                      className={cn(
+                        "shrink-0 font-mono text-[11px]",
+                        observation.confidence >= 0.7 ? "text-moss" : observation.confidence >= 0.4 ? "text-lamp" : "text-ember",
+                      )}
+                    >
+                      {observation.confidence.toFixed(2)}
+                    </span>
+                    <span className="text-faded">{observation.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </CollapsibleContent>
+          </Collapsible>
         </section>
       </div>
     </div>

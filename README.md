@@ -21,6 +21,22 @@ pnpm build
 node packages/server/dist/main.js     # serves API + UI on :4321
 ```
 
+### Desktop app (Tauri)
+
+```sh
+pnpm desktop          # dev: starts server + web + native window
+pnpm desktop:build    # bundles MeOS.app (packages/desktop/src-tauri/target/release/bundle)
+```
+
+Requires the [Rust toolchain](https://rustup.rs). The native shell owns the
+server's lifecycle: on launch it health-checks `127.0.0.1:4321` and, if nothing
+is listening, spawns `node packages/server/dist/main.js` (built by
+`pnpm build`) and tears it down on quit — even if the shell is killed, the
+server notices the orphaning and exits on its own. A dev server you started
+yourself is detected and left untouched. Launch from a terminal so the spawned
+server inherits `ANTHROPIC_API_KEY`. Overrides: `MEOS_PORT`,
+`MEOS_SERVER_ENTRY`, `MEOS_ROOT`.
+
 ## Using it
 
 - **Inbox** — upload files (`.md .txt .pdf .docx ...`), quick-capture thoughts (⌘↵), or drop files into `data/inbox/watch/`. Everything is processed in the background; the inbox shows each item's progress and what the system learned from it.
@@ -50,7 +66,8 @@ packages/
 │            extraction, wiki writer, memory maintenance, LLM + embedding
 │            abstractions (Anthropic / Ollama / deterministic test stub)
 ├── server/  Fastify API, background job queue, watch folder, cron scheduler
-└── web/     React + Vite UI (chat, wiki, inbox, digest)
+├── web/     React + Vite UI (chat, wiki, inbox, digest) — shadcn/ui + ai-elements
+└── desktop/ Tauri 2 shell: native window + server lifecycle (Rust)
 ```
 
 The ingestion pipeline: parse → chunk + embed (locally) → structured LLM extraction → entity resolution & merge (near-duplicate facts reinforce confidence instead of duplicating) → contradiction check (supersede or flag, never silently keep) → wiki regeneration.
@@ -70,6 +87,9 @@ Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind 
 | `croner` | Nightly consolidation schedule |
 | `unpdf`, `mammoth` | PDF / DOCX text extraction |
 | `react`, `react-router-dom`, `react-markdown`, `tailwindcss`, `vite` | The web UI |
+| shadcn/ui + Vercel ai-elements (vendored into `src/components/`) | Accessible primitives and chat components, owned as source — no runtime UI dependency |
+| `streamdown` | Markdown rendering tuned for incomplete, still-streaming chat output |
+| `tauri` (Rust) | Desktop shell — native window over the same web UI, ~no Chromium bundled |
 | Fontsource packages | Fonts bundled locally — no CDN calls |
 
 Vector search is brute-force cosine over SQLite blobs: at personal-corpus scale this is fast, exact, and one less dependency.

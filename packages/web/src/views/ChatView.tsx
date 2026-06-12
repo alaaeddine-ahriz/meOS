@@ -1,22 +1,40 @@
-import { useEffect, useRef, useState } from "react";
-import { api, streamChat, type Conversation, type EntitySummary, type Message } from "../api.js";
-import { Markdown } from "../components/Markdown.js";
+import type { ChatStatus } from "ai";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useNavigate } from "react-router-dom";
+import { api, streamChat, type Conversation as ConversationRecord, type EntitySummary, type Message as MessageRecord } from "../api.js";
+import {
+  Conversation,
+  ConversationContent,
+  ConversationEmptyState,
+  ConversationScrollButton,
+} from "@/components/ai-elements/conversation";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  PromptInput,
+  PromptInputBody,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  type PromptInputMessage,
+} from "@/components/ai-elements/prompt-input";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { resolveWikiLinks } from "@/lib/wikilinks";
+import { cn } from "@/lib/utils";
 
 export function ChatView() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<ConversationRecord[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [entities, setEntities] = useState<EntitySummary[]>([]);
-  const [draft, setDraft] = useState("");
-  const [streaming, setStreaming] = useState(false);
+  const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<string | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     api.listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
     api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
-    inputRef.current?.focus();
   }, []);
 
   useEffect(() => {
@@ -27,28 +45,37 @@ export function ChatView() {
     api.getMessages(activeId).then((r) => setMessages(r.messages)).catch(() => {});
   }, [activeId]);
 
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages]);
+  // streamdown renders plain anchors; route internal links through the router
+  const onProseClick = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      const anchor = (event.target as HTMLElement).closest("a");
+      const href = anchor?.getAttribute("href");
+      if (href?.startsWith("/")) {
+        event.preventDefault();
+        navigate(href);
+      }
+    },
+    [navigate],
+  );
 
-  const send = async () => {
-    const message = draft.trim();
-    if (!message || streaming) return;
-    setDraft("");
+  const busy = status === "submitted" || status === "streaming";
+
+  const send = async (text: string) => {
     setError(null);
-    setStreaming(true);
+    setStatus("submitted");
     setMessages((current) => [
       ...current,
-      { id: -1, role: "user", content: message, created_at: "" },
+      { id: -1, role: "user", content: text, created_at: "" },
       { id: -2, role: "assistant", content: "", created_at: "" },
     ]);
 
     try {
-      for await (const event of streamChat(message, activeId ?? undefined)) {
+      for await (const event of streamChat(text, activeId ?? undefined)) {
         if (event.type === "start") {
           setActiveId(event.conversationId);
           api.listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
         } else if (event.type === "delta") {
+          setStatus("streaming");
           setMessages((current) => {
             const next = [...current];
             const last = next[next.length - 1]!;
@@ -59,102 +86,126 @@ export function ChatView() {
           setError(event.message);
         }
       }
+      setStatus("ready");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setStreaming(false);
-      inputRef.current?.focus();
+      setStatus("error");
     }
   };
+
+  const onSubmit = (message: PromptInputMessage) => {
+    const text = message.text?.trim();
+    if (!text || busy) return;
+    void send(text);
+  };
+
+  const lastIndex = messages.length - 1;
+  const startNew = useMemo(
+    () => () => {
+      setActiveId(null);
+      setError(null);
+      setStatus("ready");
+    },
+    [],
+  );
 
   return (
     <div className="flex h-full">
       <div className="flex w-56 shrink-0 flex-col border-r border-line">
         <div className="flex items-center justify-between px-4 py-4">
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-dim">history</span>
-          <button
-            onClick={() => setActiveId(null)}
-            className="rounded border border-line px-2 py-0.5 text-xs text-faded transition-colors hover:border-lamp-dim hover:text-paper"
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={startNew}
+            className="h-6 rounded border-line bg-transparent px-2 text-xs text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
           >
             + new
-          </button>
+          </Button>
         </div>
-        <ul className="flex-1 overflow-y-auto px-2 pb-4">
-          {conversations.map((conversation) => (
-            <li key={conversation.id}>
-              <button
-                onClick={() => setActiveId(conversation.id)}
-                className={`w-full truncate rounded-md px-2 py-1.5 text-left text-[13px] transition-colors ${
-                  conversation.id === activeId ? "bg-card text-paper" : "text-faded hover:text-paper"
-                }`}
-              >
-                {conversation.title ?? `Conversation ${conversation.id}`}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <ScrollArea className="min-h-0 flex-1">
+          <ul className="px-2 pb-4">
+            {conversations.map((conversation) => (
+              <li key={conversation.id}>
+                <button
+                  onClick={() => setActiveId(conversation.id)}
+                  className={cn(
+                    "w-full truncate rounded-md px-2 py-1.5 text-left text-[13px] transition-colors",
+                    conversation.id === activeId ? "bg-card text-paper" : "text-faded hover:text-paper",
+                  )}
+                >
+                  {conversation.title ?? `Conversation ${conversation.id}`}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="rise max-w-md text-center">
-                <p className="font-serif text-3xl italic text-faded">What do you want to recall?</p>
-                <p className="mt-3 text-sm text-dim">
-                  Ask about anything you've captured — people, projects, decisions. Answers come only
-                  from your own knowledge base.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
-              {messages.map((message, index) => (
-                <div key={index} className={message.role === "user" ? "flex justify-end" : ""}>
-                  {message.role === "user" ? (
-                    <div className="max-w-[85%] rounded-xl rounded-br-sm border border-line bg-card px-4 py-2.5 text-[14px] text-paper">
-                      {message.content}
-                    </div>
-                  ) : (
-                    <div className="text-[15px]">
-                      {message.content ? (
-                        <Markdown text={message.content} entities={entities} />
-                      ) : (
-                        <span className="working-dot inline-block h-2 w-2 rounded-full bg-lamp" />
-                      )}
-                    </div>
-                  )}
+        <Conversation className="flex-1">
+          <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
+            {messages.length === 0 ? (
+              <ConversationEmptyState className="h-full">
+                <div className="rise max-w-md text-center">
+                  <p className="font-serif text-3xl italic text-faded">What do you want to recall?</p>
+                  <p className="mt-3 text-sm text-dim">
+                    Ask about anything you've captured — people, projects, decisions. Answers come only
+                    from your own knowledge base.
+                  </p>
                 </div>
-              ))}
-              {error && <p className="text-sm text-ember">⚠ {error}</p>}
-            </div>
-          )}
-        </div>
+              </ConversationEmptyState>
+            ) : (
+              <>
+                {messages.map((message, index) => (
+                  <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
+                    <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
+                      {message.role === "assistant" ? (
+                        message.content ? (
+                          <div onClick={onProseClick} className="text-[15px]">
+                            <MessageResponse
+                              className="prose-meos"
+                              isAnimating={busy && index === lastIndex}
+                            >
+                              {resolveWikiLinks(message.content, entities)}
+                            </MessageResponse>
+                          </div>
+                        ) : (
+                          <Shimmer className="text-sm" duration={1.6}>
+                            Consulting the knowledge base…
+                          </Shimmer>
+                        )
+                      ) : (
+                        message.content
+                      )}
+                    </MessageContent>
+                  </Message>
+                ))}
+                {error && <p className="text-sm text-ember">⚠ {error}</p>}
+              </>
+            )}
+          </ConversationContent>
+          <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
+        </Conversation>
 
         <div className="border-t border-line px-6 py-4">
-          <div className="mx-auto flex max-w-2xl items-end gap-3 rounded-xl border border-line bg-desk px-4 py-3 focus-within:border-lamp-dim">
-            <textarea
-              ref={inputRef}
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void send();
-                }
-              }}
-              rows={Math.min(6, Math.max(1, draft.split("\n").length))}
-              placeholder="Ask your second brain..."
-              className="max-h-40 flex-1 resize-none bg-transparent text-[14px] text-paper outline-none placeholder:text-dim"
-            />
-            <button
-              onClick={() => void send()}
-              disabled={streaming || !draft.trim()}
-              className="rounded-lg bg-lamp px-3 py-1 text-sm font-medium text-ink transition-opacity disabled:opacity-30"
-            >
-              ↵
-            </button>
-          </div>
+          <PromptInput
+            onSubmit={onSubmit}
+            className="mx-auto max-w-2xl rounded-xl border-line bg-desk shadow-none focus-within:border-lamp-dim"
+          >
+            <PromptInputBody>
+              <PromptInputTextarea
+                placeholder="Ask your second brain..."
+                className="min-h-12 text-[14px] text-paper placeholder:text-dim"
+              />
+            </PromptInputBody>
+            <PromptInputFooter className="justify-end p-2 pt-0">
+              <PromptInputSubmit
+                status={status}
+                className="bg-lamp text-ink hover:bg-lamp/85"
+              />
+            </PromptInputFooter>
+          </PromptInput>
         </div>
       </div>
     </div>

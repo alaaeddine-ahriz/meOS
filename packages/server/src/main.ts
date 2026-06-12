@@ -19,3 +19,13 @@ const shutdown = async () => {
 };
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+
+// When the desktop shell spawned us, exit with it even if it died without
+// saying goodbye (SIGKILL, crash): once the parent is gone we get reparented,
+// so a changed ppid means the shell is no more.
+if (process.env["MEOS_EXIT_WITH_PARENT"] === "1") {
+  const parentPid = process.ppid;
+  setInterval(() => {
+    if (process.ppid !== parentPid) void shutdown();
+  }, 2000).unref();
+}

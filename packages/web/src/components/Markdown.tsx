@@ -2,19 +2,14 @@ import { useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
 import type { EntitySummary } from "../api.js";
+import { resolveWikiLinks } from "../lib/wikilinks.js";
 
 /**
- * Renders knowledge-base markdown. [[Entity Name]] wiki links are resolved to
- * internal routes using the entity index; unresolved links render as plain text.
+ * Renders knowledge-base markdown (wiki pages, digests). [[Entity Name]] wiki
+ * links resolve to internal routes; internal hrefs navigate via the router.
  */
 export function Markdown({ text, entities }: { text: string; entities: EntitySummary[] }) {
-  const resolved = useMemo(() => {
-    const slugByName = new Map(entities.map((e) => [e.name.toLowerCase(), e.slug]));
-    return text.replace(/\[\[([^\]]+)\]\]/g, (_match, name: string) => {
-      const slug = slugByName.get(name.trim().toLowerCase());
-      return slug ? `[${name}](/wiki/${slug})` : name;
-    });
-  }, [text, entities]);
+  const resolved = useMemo(() => resolveWikiLinks(text, entities), [text, entities]);
 
   return (
     <div className="prose-meos">

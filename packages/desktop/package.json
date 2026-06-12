@@ -1,0 +1,17 @@
+{
+  "name": "@meos/desktop",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "echo 'desktop bundling is opt-in: pnpm desktop:build'",
+    "bundle": "tauri build",
+    "tauri": "tauri",
+    "typecheck": "echo 'no typescript in desktop package'",
+    "test": "echo 'no tests in desktop package'"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 import { api, type InboxItem } from "../api.js";
 
 const STATUS_COLORS: Record<string, string> = {
-  queued: "text-dim",
-  parsing: "text-lamp",
-  extracting: "text-lamp",
-  merging: "text-lamp",
-  done: "text-moss",
-  failed: "text-ember",
-  unsupported: "text-ember",
+  queued: "text-dim border-line",
+  parsing: "text-lamp border-lamp-dim",
+  extracting: "text-lamp border-lamp-dim",
+  merging: "text-lamp border-lamp-dim",
+  done: "text-moss border-moss/40",
+  failed: "text-ember border-ember/40",
+  unsupported: "text-ember border-ember/40",
 };
 
 const ACTIVE_STATUSES = new Set(["queued", "parsing", "extracting", "merging"]);
@@ -72,13 +77,13 @@ export function InboxView() {
 
         <section className="rise rise-1 mt-8 rounded-xl border border-line bg-desk p-5">
           <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">quick capture</h3>
-          <input
+          <Input
             value={captureTitle}
             onChange={(event) => setCaptureTitle(event.target.value)}
             placeholder="Title (optional)"
-            className="mt-3 w-full rounded-md border border-line bg-transparent px-3 py-2 text-sm text-paper outline-none placeholder:text-dim focus:border-lamp-dim"
+            className="mt-3 border-line bg-transparent text-sm text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
           />
-          <textarea
+          <Textarea
             value={captureText}
             onChange={(event) => setCaptureText(event.target.value)}
             onKeyDown={(event) => {
@@ -86,22 +91,23 @@ export function InboxView() {
             }}
             rows={3}
             placeholder="A thought, meeting note, or draft. ⌘↵ to capture."
-            className="mt-2 w-full resize-y rounded-md border border-line bg-transparent px-3 py-2 text-sm text-paper outline-none placeholder:text-dim focus:border-lamp-dim"
+            className="mt-2 resize-y border-line bg-transparent text-sm text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
           />
           <div className="mt-3 flex items-center gap-3">
-            <button
+            <Button
               onClick={() => void capture()}
               disabled={!captureText.trim()}
-              className="rounded-lg bg-lamp px-4 py-1.5 text-sm font-medium text-ink transition-opacity disabled:opacity-30"
+              className="bg-lamp text-ink hover:bg-lamp/85"
             >
               Capture
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="outline"
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-line px-4 py-1.5 text-sm text-faded transition-colors hover:border-lamp-dim hover:text-paper"
+              className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
             >
               Upload files…
-            </button>
+            </Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -121,11 +127,16 @@ export function InboxView() {
           <ul className="divide-y divide-line border-y border-line">
             {items.map((item) => (
               <li key={item.id} className="flex items-baseline gap-4 py-3">
-                <span
-                  className={`w-24 shrink-0 font-mono text-[11px] uppercase tracking-wide ${STATUS_COLORS[item.status] ?? "text-dim"} ${ACTIVE_STATUSES.has(item.status) ? "working-dot" : ""}`}
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "w-24 shrink-0 justify-center rounded font-mono text-[10px] uppercase tracking-wide",
+                    STATUS_COLORS[item.status] ?? "text-dim border-line",
+                    ACTIVE_STATUSES.has(item.status) && "working-dot",
+                  )}
                 >
                   {item.status}
-                </span>
+                </Badge>
                 <div className="min-w-0">
                   <p className="truncate text-sm text-paper">{item.title}</p>
                   {item.detail && <p className="mt-0.5 truncate text-[13px] text-dim">{item.detail}</p>}
