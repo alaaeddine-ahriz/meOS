@@ -90,7 +90,9 @@ async function installRuntimeDeps() {
         `Run under Node ${bundleMajor}.x or set MEOS_BUNDLE_NODE_VERSION to ${hostMajor}.x.`,
     );
   }
-  run("npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
+  // npm ships as a .cmd shim on Windows, which execFile (no shell) can't
+  // resolve — CreateProcess only auto-appends .exe, not .cmd.
+  run(isWin ? "npm.cmd" : "npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
 }
 
 // ---------------------------------------------------------------------------
