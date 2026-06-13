@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Page, PageHeader } from "@/components/Page";
 import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { api, type InboxItem } from "../api.js";
@@ -40,22 +41,21 @@ export function InboxView() {
   }, []);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-10">
-        <header className="rise flex items-baseline justify-between">
-          <div>
-            <h2 className="font-serif text-3xl text-paper">Inbox</h2>
-            <p className="mt-1 text-sm text-dim">What came in, and what the system did with it.</p>
-          </div>
-          {queuePending > 0 && (
+    <Page>
+      <PageHeader
+        title="Inbox"
+        description="What came in, and what the system did with it."
+        actions={
+          queuePending > 0 ? (
             <span className="flex items-center gap-2 font-mono text-[11px] text-faded">
               <span className="working-dot h-1.5 w-1.5 rounded-full bg-lamp" />
               {queuePending} in queue
             </span>
-          )}
-        </header>
+          ) : undefined
+        }
+      />
 
-        <section className="rise rise-1 mt-8">
+      <section className="rise rise-1 mt-8">
           <ul className="divide-y divide-line">
             {items.map((item) => {
               const muted = item.status === "unsupported";
@@ -110,7 +110,6 @@ export function InboxView() {
             )}
           </ul>
         </section>
-      </div>
-    </div>
+    </Page>
   );
 }

@@ -1,5 +1,6 @@
-import { Check, ChevronRight, Cloud, FolderPlus, GitBranch, History, Laptop, Moon, RefreshCw, Sun, X } from "lucide-react";
+import { Check, ChevronRight, Cloud, FolderPlus, GitBranch, History, Laptop, type LucideIcon, Moon, RefreshCw, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
 import { Input } from "@/components/ui/input";
@@ -11,15 +12,82 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { isTauri } from "@/lib/platform";
-import { setTheme, storedTheme, type ThemePreference } from "@/lib/theme";
+import {
+  type Density,
+  type FontPreset,
+  type Palette,
+  setDensity,
+  setFont,
+  setPalette,
+  setTheme,
+  storedDensity,
+  storedFont,
+  storedPalette,
+  storedTheme,
+  type ThemePreference,
+} from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { api, type GitCommit, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
 
-const THEMES: Array<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
+const THEMES: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
   { value: "system", label: "System", icon: Laptop },
 ];
+
+const PALETTES: Array<{ value: Palette; label: string }> = [
+  { value: "warm", label: "Warm" },
+  { value: "neutral", label: "Neutral" },
+  { value: "cool", label: "Cool" },
+];
+
+const FONTS: Array<{ value: FontPreset; label: string }> = [
+  { value: "editorial", label: "Editorial" },
+  { value: "clean", label: "Clean" },
+  { value: "literary", label: "Literary" },
+  { value: "mono", label: "Mono" },
+];
+
+const DENSITIES: Array<{ value: Density; label: string }> = [
+  { value: "spaced", label: "Spaced" },
+  { value: "compact", label: "Compact" },
+];
+
+/** A labelled row of mutually-exclusive choices, styled like the rest of Settings. */
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string; icon?: LucideIcon }>;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm text-faded">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map(({ value: option, label: optionLabel, icon: Icon }) => (
+          <Button
+            key={option}
+            variant="outline"
+            size="sm"
+            onClick={() => onChange(option)}
+            className={cn(
+              "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
+              value === option && "border-lamp-dim text-paper",
+            )}
+          >
+            {Icon && <Icon className="size-3.5" />}
+            {optionLabel}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const PROVIDERS: Array<{ value: LlmProvider; label: string }> = [
   { value: "anthropic", label: "Anthropic" },
@@ -39,6 +107,9 @@ export function SettingsView() {
   const [manualPath, setManualPath] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<ThemePreference>(storedTheme());
+  const [palette, setPaletteState] = useState<Palette>(storedPalette());
+  const [font, setFontState] = useState<FontPreset>(storedFont());
+  const [density, setDensityState] = useState<Density>(storedDensity());
 
   const [llm, setLlm] = useState<LlmSettings | null>(null);
   const [provider, setProvider] = useState<LlmProvider>("anthropic");
@@ -52,6 +123,21 @@ export function SettingsView() {
   const chooseTheme = (preference: ThemePreference) => {
     setTheme(preference);
     setThemeState(preference);
+  };
+
+  const choosePalette = (next: Palette) => {
+    setPalette(next);
+    setPaletteState(next);
+  };
+
+  const chooseFont = (next: FontPreset) => {
+    setFont(next);
+    setFontState(next);
+  };
+
+  const chooseDensity = (next: Density) => {
+    setDensity(next);
+    setDensityState(next);
   };
 
   const refresh = () => api.listFolders().then((r) => setFolders(r.folders)).catch(() => {});
@@ -129,31 +215,16 @@ export function SettingsView() {
   const keySaved = cloudProvider && llm ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey : false;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-8 py-10">
-        <header className="rise">
-          <h2 className="font-serif text-3xl text-paper">Settings</h2>
-          <p className="mt-1 text-sm text-dim">How MeOS sees your world.</p>
-        </header>
+    <Page>
+        <PageHeader title="Settings" description="How MeOS sees your world." />
 
         <section className="rise rise-1 mt-10">
           <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">appearance</h3>
-          <div className="mt-4 flex gap-2">
-            {THEMES.map(({ value, label, icon: Icon }) => (
-              <Button
-                key={value}
-                variant="outline"
-                size="sm"
-                onClick={() => chooseTheme(value)}
-                className={cn(
-                  "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
-                  theme === value && "border-lamp-dim text-paper",
-                )}
-              >
-                <Icon className="size-3.5" />
-                {label}
-              </Button>
-            ))}
+          <div className="mt-5 flex flex-col gap-4">
+            <Segmented label="Mode" value={theme} options={THEMES} onChange={chooseTheme} />
+            <Segmented label="Palette" value={palette} options={PALETTES} onChange={choosePalette} />
+            <Segmented label="Typeface" value={font} options={FONTS} onChange={chooseFont} />
+            <Segmented label="Density" value={density} options={DENSITIES} onChange={chooseDensity} />
           </div>
         </section>
 
@@ -314,8 +385,7 @@ export function SettingsView() {
         </section>
 
         <GitSyncSection />
-      </div>
-    </div>
+    </Page>
   );
 }
 

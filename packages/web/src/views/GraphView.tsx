@@ -371,22 +371,22 @@ export function GraphView() {
     <div ref={containerRef} className="relative h-full overflow-hidden">
       <canvas ref={canvasRef} className="h-full w-full" style={{ cursor: "grab" }} />
 
-      <header className="rise pointer-events-none absolute left-8 top-10">
-        <h2 className="font-serif text-3xl text-paper">Graph</h2>
+      <header className="rise pointer-events-none absolute left-10 top-10">
+        <h2 className="font-serif text-2xl text-paper">Graph</h2>
         <p className="mt-1 text-sm text-dim">
           {counts.nodes} pages · {counts.links} connections. Click a node to open its page.
         </p>
       </header>
 
       {loaded && counts.nodes === 0 && (
-        <p className="pointer-events-auto absolute left-8 top-32 text-sm text-faded">
+        <p className="pointer-events-auto absolute left-10 top-32 text-sm text-faded">
           Nothing to map yet. Capture thoughts or add watched folders in{" "}
           <Link className="text-lamp" to="/settings">Settings</Link> and the graph will grow on its own.
         </p>
       )}
 
       {presentTypes.length > 0 && (
-        <div className="rise-1 pointer-events-none absolute bottom-6 left-8 flex flex-col gap-1.5">
+        <div className="rise-1 pointer-events-none absolute bottom-6 left-10 flex flex-col gap-1.5">
           {presentTypes.map((type) => (
             <div key={type} className="flex items-center gap-2 text-xs text-faded">
               <span

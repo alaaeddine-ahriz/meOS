@@ -1,31 +1,78 @@
-export type ThemePreference = "light" | "dark" | "system";
+// Appearance preferences. Four orthogonal axes persisted in localStorage and
+// applied to <html>: light/dark mode (a class), and palette / font / density
+// (data-attributes the stylesheet keys off). See index.css for the token sets.
 
-const STORAGE_KEY = "meos-theme";
+export type ThemePreference = "light" | "dark" | "system";
+export type Palette = "warm" | "neutral" | "cool";
+export type FontPreset = "editorial" | "clean" | "literary" | "mono";
+export type Density = "spaced" | "compact";
+
+const MODE_KEY = "meos-theme";
+const PALETTE_KEY = "meos-palette";
+const FONT_KEY = "meos-font";
+const DENSITY_KEY = "meos-density";
+
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
+function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  const value = localStorage.getItem(key);
+  return allowed.includes(value as T) ? (value as T) : fallback;
+}
+
 export function storedTheme(): ThemePreference {
-  const value = localStorage.getItem(STORAGE_KEY);
+  const value = localStorage.getItem(MODE_KEY);
   return value === "light" || value === "dark" ? value : "system";
 }
 
-function resolve(preference: ThemePreference): "light" | "dark" {
+export function storedPalette(): Palette {
+  return read(PALETTE_KEY, ["warm", "neutral", "cool"] as const, "warm");
+}
+
+export function storedFont(): FontPreset {
+  return read(FONT_KEY, ["editorial", "clean", "literary", "mono"] as const, "editorial");
+}
+
+export function storedDensity(): Density {
+  return read(DENSITY_KEY, ["spaced", "compact"] as const, "spaced");
+}
+
+function resolveMode(preference: ThemePreference): "light" | "dark" {
   return preference === "system" ? (media.matches ? "dark" : "light") : preference;
 }
 
-function apply(preference: ThemePreference): void {
-  document.documentElement.classList.toggle("dark", resolve(preference) === "dark");
+function applyMode(preference: ThemePreference): void {
+  document.documentElement.classList.toggle("dark", resolveMode(preference) === "dark");
 }
 
 export function setTheme(preference: ThemePreference): void {
-  if (preference === "system") localStorage.removeItem(STORAGE_KEY);
-  else localStorage.setItem(STORAGE_KEY, preference);
-  apply(preference);
+  if (preference === "system") localStorage.removeItem(MODE_KEY);
+  else localStorage.setItem(MODE_KEY, preference);
+  applyMode(preference);
 }
 
-/** Apply the stored preference and track OS changes while it is "system". */
+export function setPalette(palette: Palette): void {
+  localStorage.setItem(PALETTE_KEY, palette);
+  document.documentElement.dataset.palette = palette;
+}
+
+export function setFont(font: FontPreset): void {
+  localStorage.setItem(FONT_KEY, font);
+  document.documentElement.dataset.font = font;
+}
+
+export function setDensity(density: Density): void {
+  localStorage.setItem(DENSITY_KEY, density);
+  document.documentElement.dataset.density = density;
+}
+
+/** Apply every stored preference and keep mode in sync with the OS while "system". */
 export function initTheme(): void {
-  apply(storedTheme());
+  const root = document.documentElement;
+  applyMode(storedTheme());
+  root.dataset.palette = storedPalette();
+  root.dataset.font = storedFont();
+  root.dataset.density = storedDensity();
   media.addEventListener("change", () => {
-    if (storedTheme() === "system") apply("system");
+    if (storedTheme() === "system") applyMode("system");
   });
 }

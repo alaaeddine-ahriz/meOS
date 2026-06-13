@@ -8,26 +8,18 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * Two studies, one lamp. The palette is expressed as role variables that flip
- * with the theme; the shadcn token set aliases them, so ui/ and ai-elements/
- * components arrive in-theme in both modes.
- *
- * daylight study: warm paper, ink text, burnished gold accent.
+ * The interface is a set of role variables (surfaces, text, accent) that are
+ * driven by three orthogonal preferences on <html>:
+ *   data-palette  warm | neutral | cool   (each with a light + dark variant)
+ *   data-font     editorial | clean | literary | mono
+ *   data-density  spaced | compact
+ * plus the .dark class for light/dark mode. The shadcn token set aliases the
+ * role variables, so ui/ and ai-elements/ components arrive in-theme for every
+ * combination. Defaults below = warm · editorial · spaced.
  */
 :root {
-  --ink: #f6f2e9; /* the room (app background) */
-  --desk: #efe9db; /* raised surface */
-  --card: #e8e1cf; /* card surface */
-  --line: #d9d0bb; /* borders */
-  --paper: #2c271f; /* primary text */
-  --faded: #6e6553; /* secondary text */
-  --dim: #9c9279; /* tertiary text */
-  --lamp: #9a6a16; /* accent */
-  --lamp-dim: #c0a05c;
-  --ember: #b1472f; /* warnings, contradictions */
-  --moss: #57763e; /* success, high confidence */
-  --grain-opacity: 0.05;
-
+  /* structural */
+  --radius: 0.625rem;
   --background: var(--ink);
   --foreground: var(--paper);
   --card-foreground: var(--paper);
@@ -46,11 +38,49 @@
   --border: var(--line);
   --input: var(--line);
   --ring: var(--lamp-dim);
-  --radius: 0.625rem;
+
+  /* typography preset (editorial default) */
+  --font-display: "Newsreader Variable", Georgia, serif;
+  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
+  --font-mono-set: "IBM Plex Mono", monospace;
+
+  /* density preset (spaced default) */
+  --app-font-size: 15px;
+  --prose-leading: 1.7;
+
+  /* palette (warm light default) */
+  --ink: #f6f2e9;
+  --desk: #efe9db;
+  --card: #e8e1cf;
+  --line: #d9d0bb;
+  --paper: #2c271f;
+  --faded: #6e6553;
+  --dim: #9c9279;
+  --lamp: #9a6a16;
+  --lamp-dim: #c0a05c;
+  --ember: #b1472f;
+  --moss: #57763e;
+  --grain-opacity: 0.05;
 }
 
-/* midnight study: warm charcoal, paper text, candlelight accent. */
-.dark {
+/* ── palettes ─────────────────────────────────────────────── */
+/* warm — paper & candlelight (the original "two studies" identity) */
+[data-palette="warm"] {
+  --ink: #f6f2e9;
+  --desk: #efe9db;
+  --card: #e8e1cf;
+  --line: #d9d0bb;
+  --paper: #2c271f;
+  --faded: #6e6553;
+  --dim: #9c9279;
+  --lamp: #9a6a16;
+  --lamp-dim: #c0a05c;
+  --ember: #b1472f;
+  --moss: #57763e;
+  --grain-opacity: 0.05;
+}
+.dark,
+.dark[data-palette="warm"] {
   --ink: #131210;
   --desk: #1a1816;
   --card: #201d1a;
@@ -65,10 +95,90 @@
   --grain-opacity: 0.04;
 }
 
+/* neutral — white & graphite (Notion-like, crisp) */
+[data-palette="neutral"] {
+  --ink: #ffffff;
+  --desk: #f7f7f5;
+  --card: #efeeec;
+  --line: #e4e3e0;
+  --paper: #1c1c1a;
+  --faded: #6b6a66;
+  --dim: #a0a09a;
+  --lamp: #2f80c2;
+  --lamp-dim: #a9cbe8;
+  --ember: #c0392b;
+  --moss: #3f8f5f;
+  --grain-opacity: 0;
+}
+.dark[data-palette="neutral"] {
+  --ink: #191919;
+  --desk: #1f1f1f;
+  --card: #262626;
+  --line: #313131;
+  --paper: #ededed;
+  --faded: #9a9a9a;
+  --dim: #6a6a6a;
+  --lamp: #4a9eea;
+  --lamp-dim: #2c5f8a;
+  --ember: #d4574a;
+  --moss: #5fa873;
+  --grain-opacity: 0;
+}
+
+/* cool — slate & blue (calm, software-like) */
+[data-palette="cool"] {
+  --ink: #f7f8fa;
+  --desk: #eef1f5;
+  --card: #e5eaf1;
+  --line: #d8dde5;
+  --paper: #1e2227;
+  --faded: #5b6470;
+  --dim: #939caa;
+  --lamp: #3a6ea5;
+  --lamp-dim: #9db6d2;
+  --ember: #b8493a;
+  --moss: #4d8a6a;
+  --grain-opacity: 0.025;
+}
+.dark[data-palette="cool"] {
+  --ink: #14171a;
+  --desk: #191d22;
+  --card: #1f242b;
+  --line: #2a3038;
+  --paper: #e4e8ee;
+  --faded: #8b95a3;
+  --dim: #5a6470;
+  --lamp: #6ba3d6;
+  --lamp-dim: #3d5f80;
+  --ember: #cc6354;
+  --moss: #6fa888;
+  --grain-opacity: 0.025;
+}
+
+/* ── typography presets ───────────────────────────────────── */
+[data-font="clean"] {
+  --font-display: "IBM Plex Sans Variable", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
+}
+[data-font="literary"] {
+  --font-display: "Newsreader Variable", Georgia, serif;
+  --font-body: "Newsreader Variable", Georgia, serif;
+}
+[data-font="mono"] {
+  --font-display: "IBM Plex Mono", monospace;
+  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
+}
+
+/* ── density presets ──────────────────────────────────────── */
+[data-density="compact"] {
+  --app-font-size: 13.5px;
+  --prose-leading: 1.5;
+}
+
 @theme inline {
-  --font-serif: "Newsreader Variable", Georgia, serif;
-  --font-sans: "IBM Plex Sans Variable", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-serif: var(--font-display);
+  --font-sans: var(--font-body);
+  --font-mono: var(--font-mono-set);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -124,7 +234,7 @@
     background: var(--color-ink);
     color: var(--color-paper);
     font-family: var(--font-sans);
-    font-size: 15px;
+    font-size: var(--app-font-size);
     -webkit-font-smoothing: antialiased;
   }
 }
@@ -185,7 +295,7 @@ body::after {
 
 /* rendered markdown (wiki pages, chat replies, digest) */
 .prose-meos {
-  line-height: 1.7;
+  line-height: var(--prose-leading);
   color: var(--paper);
 }
 .prose-meos h1,

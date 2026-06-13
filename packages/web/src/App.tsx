@@ -1,3 +1,4 @@
+import { Inbox, Library, type LucideIcon, MessageSquare, Newspaper, PenLine, Search, Settings, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -15,12 +16,12 @@ import { SettingsView } from "./views/SettingsView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
 
-const NAV = [
-  { to: "/", label: "Chat", key: "1" },
-  { to: "/wiki", label: "Wiki", key: "2" },
-  { to: "/graph", label: "Graph", key: "3" },
-  { to: "/inbox", label: "Inbox", key: "4" },
-  { to: "/digest", label: "Digest", key: "5" },
+const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> = [
+  { to: "/", label: "Chat", key: "1", icon: MessageSquare },
+  { to: "/wiki", label: "Wiki", key: "2", icon: Library },
+  { to: "/graph", label: "Graph", key: "3", icon: Waypoints },
+  { to: "/inbox", label: "Inbox", key: "4", icon: Inbox },
+  { to: "/digest", label: "Digest", key: "5", icon: Newspaper },
 ];
 
 export function App() {
@@ -64,11 +65,8 @@ export function App() {
       {isTauri && <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-50 h-7" />}
 
       <aside className={cn("flex w-52 shrink-0 flex-col border-r border-line bg-desk/60 px-5 py-6", isTauri && "pt-10")}>
-        <h1 className="font-serif text-2xl italic tracking-tight text-paper">
-          Me<span className="text-lamp">OS</span>
-        </h1>
 
-        <nav className="mt-8 flex flex-col gap-1">
+        <nav className="flex flex-col gap-0.5">
           {NAV.map((item) => (
             <NavLink
               key={item.to}
@@ -76,51 +74,55 @@ export function App() {
               end={item.to === "/"}
               className={({ isActive }) =>
                 cn(
-                  "flex items-center justify-between rounded-md px-3 py-2 text-sm transition-colors",
-                  isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper",
+                  "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                  isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
                 )
               }
             >
-              <span className="flex items-center gap-2">
-                {item.label}
-                {item.to === "/inbox" && queuePending > 0 && (
-                  <span
-                    className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp"
-                    title={`absorbing ${queuePending} item${queuePending > 1 ? "s" : ""}`}
-                  />
-                )}
-              </span>
-              <Kbd className="bg-transparent text-[10px] text-dim">⌘{item.key}</Kbd>
+              <item.icon className="size-4 shrink-0 opacity-70" />
+              <span>{item.label}</span>
+              {item.to === "/inbox" && queuePending > 0 && (
+                <span
+                  className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp"
+                  title={`absorbing ${queuePending} item${queuePending > 1 ? "s" : ""}`}
+                />
+              )}
+              <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">
+                ⌘{item.key}
+              </Kbd>
             </NavLink>
           ))}
         </nav>
 
-        <div className="mt-auto flex flex-col gap-1">
+        <div className="mt-auto flex flex-col gap-0.5">
           <button
             onClick={() => setCaptureOpen(true)}
-            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-faded transition-colors hover:bg-card/60 hover:text-paper"
+            className="group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-faded transition-colors hover:bg-card/50 hover:text-paper"
           >
+            <PenLine className="size-4 shrink-0 opacity-70" />
             <span>Capture</span>
-            <Kbd className="bg-transparent text-[10px] text-dim">⌘J</Kbd>
+            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘J</Kbd>
           </button>
           <button
             onClick={() => setPaletteOpen(true)}
-            className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-faded transition-colors hover:bg-card/60 hover:text-paper"
+            className="group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-faded transition-colors hover:bg-card/50 hover:text-paper"
           >
+            <Search className="size-4 shrink-0 opacity-70" />
             <span>Jump to…</span>
-            <Kbd className="bg-transparent text-[10px] text-dim">⌘K</Kbd>
+            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘K</Kbd>
           </button>
           <NavLink
             to="/settings"
             className={({ isActive }) =>
               cn(
-                "flex items-center justify-between rounded-md px-3 py-1.5 text-sm transition-colors",
-                isActive ? "bg-card text-paper" : "text-faded hover:bg-card/60 hover:text-paper",
+                "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+                isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
               )
             }
           >
+            <Settings className="size-4 shrink-0 opacity-70" />
             <span>Settings</span>
-            <Kbd className="bg-transparent text-[10px] text-dim">⌘,</Kbd>
+            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘,</Kbd>
           </NavLink>
         </div>
       </aside>

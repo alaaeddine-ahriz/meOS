@@ -12,6 +12,7 @@ import type {
   ChatMessage,
   CompletionRequest,
   LlmClient,
+  StreamChunk,
   StructuredRequest,
 } from "./types.js";
 
@@ -89,13 +90,16 @@ export class AiSdkClient implements LlmClient {
     return object;
   }
 
-  async *stream(request: CompletionRequest): AsyncIterable<string> {
-    const { textStream } = streamText({
+  async *stream(request: CompletionRequest): AsyncIterable<StreamChunk> {
+    const { fullStream } = streamText({
       model: this.model,
       messages: this.buildMessages(request),
       maxOutputTokens: request.maxTokens ?? this.maxTokens,
     });
-    yield* textStream;
+    for await (const part of fullStream) {
+      if (part.type === "text-delta") yield { type: "text", text: part.text };
+      else if (part.type === "reasoning-delta") yield { type: "reasoning", text: part.text };
+    }
   }
 
   async runAgent(request: AgentRequest): Promise<AgentResult> {

@@ -45,13 +45,18 @@ export interface AgentResult {
   steps: number;
 }
 
+/** A streamed completion chunk: either visible answer text or model reasoning. */
+export type StreamChunk =
+  | { type: "text"; text: string }
+  | { type: "reasoning"; text: string };
+
 export interface LlmClient {
   /** Single text completion. */
   complete(request: CompletionRequest): Promise<string>;
   /** Completion constrained to a zod schema; returns the validated object. */
   completeStructured<T>(request: StructuredRequest<T>): Promise<T>;
-  /** Streaming completion; yields text deltas. */
-  stream(request: CompletionRequest): AsyncIterable<string>;
+  /** Streaming completion; yields answer-text and reasoning chunks. */
+  stream(request: CompletionRequest): AsyncIterable<StreamChunk>;
   /** Multi-step tool-using run over a bash-tool sandbox. */
   runAgent(request: AgentRequest): Promise<AgentResult>;
 }

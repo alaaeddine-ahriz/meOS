@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Page, PageHeader } from "@/components/Page";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
+import { clearWikiTrail } from "@/lib/wiki-trail";
 import { api, type EntitySummary } from "../api.js";
 
 export function WikiView() {
@@ -10,6 +12,8 @@ export function WikiView() {
   const [filter, setFilter] = useState<string | null>(null);
 
   useEffect(() => {
+    // arriving at the index starts a fresh breadcrumb path
+    clearWikiTrail();
     api
       .listEntities()
       .then((r) => setEntities(r.entities))
@@ -31,16 +35,13 @@ export function WikiView() {
   const visible = filter ? groups.filter((g) => g.type === filter) : groups;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-10">
-        <header className="rise">
-          <h2 className="font-serif text-3xl text-paper">Wiki</h2>
-          <p className="mt-1 text-sm text-dim">
-            {entities.length} pages, written and maintained by the system — never by you.
-          </p>
-        </header>
+    <Page>
+      <PageHeader
+        title="Wiki"
+        description={`${entities.length} pages, written and maintained by the system — never by you.`}
+      />
 
-        {groups.length > 1 && (
+      {groups.length > 1 && (
           <div className="rise rise-1 mt-6 flex flex-wrap gap-1.5">
             <button
               onClick={() => setFilter(null)}
@@ -99,7 +100,6 @@ export function WikiView() {
             </ul>
           </section>
         ))}
-      </div>
-    </div>
+    </Page>
   );
 }

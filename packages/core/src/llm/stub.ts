@@ -3,6 +3,7 @@ import type {
   AgentResult,
   CompletionRequest,
   LlmClient,
+  StreamChunk,
   StructuredRequest,
 } from "./types.js";
 
@@ -40,11 +41,11 @@ export class StubLlmClient implements LlmClient {
     return request.schema.parse(raw);
   }
 
-  async *stream(request: CompletionRequest): AsyncIterable<string> {
+  async *stream(request: CompletionRequest): AsyncIterable<StreamChunk> {
     this.requests.push({ kind: "stream", request });
     const text = this.handlers.onComplete?.(request) ?? "stub response";
     for (const word of text.split(/(?<=\s)/)) {
-      yield word;
+      yield { type: "text", text: word };
     }
   }
 

@@ -1,4 +1,5 @@
 import type { ChatStatus } from "ai";
+import { FileText, Library, Paperclip, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, streamChat, type EntitySummary, type Message as MessageRecord, type SourceRef } from "../api.js";
@@ -11,14 +12,50 @@ import {
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuItem,
+  PromptInputActionMenuTrigger,
   PromptInputBody,
+  PromptInputFooter,
+  PromptInputHeader,
+  PromptInputProvider,
   PromptInputSubmit,
   PromptInputTextarea,
+  PromptInputTools,
+  usePromptInputController,
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { Shimmer } from "@/components/ai-elements/shimmer";
+import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { InputGroupAddon } from "@/components/ui/input-group";
+import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { resolveWikiLinks } from "@/lib/wikilinks";
+
+const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
+  { label: "Catch me up", prompt: "What has changed across my notes recently?" },
+  { label: "About someone", prompt: "Tell me about the people I've been working with lately." },
+  { label: "Project status", prompt: "Summarise the current state of my active projects." },
+  { label: "Recall a decision", prompt: "What decisions have I made recently, and why?" },
+];
+
+// Text formats MeOS can read; references to other files are declined client-side.
+const TEXT_FILE_ACCEPT = ".md,.markdown,.txt,.csv,.json,.org";
+const MAX_FILE_CHARS = 20000;
+
+interface FileRef {
+  name: string;
+  text: string;
+}
 
 export function ChatView() {
   // the active conversation lives in the URL (?c=<id>) so the command palette
@@ -29,8 +66,10 @@ export function ChatView() {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<string | null>(null);
-  // sources arrive per streamed reply, keyed by the assistant message's index
+  // sources and reasoning arrive per streamed reply, keyed by the assistant
+  // message's index
   const [liveSources, setLiveSources] = useState<ReadonlyMap<number, SourceRef[]>>(new Map());
+  const [liveReasoning, setLiveReasoning] = useState<ReadonlyMap<number, string>>(new Map());
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
@@ -46,6 +85,7 @@ export function ChatView() {
       return;
     }
     setLiveSources(new Map());
+    setLiveReasoning(new Map());
     setError(null);
     setStatus("ready");
     if (activeId === null) {
@@ -89,6 +129,10 @@ export function ChatView() {
           }
         } else if (event.type === "sources") {
           setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
+        } else if (event.type === "reasoning") {
+          setLiveReasoning((current) =>
+            new Map(current).set(assistantIndex, (current.get(assistantIndex) ?? "") + event.text),
+          );
         } else if (event.type === "delta") {
           setStatus("streaming");
           setMessages((current) => {
@@ -108,83 +152,253 @@ export function ChatView() {
     }
   };
 
-  const onSubmit = (message: PromptInputMessage) => {
-    const text = message.text?.trim();
-    if (!text || busy) return;
-    void send(text);
-  };
-
   const lastIndex = messages.length - 1;
 
-  return (
-    <div className="flex h-full min-w-0 flex-col">
-      {messages.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-6">
-          <div className="rise max-w-md text-center">
-            <p className="font-serif text-3xl italic text-faded">What do you want to recall?</p>
-            <p className="mt-3 text-sm text-dim">
-              Ask about anything you've captured — people, projects, decisions. Answers come only
-              from your own knowledge base.
-            </p>
+  if (messages.length === 0) {
+    return (
+      <PromptInputProvider>
+        <div className="flex h-full flex-col items-center justify-center px-6">
+          <div className="w-full max-w-2xl">
+            <div className="rise flex flex-col items-center text-center">
+           
+              <h1 className="mt-5 font-serif text-3xl text-paper">How can I help you today?</h1>
+            </div>
+
+            <div className="rise rise-1 mt-7">
+              <Composer status={status} busy={busy} onSend={send} entities={entities} />
+            </div>
+
+            <div className="rise rise-2 mt-5">
+              <Suggestions className="justify-center">
+                {SUGGESTIONS.map(({ label, prompt }) => (
+                  <SuggestionPill key={label} label={label} prompt={prompt} />
+                ))}
+              </Suggestions>
+            </div>
           </div>
         </div>
-      ) : (
+      </PromptInputProvider>
+    );
+  }
+
+  return (
+    <PromptInputProvider>
+      <div className="flex h-full min-w-0 flex-col">
         <Conversation className="flex-1">
-          <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-8">
+          <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-10">
             <>
-              {messages.map((message, index) => (
-                <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
-                  <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
-                    {message.role === "assistant" ? (
-                      message.content ? (
-                        <div onClick={onProseClick} className="text-[15px]">
-                          <MessageResponse
-                            className="prose-meos"
-                            isAnimating={busy && index === lastIndex}
-                          >
-                            {resolveWikiLinks(message.content, entities)}
-                          </MessageResponse>
-                          <div className="mt-3">
-                            <SourceList sources={liveSources.get(index) ?? message.sources ?? []} />
-                          </div>
-                        </div>
+              {messages.map((message, index) => {
+                const reasoning = liveReasoning.get(index);
+                return (
+                  <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
+                    <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
+                      {message.role === "assistant" ? (
+                        <>
+                          {reasoning && (
+                            <Reasoning className="mb-1" isStreaming={busy && index === lastIndex && !message.content}>
+                              <ReasoningTrigger />
+                              <ReasoningContent>{reasoning}</ReasoningContent>
+                            </Reasoning>
+                          )}
+                          {message.content ? (
+                            <div onClick={onProseClick} className="text-[15px]">
+                              <MessageResponse className="prose-meos" isAnimating={busy && index === lastIndex}>
+                                {resolveWikiLinks(message.content, entities)}
+                              </MessageResponse>
+                              <div className="mt-3">
+                                <SourceList sources={liveSources.get(index) ?? message.sources ?? []} />
+                              </div>
+                            </div>
+                          ) : reasoning ? null : (
+                            <Shimmer className="text-sm" duration={1.6}>
+                              Consulting the knowledge base…
+                            </Shimmer>
+                          )}
+                        </>
                       ) : (
-                        <Shimmer className="text-sm" duration={1.6}>
-                          Consulting the knowledge base…
-                        </Shimmer>
-                      )
-                    ) : (
-                      message.content
-                    )}
-                  </MessageContent>
-                </Message>
-              ))}
+                        message.content
+                      )}
+                    </MessageContent>
+                  </Message>
+                );
+              })}
               {error && <p className="text-sm text-ember">⚠ {error}</p>}
             </>
           </ConversationContent>
           <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
         </Conversation>
-      )}
 
-      <div className="px-6 pb-5 pt-1">
-        <PromptInput
-          onSubmit={onSubmit}
-          className="mx-auto max-w-2xl rounded-xl border-line bg-desk shadow-none focus-within:border-lamp-dim"
-        >
-          <PromptInputBody>
-            <PromptInputTextarea
-              placeholder="Ask your second brain…"
-              className="min-h-10 text-[14px] text-paper placeholder:text-dim"
-            />
-            <InputGroupAddon align="inline-end">
-              <PromptInputSubmit
-                status={status}
-                className="rounded-lg bg-lamp text-ink hover:bg-lamp/85"
-              />
-            </InputGroupAddon>
-          </PromptInputBody>
-        </PromptInput>
+        <div className="px-6 pb-5 pt-1">
+          <div className="mx-auto max-w-2xl">
+            <Composer status={status} busy={busy} onSend={send} entities={entities} />
+          </div>
+        </div>
       </div>
-    </div>
+    </PromptInputProvider>
+  );
+}
+
+/**
+ * The prompt input, bound to the shared PromptInputProvider so suggestions can
+ * fill it. The action menu lets the user attach references — wiki pages (sent as
+ * [[mentions]] the retrieval pipeline understands) and text files (inlined as
+ * context) — shown as removable chips above the textarea.
+ */
+function Composer({
+  status,
+  busy,
+  onSend,
+  entities,
+}: {
+  status: ChatStatus;
+  busy: boolean;
+  onSend: (text: string) => void;
+  entities: EntitySummary[];
+}) {
+  const [wikiRefs, setWikiRefs] = useState<EntitySummary[]>([]);
+  const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
+  const [wikiPickerOpen, setWikiPickerOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const addWiki = (entity: EntitySummary) => {
+    setWikiRefs((current) => (current.some((e) => e.id === entity.id) ? current : [...current, entity]));
+    setWikiPickerOpen(false);
+  };
+
+  const handleFiles = async (fileList: FileList | null) => {
+    if (!fileList) return;
+    const read = await Promise.all(
+      [...fileList].map(async (file) => ({ name: file.name, text: (await file.text()).slice(0, MAX_FILE_CHARS) })),
+    );
+    setFileRefs((current) => [...current, ...read]);
+  };
+
+  const onSubmit = (message: PromptInputMessage) => {
+    const text = message.text?.trim();
+    if ((!text && wikiRefs.length === 0 && fileRefs.length === 0) || busy) return;
+    const parts: string[] = [];
+    if (wikiRefs.length > 0) parts.push(wikiRefs.map((e) => `[[${e.name}]]`).join(" "));
+    for (const file of fileRefs) parts.push(`<file name="${file.name}">\n${file.text}\n</file>`);
+    if (text) parts.push(text);
+    onSend(parts.join("\n\n"));
+    setWikiRefs([]);
+    setFileRefs([]);
+  };
+
+  const hasRefs = wikiRefs.length > 0 || fileRefs.length > 0;
+
+  return (
+    <>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept={TEXT_FILE_ACCEPT}
+        className="hidden"
+        onChange={(event) => {
+          void handleFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+
+      <PromptInput
+        onSubmit={onSubmit}
+        className="rounded-2xl border-line bg-desk shadow-sm transition-colors focus-within:border-lamp-dim"
+      >
+        {hasRefs && (
+          <PromptInputHeader className="px-3 pt-2.5">
+            {wikiRefs.map((entity) => {
+              const Icon = ENTITY_TYPES[entity.type]?.icon ?? Library;
+              return (
+                <RefChip key={`w-${entity.id}`} onRemove={() => setWikiRefs((c) => c.filter((e) => e.id !== entity.id))}>
+                  <Icon className="size-3.5 text-lamp" />
+                  {entity.name}
+                </RefChip>
+              );
+            })}
+            {fileRefs.map((file, index) => (
+              <RefChip key={`f-${index}`} onRemove={() => setFileRefs((c) => c.filter((_, i) => i !== index))}>
+                <FileText className="size-3.5 text-dim" />
+                {file.name}
+              </RefChip>
+            ))}
+          </PromptInputHeader>
+        )}
+
+        <PromptInputBody>
+          <PromptInputTextarea
+            placeholder="Ask your second brain…"
+            className="min-h-12 text-[15px] text-paper placeholder:text-dim"
+          />
+        </PromptInputBody>
+
+        <PromptInputFooter className="px-2.5 pb-2">
+          <PromptInputTools>
+            <PromptInputActionMenu>
+              <PromptInputActionMenuTrigger className="text-dim hover:text-paper" />
+              <PromptInputActionMenuContent className="border-line bg-desk">
+                <PromptInputActionMenuItem onSelect={() => setTimeout(() => setWikiPickerOpen(true), 0)}>
+                  <Library className="mr-2 size-4" /> Reference a wiki page
+                </PromptInputActionMenuItem>
+                <PromptInputActionMenuItem onSelect={() => fileInputRef.current?.click()}>
+                  <Paperclip className="mr-2 size-4" /> Attach a file
+                </PromptInputActionMenuItem>
+              </PromptInputActionMenuContent>
+            </PromptInputActionMenu>
+          </PromptInputTools>
+          <PromptInputSubmit status={status} className="rounded-lg bg-lamp text-ink hover:bg-lamp/85" />
+        </PromptInputFooter>
+      </PromptInput>
+
+      <CommandDialog
+        open={wikiPickerOpen}
+        onOpenChange={setWikiPickerOpen}
+        showCloseButton={false}
+        className="top-[18vh] translate-y-0 border-line bg-desk"
+      >
+        <CommandInput placeholder="Reference a wiki page…" className="text-paper placeholder:text-dim" />
+        <CommandList className="max-h-72">
+          <CommandEmpty className="py-3 text-sm text-dim">No pages match.</CommandEmpty>
+          <CommandGroup heading="Wiki">
+            {entities.map((entity) => {
+              const Icon = ENTITY_TYPES[entity.type]?.icon ?? Library;
+              return (
+                <CommandItem key={entity.id} value={`${entity.name} ${entity.type}`} onSelect={() => addWiki(entity)}>
+                  <Icon className="size-3.5 text-dim" />
+                  <span>{entity.name}</span>
+                  <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">{entity.type}</span>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        </CommandList>
+      </CommandDialog>
+    </>
+  );
+}
+
+/** A removable reference chip shown in the prompt input header. */
+function RefChip({ children, onRemove }: { children: React.ReactNode; onRemove: () => void }) {
+  return (
+    <span className="flex items-center gap-1.5 rounded-md border border-line bg-card px-2 py-1 text-[12px] text-faded">
+      {children}
+      <button onClick={onRemove} className="text-dim transition-colors hover:text-ember" aria-label="Remove reference">
+        <X className="size-3" />
+      </button>
+    </span>
+  );
+}
+
+/** A suggestion pill that pastes its prompt into the shared input rather than sending. */
+function SuggestionPill({ label, prompt }: { label: string; prompt: string }) {
+  const { textInput } = usePromptInputController();
+  return (
+    <Suggestion
+      suggestion={prompt}
+      onClick={(value) => textInput.setInput(value)}
+      className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-card hover:text-paper"
+    >
+      {label}
+    </Suggestion>
   );
 }

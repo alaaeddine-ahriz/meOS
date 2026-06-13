@@ -1,11 +1,13 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Library } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Breadcrumbs, type Crumb, Page } from "@/components/Page";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { stripWikiMarkup } from "@/lib/wikilinks";
+import { pushWikiTrail, readWikiTrail, type TrailEntry } from "@/lib/wiki-trail";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { Markdown } from "../components/Markdown.js";
 import { SourceList } from "../components/SourceList.js";
@@ -23,6 +25,7 @@ export function WikiPageView() {
   const [page, setPage] = useState<WikiPage | null>(null);
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [trail, setTrail] = useState<TrailEntry[]>(readWikiTrail());
 
   useEffect(() => {
     setPage(null);
@@ -32,30 +35,38 @@ export function WikiPageView() {
     api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
   }, [slug]);
 
+  // record the visit once the page name is known, so the breadcrumb reads well
+  useEffect(() => {
+    if (slug && page) setTrail(pushWikiTrail(slug, page.entity.name));
+  }, [slug, page]);
+
   if (error) {
     return (
-      <div className="p-10 text-sm text-faded">
-        That page doesn't exist. <Link className="text-lamp" to="/wiki">Back to the wiki.</Link>
-      </div>
+      <Page>
+        <p className="text-sm text-faded">
+          That page doesn't exist. <Link className="text-lamp" to="/wiki">Back to the wiki.</Link>
+        </p>
+      </Page>
     );
   }
   if (!page) return null;
 
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="mx-auto max-w-2xl px-8 py-10">
-        <nav className="rise flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
-          <Link to="/wiki" className="hover:text-faded">wiki</Link>
-          <span>/</span>
-          {(() => {
-            const Icon = ENTITY_TYPES[page.entity.type]?.icon;
-            return Icon ? <Icon className="size-3.5" /> : null;
-          })()}
-          <span>{page.entity.type}</span>
-        </nav>
+  const TypeIcon = ENTITY_TYPES[page.entity.type]?.icon;
+  const crumbs: Crumb[] = [
+    { label: "Wiki", to: "/wiki", icon: Library },
+    ...trail.map((entry) => ({
+      label: entry.name,
+      to: `/wiki/${entry.slug}`,
+      ...(entry.slug === slug && TypeIcon ? { icon: TypeIcon } : {}),
+    })),
+  ];
 
-        <header className="rise rise-1 mt-4">
-          <h2 className="font-serif text-4xl text-paper">{page.entity.name}</h2>
+  return (
+    <Page>
+        <Breadcrumbs items={crumbs} className="rise" />
+
+        <header className="rise rise-1">
+          <h2 className="font-serif text-3xl text-paper">{page.entity.name}</h2>
           {page.entity.summary && (
             <p className="mt-2 text-[15px] italic text-faded">{stripWikiMarkup(page.entity.summary)}</p>
           )}
@@ -134,7 +145,6 @@ export function WikiPageView() {
             </CollapsibleContent>
           </Collapsible>
         </section>
-      </div>
-    </div>
+    </Page>
   );
 }

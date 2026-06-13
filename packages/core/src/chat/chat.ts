@@ -5,6 +5,7 @@ import { buildContextPack } from "./retrieval.js";
 
 export type ChatResponseEvent =
   | { type: "sources"; sources: SourceRef[] }
+  | { type: "reasoning"; text: string }
   | { type: "delta"; text: string };
 
 const SYSTEM_PROMPT = `You are MeOS, the user's personal second brain. You answer questions using ONLY the user's own accumulated knowledge base, provided as context with each question.
@@ -57,13 +58,17 @@ export class ChatService {
     }
 
     let reply = "";
-    for await (const delta of this.llm.stream({
+    for await (const chunk of this.llm.stream({
       system: SYSTEM_PROMPT,
       cacheSystem: true,
       messages,
     })) {
-      reply += delta;
-      yield { type: "delta", text: delta };
+      if (chunk.type === "reasoning") {
+        yield { type: "reasoning", text: chunk.text };
+        continue;
+      }
+      reply += chunk.text;
+      yield { type: "delta", text: chunk.text };
     }
     const messageId = this.store.addMessage(conversationId, "assistant", reply);
     if (context.sources.length > 0) {

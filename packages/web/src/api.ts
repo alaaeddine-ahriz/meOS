@@ -137,6 +137,7 @@ export interface SourceDiff {
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
+  | { type: "reasoning"; text: string }
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; message: string };
