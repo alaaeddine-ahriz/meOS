@@ -76,7 +76,7 @@ export interface WatchedFolder {
   path: string;
 }
 
-export type LlmProvider = "anthropic" | "openai" | "google" | "ollama";
+export type LlmProvider = "anthropic" | "openai" | "google" | "local";
 
 export interface LlmSettings {
   provider: LlmProvider;
@@ -85,7 +85,7 @@ export interface LlmSettings {
     anthropic: { model: string; hasKey: boolean };
     openai: { model: string; hasKey: boolean };
     google: { model: string; hasKey: boolean };
-    ollama: { model: string; baseUrl: string };
+    local: { model: string; baseUrl: string };
   };
 }
 
@@ -227,6 +227,15 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify(update),
     }),
+  // Models available on a local OpenAI-compatible server. Surfaces the server's
+  // friendly error message (rather than the raw status) so Settings can show it.
+  listLocalModels: async (baseUrl?: string): Promise<{ models: string[] }> => {
+    const query = baseUrl ? `?baseUrl=${encodeURIComponent(baseUrl)}` : "";
+    const response = await fetch(`${API_BASE}/api/settings/llm/local/models${query}`);
+    const data = (await response.json().catch(() => ({}))) as { models?: string[]; error?: string };
+    if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
+    return { models: data.models ?? [] };
+  },
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   getLatestDigest: () => json<{ date: string; content: string }>("/api/digest/latest"),

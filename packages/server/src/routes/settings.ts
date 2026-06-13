@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import {
   createLlmClient,
   ensureDataDirs,
+  normalizeLocalBaseUrl,
   PROVIDER_MODELS,
   resetDatabase,
   type LlmProvider,
@@ -35,7 +36,7 @@ function llmSettingsView(ctx: AppContext) {
       anthropic: { model: llm.anthropic.model, hasKey: hasKey(ctx, "anthropic") },
       openai: { model: llm.openai.model, hasKey: hasKey(ctx, "openai") },
       google: { model: llm.google.model, hasKey: hasKey(ctx, "google") },
-      ollama: { model: llm.ollama.model, baseUrl: llm.ollama.baseUrl },
+      local: { model: llm.local.model, baseUrl: llm.local.baseUrl },
     },
   };
 }
@@ -43,20 +44,53 @@ function llmSettingsView(ctx: AppContext) {
 export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/api/settings/llm", async () => llmSettingsView(ctx));
 
+  // Discover the models a local OpenAI-compatible server (LM Studio, llama.cpp,
+  // Ollama's /v1) currently has available, so Settings can offer a picker rather
+  // than a blind text field. Proxied through the server to dodge browser CORS and
+  // because the desktop shell calls our API anyway. `baseUrl` defaults to the
+  // saved endpoint but the UI passes its live input so models can be detected
+  // before saving.
+  app.get<{ Querystring: { baseUrl?: string } }>("/api/settings/llm/local/models", async (request, reply) => {
+    const base = normalizeLocalBaseUrl(request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl);
+    if (!base) {
+      return reply.code(400).send({ error: "No local endpoint configured" });
+    }
+    try {
+      const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
+      // LM Studio answers an unknown route with HTTP 200 and an { error } body,
+      // so a real model list is the one with a `data` array — not just an ok status.
+      const body = (await response.json().catch(() => ({}))) as { data?: Array<{ id?: string }>; error?: string };
+      if (!response.ok || !Array.isArray(body.data)) {
+        return reply.code(502).send({
+          error: `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
+        });
+      }
+      const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
+      return { models };
+    } catch {
+      return reply.code(502).send({ error: "Couldn't reach the local server — is it running at that endpoint?" });
+    }
+  });
+
   app.put<{ Body: { provider?: string; model?: string; apiKey?: string; baseUrl?: string } }>(
     "/api/settings/llm",
     async (request, reply) => {
       const { provider, model, apiKey, baseUrl } = request.body ?? {};
-      const validProviders: LlmProvider[] = ["anthropic", "openai", "google", "ollama"];
+      const validProviders: LlmProvider[] = ["anthropic", "openai", "google", "local"];
       if (!provider || !validProviders.includes(provider as LlmProvider)) {
         return reply.code(400).send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
       }
       const llm = ctx.config.llm;
       llm.provider = provider as LlmProvider;
 
-      if (provider === "ollama") {
-        if (model?.trim()) llm.ollama.model = model.trim();
-        if (baseUrl?.trim()) llm.ollama.baseUrl = baseUrl.trim();
+      if (provider === "local") {
+        if (model?.trim()) llm.local.model = model.trim();
+        // Store the canonical /v1 form so inference and discovery agree, and the
+        // UI reflects the corrected URL after saving.
+        if (baseUrl?.trim()) llm.local.baseUrl = normalizeLocalBaseUrl(baseUrl.trim());
+        if (!llm.local.baseUrl.trim()) {
+          return reply.code(400).send({ error: "A local endpoint URL is required (e.g. http://localhost:1234/v1)" });
+        }
       } else {
         const cloud = provider as CloudProvider;
         if (model?.trim()) {

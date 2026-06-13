@@ -44,7 +44,7 @@ and API key are configured in Settings, so no environment is needed. Overrides:
 ## Using it
 
 - **Capture (⌘J)** — jot a thought from anywhere in the app; MeOS files it in the background.
-- **Settings (⌘,)** — pick the folders MeOS should watch (native folder picker in the desktop app), choose light / dark / system appearance, and pick the LLM provider (Anthropic, OpenAI, Google, or local Ollama — paste an API key, choose a model; applies immediately, no restart). Everything readable in watched folders (`.md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp`) is absorbed automatically — new files and edits alike, across restarts, exactly once per file version. Images are read by the LLM (text transcribed, content described) and absorbed like any note. Your files are never moved or modified.
+- **Settings (⌘,)** — pick the folders MeOS should watch (native folder picker in the desktop app), choose light / dark / system appearance, and pick the LLM provider (Anthropic, OpenAI, Google, or a local OpenAI-compatible server like LM Studio — paste an API key or point at a local endpoint, choose a model; applies immediately, no restart). Everything readable in watched folders (`.md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp`) is absorbed automatically — new files and edits alike, across restarts, exactly once per file version. Images are read by the LLM (text transcribed, content described) and absorbed like any note. Your files are never moved or modified.
 - **Inbox** — what came in: each item's processing status and what the system learned from it.
 - **Wiki** — pages per person / project / organisation / concept / place / decision, written and continuously rewritten by the LLM from accumulated facts. You never edit them.
 - **Graph (⌘3)** — a force-directed map of every entity and the relationships between them, coloured by type. Pan, zoom, hover to trace a node's connections, and click any node to open its wiki page.
@@ -54,7 +54,7 @@ and API key are configured in Settings, so no environment is needed. Overrides:
 
 ## Configuration
 
-The LLM provider, model, and API key are defined in **Settings** only (persisted in `data/meos.db`) — Anthropic (default), OpenAI, Google, or Ollama for fully local operation (`ollama pull llama3.1`, no API key, nothing leaves the machine). Environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) act as fallbacks when no key was pasted in Settings; `MEOS_LLM_PROVIDER` overrides the provider per-run.
+The LLM provider, model, and API key are defined in **Settings** only (persisted in `data/meos.db`) — Anthropic (default), OpenAI, Google, or a local OpenAI-compatible server (LM Studio, llama.cpp, Ollama's `/v1`) for fully local operation — point at its endpoint (e.g. `http://localhost:1234/v1`), no API key, nothing leaves the machine. Environment keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`) act as fallbacks when no key was pasted in Settings; `MEOS_LLM_PROVIDER` overrides the provider per-run.
 
 `meos.config.json` at the repo root holds infrastructure config only (all fields optional; defaults shown there). Notable:
 
@@ -74,7 +74,7 @@ Everything lives in `data/` in portable formats: wiki pages and digests are plai
 packages/
 ├── core/    domain logic, no HTTP — ingestion pipeline, knowledge store,
 │            extraction, agentic wiki writer, memory maintenance, LLM (Vercel
-│            AI SDK: Anthropic / OpenAI / Google / Ollama / test stub) +
+│            AI SDK: Anthropic / OpenAI / Google / local OpenAI-compatible / test stub) +
 │            on-device embeddings
 ├── server/  Fastify API, background job queue, watch folder, cron scheduler,
 │            git sync of the data dir
@@ -92,7 +92,7 @@ Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind 
 
 | Dependency | Why |
 |---|---|
-| `ai` (Vercel AI SDK) + `@ai-sdk/anthropic` / `@ai-sdk/openai` / `@ai-sdk/google` / `ollama-ai-provider-v2` | One client, every provider — unified completion / structured-output / streaming / tool-use behind a single `LlmClient` |
+| `ai` (Vercel AI SDK) + `@ai-sdk/anthropic` / `@ai-sdk/openai` / `@ai-sdk/google` (the OpenAI client also drives any local OpenAI-compatible server) | One client, every provider — unified completion / structured-output / streaming / tool-use behind a single `LlmClient` |
 | `bash-tool` + `just-bash` | In-memory sandbox + bash/file tools that let the wiki writer search and edit pages agentically |
 | `@huggingface/transformers` | On-device embeddings — privacy + offline by construction |
 | `better-sqlite3` | Synchronous, in-process, standard-format storage |

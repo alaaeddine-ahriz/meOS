@@ -1,7 +1,6 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { createOllama } from "ollama-ai-provider-v2";
 import type { MeosConfig } from "../config.js";
 import { AiSdkClient } from "./ai-sdk.js";
 import { StubLlmClient } from "./stub.js";
@@ -19,6 +18,19 @@ export const PROVIDER_MODELS: Record<"anthropic" | "openai" | "google", string[]
     "gemini-2.5-flash-lite",
   ],
 };
+
+/**
+ * Coerce a local server URL onto its OpenAI-compatible `/v1` surface. Users
+ * commonly paste what LM Studio shows as the server address (`http://host:1234`)
+ * without the `/v1` the OpenAI endpoints actually live under — appending it
+ * keeps both inference (`/v1/chat/completions`) and discovery (`/v1/models`)
+ * working. A URL that already ends in a version segment is left untouched.
+ */
+export function normalizeLocalBaseUrl(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "");
+  if (!trimmed) return trimmed;
+  return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
+}
 
 /**
  * Build the right AI SDK provider/model from config and wrap it once in the
@@ -46,9 +58,16 @@ export function createLlmClient(config: MeosConfig): LlmClient {
       const provider = createGoogleGenerativeAI({ apiKey: llm.google.apiKey });
       return new AiSdkClient(provider(llm.google.model), undefined, undefined, "google");
     }
-    case "ollama": {
-      const provider = createOllama({ baseURL: `${llm.ollama.baseUrl}/api` });
-      return new AiSdkClient(provider(llm.ollama.model), undefined, undefined, "ollama");
+    case "local": {
+      // Any OpenAI-compatible local server (LM Studio, llama.cpp, Ollama's /v1).
+      // The key is unused by local servers but the SDK requires a non-empty one.
+      // `.chat()` forces the /chat/completions route these servers implement.
+      const provider = createOpenAI({
+        baseURL: normalizeLocalBaseUrl(llm.local.baseUrl),
+        apiKey: "local",
+        name: "local",
+      });
+      return new AiSdkClient(provider.chat(llm.local.model), undefined, undefined, "local");
     }
     case "stub":
       return new StubLlmClient();

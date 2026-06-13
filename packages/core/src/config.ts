@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { ensureSchemaDoc } from "./knowledge/schema-doc.js";
 
-export type LlmProvider = "anthropic" | "openai" | "google" | "ollama" | "stub";
+export type LlmProvider = "anthropic" | "openai" | "google" | "local" | "stub";
 
 export interface LlmConfig {
   provider: LlmProvider;
@@ -19,7 +19,12 @@ export interface LlmConfig {
     model: string;
     apiKey?: string;
   };
-  ollama: {
+  /**
+   * A locally-served, OpenAI-compatible endpoint (LM Studio, llama.cpp, Ollama's
+   * /v1, etc.). `baseUrl` points at the server's OpenAI-compatible base (commonly
+   * ending in `/v1`); `model` is the served model's identifier.
+   */
+  local: {
     baseUrl: string;
     model: string;
   };
@@ -54,9 +59,9 @@ export const defaultConfig: MeosConfig = {
     google: {
       model: "gemini-2.5-pro",
     },
-    ollama: {
-      baseUrl: "http://localhost:11434",
-      model: "llama3.1",
+    local: {
+      baseUrl: "http://localhost:1234/v1",
+      model: "",
     },
   },
   embedding: {
@@ -71,7 +76,7 @@ export const defaultConfig: MeosConfig = {
   },
 };
 
-export const LLM_PROVIDERS: LlmProvider[] = ["anthropic", "openai", "google", "ollama", "stub"];
+export const LLM_PROVIDERS: LlmProvider[] = ["anthropic", "openai", "google", "local", "stub"];
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
   const result = { ...base };
@@ -119,12 +124,16 @@ export function loadConfig(rootDir: string): MeosConfig {
  */
 export function overlayStoredLlmConfig(config: MeosConfig, stored: Partial<LlmConfig> | undefined): void {
   if (stored) {
+    // Migrate settings saved under the old "ollama" provider: fold its endpoint
+    // into the generic local provider so existing users aren't reset.
+    const legacy = stored as Partial<LlmConfig> & { ollama?: { baseUrl?: string; model?: string } };
+    const provider = (legacy.provider === ("ollama" as LlmProvider) ? "local" : legacy.provider) ?? config.llm.provider;
     config.llm = {
-      provider: stored.provider ?? config.llm.provider,
+      provider,
       anthropic: { ...config.llm.anthropic, ...stored.anthropic },
       openai: { ...config.llm.openai, ...stored.openai },
       google: { ...config.llm.google, ...stored.google },
-      ollama: { ...config.llm.ollama, ...stored.ollama },
+      local: { ...config.llm.local, ...legacy.ollama, ...stored.local },
     };
   }
   const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;

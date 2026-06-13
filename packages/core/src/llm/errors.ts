@@ -65,8 +65,8 @@ export function providerLabel(provider: string): string {
       return "OpenAI";
     case "google":
       return "Google Gemini";
-    case "ollama":
-      return "Ollama";
+    case "local":
+      return "the local model server";
     default:
       return provider;
   }
@@ -125,7 +125,7 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
     (error instanceof Error && (error.cause as { code?: string } | undefined)?.code === "ECONNREFUSED")
   ) {
     return new LlmError(
-      `Couldn't reach ${who}. Check your connection${provider === "ollama" ? " and that Ollama is running" : ""}.`,
+      `Couldn't reach ${who}. Check your connection${provider === "local" ? " and that the local server is running at the configured endpoint" : ""}.`,
       "connection",
       provider,
       undefined,

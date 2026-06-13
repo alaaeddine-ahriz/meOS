@@ -76,10 +76,10 @@ describe("normalizeLlmError", () => {
     expect(error.message).toMatch(/gpt-nope/);
   });
 
-  it("recognises a local connection failure for Ollama", () => {
-    const error = normalizeLlmError(new TypeError("fetch failed"), "ollama");
+  it("recognises a connection failure to a local model server", () => {
+    const error = normalizeLlmError(new TypeError("fetch failed"), "local");
     expect(error.kind).toBe("connection");
-    expect(error.message).toMatch(/Ollama/);
+    expect(error.message).toMatch(/local server is running/);
   });
 
   it("passes an already-normalized LlmError through unchanged", () => {

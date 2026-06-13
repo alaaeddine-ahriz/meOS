@@ -212,7 +212,7 @@ const PROVIDERS: Array<{ value: LlmProvider; label: string }> = [
   { value: "anthropic", label: "Anthropic" },
   { value: "openai", label: "OpenAI" },
   { value: "google", label: "Google" },
-  { value: "ollama", label: "Ollama (local)" },
+  { value: "local", label: "Local (LM Studio)" },
 ];
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
@@ -230,13 +230,17 @@ function IntelligenceSection() {
   const [llmError, setLlmError] = useState<string | null>(null);
   const [llmSaved, setLlmSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Models discovered on a local OpenAI-compatible server, for the picker.
+  const [localModels, setLocalModels] = useState<string[]>([]);
+  const [localModelsError, setLocalModelsError] = useState<string | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const applyLlm = (settings: LlmSettings, nextProvider?: LlmProvider) => {
     const active = nextProvider ?? settings.provider;
     setLlm(settings);
     setProvider(active);
     setModel(settings.providers[active].model);
-    setBaseUrl(settings.providers.ollama.baseUrl);
+    setBaseUrl(settings.providers.local.baseUrl);
   };
 
   useEffect(() => {
@@ -246,10 +250,35 @@ function IntelligenceSection() {
       .catch((e) => setLlmError(e instanceof Error ? e.message : String(e)));
   }, []);
 
+  // Ask the local server what it has loaded so the user picks from a list.
+  const refreshLocalModels = async (url: string) => {
+    if (!url.trim()) return;
+    setLoadingModels(true);
+    setLocalModelsError(null);
+    try {
+      const { models } = await api.listLocalModels(url.trim());
+      setLocalModels(models);
+      // Default to the first available model when the saved one isn't present.
+      if (models.length > 0 && !models.includes(model)) setModel(models[0]!);
+    } catch (e) {
+      setLocalModels([]);
+      setLocalModelsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  // Auto-detect models whenever the local provider becomes active.
+  useEffect(() => {
+    if (provider === "local" && baseUrl) void refreshLocalModels(baseUrl);
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const chooseProvider = (next: LlmProvider) => {
     setLlmError(null);
     setLlmSaved(false);
     setApiKey("");
+    setLocalModelsError(null);
+    if (next !== "local") setLocalModels([]);
     if (llm) applyLlm(llm, next);
     else setProvider(next);
   };
@@ -263,7 +292,7 @@ function IntelligenceSection() {
         provider,
         model: model || undefined,
         apiKey: apiKey.trim() || undefined,
-        baseUrl: provider === "ollama" ? baseUrl.trim() || undefined : undefined,
+        baseUrl: provider === "local" ? baseUrl.trim() || undefined : undefined,
       });
       applyLlm(updated, provider);
       setApiKey("");
@@ -275,7 +304,7 @@ function IntelligenceSection() {
     }
   };
 
-  const cloudProvider = provider !== "ollama";
+  const cloudProvider = provider !== "local";
   const keySaved = cloudProvider && llm ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey : false;
 
   return (
@@ -322,18 +351,54 @@ function IntelligenceSection() {
               </Select>
             ) : (
               <>
-                <Input
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
-                  placeholder="llama3.1"
-                  className={inputClass}
-                />
-                <Input
-                  value={baseUrl}
-                  onChange={(event) => setBaseUrl(event.target.value)}
-                  placeholder="http://localhost:11434"
-                  className={inputClass}
-                />
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={baseUrl}
+                    onChange={(event) => setBaseUrl(event.target.value)}
+                    placeholder="http://localhost:1234/v1"
+                    className={inputClass}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void refreshLocalModels(baseUrl)}
+                    disabled={loadingModels || !baseUrl.trim()}
+                    className={actionButtonClass}
+                  >
+                    <RefreshCw className={cn("size-3.5", loadingModels && "animate-spin")} />
+                    {loadingModels ? "Detecting…" : "Detect models"}
+                  </Button>
+                </div>
+
+                {localModels.length > 0 ? (
+                  <Select value={model} onValueChange={setModel}>
+                    <SelectTrigger className="w-full border-line bg-transparent font-mono text-[13px] text-paper focus-visible:border-lamp-dim focus-visible:ring-0">
+                      <SelectValue placeholder="Choose a loaded model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {localModels.map((m) => (
+                        <SelectItem key={m} value={m} className="font-mono text-[13px]">
+                          {m}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Input
+                    value={model}
+                    onChange={(event) => setModel(event.target.value)}
+                    placeholder="model identifier (e.g. qwen2.5-7b-instruct)"
+                    className={inputClass}
+                  />
+                )}
+
+                <p className="font-mono text-[11px] text-dim">
+                  {localModelsError
+                    ? `⚠ ${localModelsError}`
+                    : localModels.length > 0
+                      ? `${localModels.length} model${localModels.length === 1 ? "" : "s"} loaded on the server`
+                      : "Any OpenAI-compatible server — LM Studio, llama.cpp, Ollama. Point at its base URL (usually ending in /v1), then Detect models."}
+                </p>
               </>
             )}
 
@@ -352,14 +417,14 @@ function IntelligenceSection() {
               <Button
                 variant="outline"
                 onClick={() => void saveLlm()}
-                disabled={saving || (cloudProvider && !keySaved && !apiKey.trim())}
+                disabled={saving || (cloudProvider ? !keySaved && !apiKey.trim() : !baseUrl.trim())}
                 className={actionButtonClass}
               >
                 {saving ? "Saving…" : "Save"}
               </Button>
               {llmSaved && (
                 <span className="flex items-center gap-1.5 text-sm text-moss">
-                  <Check className="size-3.5" /> using {provider === "ollama" ? model || "ollama" : model}
+                  <Check className="size-3.5" /> using {provider === "local" ? model || "local model" : model}
                 </span>
               )}
             </div>
