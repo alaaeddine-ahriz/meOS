@@ -1,4 +1,4 @@
-import { Inbox, Library, type LucideIcon, MessageSquare, Newspaper, PenLine, Search, Settings, Waypoints } from "lucide-react";
+import { GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, PenLine, Search, Settings, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -9,6 +9,7 @@ import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
+import { ContradictionsView } from "./views/ContradictionsView.js";
 import { DigestView } from "./views/DigestView.js";
 import { GraphView } from "./views/GraphView.js";
 import { InboxView } from "./views/InboxView.js";
@@ -22,6 +23,7 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/graph", label: "Graph", key: "3", icon: Waypoints },
   { to: "/inbox", label: "Inbox", key: "4", icon: Inbox },
   { to: "/digest", label: "Digest", key: "5", icon: Newspaper },
+  { to: "/contradictions", label: "Conflicts", key: "6", icon: GitCompareArrows },
 ];
 
 export function App() {
@@ -136,6 +138,7 @@ export function App() {
           <Route path="/inbox" element={<InboxView />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/digest" element={<DigestView />} />
+          <Route path="/contradictions" element={<ContradictionsView />} />
           <Route path="/settings" element={<SettingsView />} />
         </Routes>
       </main>

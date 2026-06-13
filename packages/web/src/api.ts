@@ -134,6 +134,24 @@ export interface SourceDiff {
   }>;
 }
 
+export type ResolutionAction = "supersede_a" | "supersede_b" | "keep_both" | "context_specific";
+
+export interface ContradictionProposal {
+  suggested: ResolutionAction;
+  rationale: string;
+  margin: number;
+}
+
+export interface Contradiction {
+  id: number;
+  note: string | null;
+  entity_name: string;
+  text_a: string;
+  text_b: string;
+  created_at: string;
+  proposal?: ContradictionProposal;
+}
+
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
@@ -206,6 +224,17 @@ export const api = {
   getGitLog: (limit = 50) => json<{ commits: GitCommit[] }>(`/api/settings/git/log?limit=${limit}`),
   getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
   getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
+  getContradictions: () => json<{ contradictions: Contradiction[] }>("/api/contradictions"),
+  resolveContradiction: (id: number, action: ResolutionAction) =>
+    json<{ resolved: boolean }>(`/api/contradictions/${id}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }),
+  getOutput: (mode: "decision-brief" | "contradiction-report" | "timeline" | "dependency-graph" | "meeting-brief", entity?: string) =>
+    json<{ markdown: string }>(
+      `/api/outputs/${mode}?format=json${entity ? `&entity=${encodeURIComponent(entity)}` : ""}`,
+    ),
 };
 
 export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {
