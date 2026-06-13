@@ -22,24 +22,54 @@ node packages/server/dist/main.js     # serves API + UI on :4321
 
 ### Desktop app (Tauri)
 
-Prerequisites: the [Rust toolchain](https://rustup.rs) and a one-time
-`pnpm build` (the native shell launches the built server bundle).
+Prerequisites: the [Rust toolchain](https://rustup.rs).
+
+**Develop** against a live window with hot reload:
 
 ```sh
 pnpm install
-pnpm build            # builds @meos/core, the server bundle, and the web UI
-pnpm desktop          # dev: native window + server + UI
-pnpm desktop:build    # bundles MeOS.app (packages/desktop/src-tauri/target/release/bundle)
+pnpm build       # builds @meos/core, the server bundle, and the web UI (one-time)
+pnpm desktop     # native window + server + UI
 ```
 
+In dev the shell runs the server straight from the repo, so no packaging is
+needed.
+
+**Build a distributable, self-contained app.** This bundles a private Node
+runtime, the server, the web UI, and a pre-seeded embedding model into the app,
+so it launches offline with nothing installed:
+
+```sh
+pnpm build                       # produce core / server / web dist
+node scripts/bundle-runtime.mjs  # assemble packages/desktop/src-tauri/payload/
+pnpm desktop:build               # → packages/desktop/src-tauri/target/release/bundle
+```
+
+The payload's native modules (`better-sqlite3`, `onnxruntime-node`, `sharp`)
+can't be cross-compiled, so `bundle-runtime.mjs` builds them for the host and
+pins the bundled Node version — **the host Node's major version must match it**
+(default 22.x; override with `MEOS_BUNDLE_NODE_VERSION`). The payload ships as a
+Tauri resource, so it must exist before `pnpm desktop:build`.
+
+**Release packages for every platform** are built in CI:
+`.github/workflows/desktop-build.yml` runs the steps above on a macOS (Apple
+Silicon + Intel) / Windows / Linux matrix — each on its own native runner — and
+uploads a `.dmg` / `.exe` / `.AppImage` per platform. Trigger it from the
+**Actions** tab (*Run workflow*) or by pushing a `v*` tag, then download the
+artifacts from the run summary. Builds are unsigned for now: on first open,
+macOS users run `xattr -dr com.apple.quarantine /Applications/MeOS.app`, Windows
+users choose *More info → Run anyway*.
+
 The native shell owns the server's lifecycle: on launch it health-checks
-`127.0.0.1:4321` and, if nothing is listening, spawns
-`node packages/server/dist/main.js` (built by `pnpm build`) and tears it down on
-quit — even if the shell is killed, the server notices the orphaning and exits
-on its own. A dev server you started yourself (`pnpm dev`) is detected and left
-untouched, so you get hot reload while the window points at it. The LLM provider
-and API key are configured in Settings, so no environment is needed. Overrides:
-`MEOS_PORT`, `MEOS_SERVER_ENTRY`, `MEOS_ROOT`.
+`127.0.0.1:4321` and, if nothing is listening, spawns the server (the bundled
+Node in a packaged app, system `node` in dev) and tears it down on quit — even
+if the shell is killed, the server notices the orphaning and exits on its own. A
+dev server you started yourself (`pnpm dev`) is detected and left untouched, so
+you get hot reload while the window points at it. The LLM provider and API key
+are configured in Settings, so no environment is needed. In a packaged app the
+read-only bundle is redirected to writable per-user paths via `MEOS_DATA_DIR`,
+`MEOS_MODEL_CACHE`, and `MEOS_WEB_DIST`; dev overrides are `MEOS_PORT`,
+`MEOS_SERVER_ENTRY`, and `MEOS_ROOT`.
 
 ## Using it
 
