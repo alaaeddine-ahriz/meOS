@@ -687,6 +687,37 @@ export class KnowledgeStore {
     tx();
   }
 
+  /** Active claims of a given kind across all entities (e.g. every "decision"). */
+  observationsByKind(kind: string): Array<{
+    id: number;
+    entity_id: number;
+    entity_name: string;
+    text: string;
+    confidence: number;
+    source_id: number | null;
+    valid_from: string | null;
+    created_at: string;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT o.id, o.entity_id, o.text, o.confidence, o.source_id, o.valid_from, o.created_at,
+                e.name AS entity_name
+         FROM observations o JOIN entities e ON e.id = o.entity_id
+         WHERE o.status = 'active' AND o.kind = ? AND o.sensitivity = 'normal'
+         ORDER BY COALESCE(o.valid_from, o.created_at) DESC`,
+      )
+      .all(kind) as Array<{
+      id: number;
+      entity_id: number;
+      entity_name: string;
+      text: string;
+      confidence: number;
+      source_id: number | null;
+      valid_from: string | null;
+      created_at: string;
+    }>;
+  }
+
   /** Observations corroborated past the threshold graduate to established facts. */
   promoteFacts(confidenceThreshold = 0.75): number {
     const result = this.db

@@ -64,6 +64,14 @@ export { classifyIntent } from "./chat/query-planner.js";
 export type { QueryIntent } from "./chat/query-planner.js";
 export { ChatService } from "./chat/chat.js";
 export type { ChatResponseEvent } from "./chat/chat.js";
+export {
+  contradictionReport,
+  decisionBrief,
+  dependencyGraph,
+  entityTimeline,
+  meetingBrief,
+} from "./outputs.js";
+export type { OutputMode } from "./outputs.js";
 export { detectContradictions } from "./memory/contradictions.js";
 export type { ContradictionSummary } from "./memory/contradictions.js";
 export { clampConfidence, initialConfidence, sourceQuality } from "./memory/confidence.js";

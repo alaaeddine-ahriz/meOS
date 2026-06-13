@@ -10,6 +10,7 @@ import { registerChatRoutes } from "./routes/chat.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
+import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
@@ -33,6 +34,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerWikiRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerDigestRoutes(app, ctx);
+  registerOutputRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
   registerGitRoutes(app, ctx);
 
