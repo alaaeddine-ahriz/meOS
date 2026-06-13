@@ -125,7 +125,7 @@ describe("wiki backfill", () => {
     expect(onDisk).toContain("A designer.");
   });
 
-  it("omits relationships from the synthesised body (the page renders them separately)", async () => {
+  it("weaves relationships into the synthesised body as inline backlinks", async () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
     const orion = s.createEntity({ type: "project", name: "Orion" });
@@ -136,8 +136,8 @@ describe("wiki backfill", () => {
     await wiki.backfillPages();
     const body = s.allWikiPageVectors().find((p) => p.entity_id === dana.id)!.body;
     expect(body).toContain("Dana ships fast.");
-    expect(body).not.toMatch(/Connections/i);
-    expect(body).not.toContain("works on");
+    // the connection reads as prose with a [[backlink]], not a separate list
+    expect(body).toContain("works on [[Orion]]");
   });
 
   it("refreshSyntheticPages rewrites auto-generated pages but leaves agent prose alone", async () => {
@@ -157,5 +157,29 @@ describe("wiki backfill", () => {
     expect(fs.readFileSync(path.join(dir, `${dana.slug}.md`), "utf-8")).not.toMatch(/Connections/i);
     // the agent-authored page (with [[links]]) is untouched
     expect(fs.readFileSync(path.join(dir, `${marcus.slug}.md`), "utf-8")).toContain("[[Dana]]");
+  });
+
+  it("refreshSyntheticPages upgrades old link-free pages to woven backlinks, then no-ops", async () => {
+    const s = store();
+    const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
+    const orion = s.createEntity({ type: "project", name: "Orion" });
+    s.upsertRelationship(dana.id, orion.id, "works on");
+    const dir = path.join(tmp, "person");
+    fs.mkdirSync(dir, { recursive: true });
+    // an old synthetic page: no marker, no [[links]] — the pre-backlinks format
+    const file = path.join(dir, `${dana.slug}.md`);
+    fs.writeFileSync(file, `---\nentity_id: ${dana.id}\n---\n# Dana\n\nA designer.\n`);
+    const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
+
+    // Dana's page is rewritten with the woven link; Orion's (no file yet) is
+    // synthesised too, carrying the reciprocal incoming-edge prose.
+    expect(await wiki.refreshSyntheticPages()).toBe(2);
+    const rewritten = fs.readFileSync(file, "utf-8");
+    expect(rewritten).toContain("works on [[Orion]]");
+    expect(rewritten).toContain("auto_generated: true");
+
+    // the marker pins it as synthetic, so a second pass recognises it and finds
+    // the body unchanged — no churn despite the [[links]] it now carries
+    expect(await wiki.refreshSyntheticPages()).toBe(0);
   });
 });

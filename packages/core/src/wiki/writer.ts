@@ -37,32 +37,107 @@ function stripFrontmatter(markdown: string): string {
   return text.replace(/^\s*# .*\n+/, "").trim();
 }
 
+/** Escape a string for literal use inside a RegExp. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Wrap mentions of known entities in [[wiki-link]] markup so deterministic prose
+ * links out the way agent-authored pages do. Longest names first (so "Ada
+ * Lovelace" wins over "Ada"); each entity is linked at most once to keep the
+ * reading smooth; text already inside [[...]] is left alone.
+ */
+function linkify(text: string, names: string[]): string {
+  let out = text;
+  for (const name of [...names].sort((a, b) => b.length - a.length)) {
+    if (name.length < 3) continue; // skip initials/abbreviations that over-match
+    const re = new RegExp(`(?<!\\[\\[)\\b(${escapeRegExp(name)})\\b(?!\\]\\])`, "i");
+    out = out.replace(re, "[[$1]]");
+  }
+  return out;
+}
+
+/** Join names into an English list: "A", "A and B", "A, B, and C". */
+function joinNames(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+/**
+ * A natural-language Connections passage with a [[backlink]] to each neighbour,
+ * so the page reads with its relationships woven into the prose. Edges sharing a
+ * label collapse into one clause ("Dana works on [[Orion]] and [[Helix]]").
+ */
+function describeRelationships(entity: EntityRow, relationships: RelationshipView[]): string {
+  const outByLabel = new Map<string, string[]>();
+  const inByLabel = new Map<string, string[]>();
+  const add = (map: Map<string, string[]>, label: string, name: string) => {
+    const list = map.get(label) ?? [];
+    list.push(`[[${name}]]`);
+    map.set(label, list);
+  };
+  for (const r of relationships) {
+    if (r.from_entity === entity.id) add(outByLabel, r.label, r.to_name);
+    else add(inByLabel, r.label, r.from_name);
+  }
+  const sentences: string[] = [];
+  for (const [label, names] of outByLabel) sentences.push(`${entity.name} ${label} ${joinNames(names)}.`);
+  for (const [label, names] of inByLabel) sentences.push(`${joinNames(names)} ${label} ${entity.name}.`);
+  return sentences.join(" ");
+}
+
 /**
  * Deterministic page body from an entity's knowledge — the safety net used when
  * the agentic writer returns nothing, so a page is never empty and the wiki
- * retrieval stream is always populated. Plain, factual, link-free prose.
+ * retrieval stream is always populated. Reads as flowing prose (summary, then
+ * facts, then a Connections passage) with [[backlinks]] woven into the text.
  */
-function synthesizeBody(entity: EntityRow, observations: ObservationRow[]): string {
-  const parts: string[] = [];
-  // Lead with the summary, then the facts — but skip a fact that merely restates
-  // the summary (common for sparse entities) to avoid an echo.
-  if (entity.summary) parts.push(entity.summary);
+function synthesizeBody(
+  entity: EntityRow,
+  observations: ObservationRow[],
+  relationships: RelationshipView[],
+  knownNames: string[],
+): string {
   const summaryNorm = (entity.summary ?? "").trim().toLowerCase();
-
-  const facts = observations
+  // Each observation as a sentence — skip one that merely restates the summary
+  // (common for sparse entities) to avoid an echo, and hedge low-confidence ones.
+  const sentences = observations
     .slice(0, 30)
     .filter((o) => o.text.trim().toLowerCase() !== summaryNorm)
-    .map((o) => `- ${o.text}${o.confidence < 0.4 ? " (low confidence)" : ""}`);
-  if (facts.length > 0) parts.push(`## What we know\n${facts.join("\n")}`);
+    .map((o) => {
+      const text = o.text.trim();
+      const sentence = /[.!?]$/.test(text) ? text : `${text}.`;
+      return o.confidence < 0.4 ? `${sentence} (low confidence)` : sentence;
+    });
 
-  // Relationships are deliberately omitted: the page renders its own Connections
-  // section and the graph view already shows them — repeating them in the body
-  // is redundant.
-  return parts.join("\n\n").trim() || `${entity.name} is a ${entity.type} in your knowledge base.`;
+  const narrative: string[] = [];
+  if (entity.summary) narrative.push(entity.summary);
+  if (sentences.length > 0) narrative.push(sentences.join(" "));
+
+  // Link out to other entities so the prose reads with its connections inline,
+  // never to itself.
+  let body = linkify(narrative.join("\n\n"), knownNames.filter((n) => n !== entity.name));
+
+  const connections = describeRelationships(entity, relationships);
+  if (connections) body = body ? `${body}\n\n${connections}` : connections;
+
+  return body.trim() || `${entity.name} is a ${entity.type} in your knowledge base.`;
 }
 
-/** The full on-disk page: deterministic frontmatter (owned by code) + title + body. */
-function composePage(entity: EntityRow, body: string, observationCount: number, meanConfidence: number): string {
+/**
+ * The full on-disk page: deterministic frontmatter (owned by code) + title +
+ * body. `synthetic` pages carry an `auto_generated` marker so a later format
+ * refresh can rewrite them without disturbing agent-authored prose.
+ */
+function composePage(
+  entity: EntityRow,
+  body: string,
+  observationCount: number,
+  meanConfidence: number,
+  synthetic: boolean,
+): string {
   const frontmatter = [
     "---",
     `entity_id: ${entity.id}`,
@@ -72,6 +147,7 @@ function composePage(entity: EntityRow, body: string, observationCount: number, 
     `observations: ${observationCount}`,
     `mean_confidence: ${meanConfidence.toFixed(2)}`,
     `updated: ${new Date().toISOString()}`,
+    ...(synthetic ? ["auto_generated: true"] : []),
     "---",
     "",
   ].join("\n");
@@ -163,7 +239,7 @@ export class WikiWriter {
     // a deterministic body assembled from the same observations and
     // relationships, so the compiled-knowledge retrieval stream is always lit.
     const agentBody = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
-    const body = agentBody || synthesizeBody(entity, observations);
+    const body = agentBody || synthesizeBody(entity, observations, relationships, names);
     const summary =
       (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() || entity.summary || `${entity.name} (${entity.type}).`;
 
@@ -175,7 +251,7 @@ export class WikiWriter {
     if (changed) {
       const file = this.pagePath(entity);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, composePage(entity, body, observations.length, meanOf(observations)));
+      fs.writeFileSync(file, composePage(entity, body, observations.length, meanOf(observations), !agentBody));
       // Persist the compiled prose so chat retrieves it directly (and BM25 can
       // index it); embed it when an embedder is available for semantic recall.
       if (body) {
@@ -241,6 +317,7 @@ export class WikiWriter {
   async backfillPages(): Promise<number> {
     if (!this.embedder) return 0;
     const persisted = new Set(this.store.allWikiPageVectors().map((p) => p.entity_id));
+    const knownNames = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
     const pending: Array<{ entity: EntityRow; body: string }> = [];
     for (const entity of this.store.listEntities()) {
       const file = this.readPage(entity);
@@ -251,11 +328,12 @@ export class WikiWriter {
       // whether the retrieval index already has this entity.
       if (!diskBody) {
         const observations = this.store.visibleObservations(entity.id);
-        const body = synthesizeBody(entity, observations);
+        const relationships = this.store.relationshipsFor(entity.id);
+        const body = synthesizeBody(entity, observations, relationships, knownNames);
         if (body) {
           const dest = this.pagePath(entity);
           fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(dest, composePage(entity, body, observations.length, meanOf(observations)));
+          fs.writeFileSync(dest, composePage(entity, body, observations.length, meanOf(observations), true));
           diskBody = body;
         }
       }
@@ -272,21 +350,26 @@ export class WikiWriter {
   }
 
   /**
-   * Re-synthesise pages that were auto-generated (deterministic, no [[links]]),
-   * so an improvement to the synthesis format propagates to existing data
-   * without an LLM. Agent-authored pages (which use [[wiki-links]]) are left
-   * untouched. Rewrites disk and the retrieval index. Returns how many changed.
+   * Re-synthesise auto-generated pages so an improvement to the synthesis format
+   * propagates to existing data without an LLM. Agent-authored prose is left
+   * untouched: synthetic pages now carry an `auto_generated` frontmatter marker,
+   * and older ones (which predate the marker) are recognised by the absence of
+   * the [[wiki-links]] only agents used to write. Rewrites disk and the retrieval
+   * index. Returns how many changed.
    */
   async refreshSyntheticPages(): Promise<number> {
     if (!this.embedder) return 0;
+    const knownNames = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
     const updates: Array<{ entity: EntityRow; body: string; count: number; mean: number }> = [];
     for (const entity of this.store.listEntities()) {
       const file = this.readPage(entity);
       const current = file ? stripFrontmatter(file) : "";
-      // Only touch synthetic pages — agent prose links entities with [[...]].
-      if (current.includes("[[")) continue;
+      const isAuto = file ? /^auto_generated:\s*true/m.test(file) : false;
+      // Leave agent prose alone (marker absent, but it links entities with [[...]]).
+      if (!isAuto && current.includes("[[")) continue;
       const observations = this.store.visibleObservations(entity.id);
-      const body = synthesizeBody(entity, observations);
+      const relationships = this.store.relationshipsFor(entity.id);
+      const body = synthesizeBody(entity, observations, relationships, knownNames);
       if (body === current) continue;
       updates.push({ entity, body, count: observations.length, mean: meanOf(observations) });
     }
@@ -295,7 +378,7 @@ export class WikiWriter {
     updates.forEach((u, i) => {
       const dest = this.pagePath(u.entity);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, composePage(u.entity, u.body, u.count, u.mean));
+      fs.writeFileSync(dest, composePage(u.entity, u.body, u.count, u.mean, true));
       this.store.upsertWikiPage(u.entity.id, u.body, vectors[i]);
     });
     return updates.length;
