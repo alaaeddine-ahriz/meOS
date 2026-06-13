@@ -6,6 +6,7 @@ import { mergeExtraction } from "../knowledge/merge.js";
 import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore, WikiChange } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
+import { healWiki } from "../wiki/self-healing.js";
 import type { WikiWriter } from "../wiki/writer.js";
 import { detectContradictions } from "./contradictions.js";
 import { runRetention } from "./retention.js";
@@ -28,34 +29,17 @@ export interface ConsolidationReport {
   orphanCount: number;
   /** New observations distilled from the user's own chat statements. */
   crystallized: number;
-  /** Wiki pages whose [[links]] pointed at unknown entities, queued for repair. */
+  /** Wiki pages with an auto-fixable issue (broken link / orphan) queued for repair. */
   brokenLinksRepaired: number;
+  /** Mean wiki page quality (0..1) after this pass, or null when there are no pages. */
+  wikiQuality: number | null;
+  /** Pages below the review quality threshold, surfaced for the user. */
+  lowQualityPages: Array<{ entity_id: number; entity_name: string; quality: number }>;
   /** Claims retired because their validity window passed. */
   expired: number;
   /** Claims that moved memory tier this pass (e.g. working → semantic). */
   retiered: number;
   digestDate: string;
-}
-
-const WIKI_LINK = /\[\[([^\]]+)\]\]/g;
-
-/**
- * Self-healing: a [[link]] to a name no entity answers to is a broken reference.
- * Flag the page stale so the next regeneration greps the wiki and repairs it.
- * Returns how many pages were flagged.
- */
-function repairBrokenLinks(store: KnowledgeStore): number {
-  let repaired = 0;
-  for (const page of store.wikiPageBodies()) {
-    const names = new Set<string>();
-    for (const match of page.body.matchAll(WIKI_LINK)) names.add(match[1]!.trim());
-    const broken = [...names].some((name) => name && !store.findEntityByName(name));
-    if (broken) {
-      store.markWikiStale(page.entity_id);
-      repaired++;
-    }
-  }
-  return repaired;
 }
 
 /**
@@ -116,7 +100,9 @@ export async function runConsolidation(deps: {
   const crystallized = deps.embedder
     ? await crystallizeChat({ store, llm, embedder: deps.embedder, schema, since })
     : 0;
-  const brokenLinksRepaired = repairBrokenLinks(store);
+  // Lint every page, persist its quality score, and flag auto-fixable issues
+  // (broken links, orphan prose) for the regeneration below to repair.
+  const healing = healWiki(store);
   const { decayed, promoted, expired, retiered } = runRetention(store);
   const wikiChanges = await wiki.regenerateStale();
   const staleRegenerated = wikiChanges.length;
@@ -158,7 +144,7 @@ export async function runConsolidation(deps: {
           "Wiki pages with no connections to the rest of the graph (possible orphans):",
           ...(orphans.length ? orphans.slice(0, 20).map((o) => `- ${o.name} (${o.type})`) : ["(none)"]),
           "",
-          `Maintenance: ${decayed} facts decayed, ${promoted} promoted to established facts, ${expired} expired past their validity, ${retiered} re-tiered, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${brokenLinksRepaired} broken link(s) repaired.`,
+          `Maintenance: ${decayed} facts decayed, ${promoted} promoted to established facts, ${expired} expired past their validity, ${retiered} re-tiered, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${healing.flaggedForRepair} page(s) auto-repaired${healing.meanQuality !== null ? `, mean wiki quality ${healing.meanQuality.toFixed(2)}` : ""}.`,
         ].join("\n"),
       },
     ],
@@ -175,7 +161,9 @@ export async function runConsolidation(deps: {
     wikiChanges,
     orphanCount: orphans.length,
     crystallized,
-    brokenLinksRepaired,
+    brokenLinksRepaired: healing.flaggedForRepair,
+    wikiQuality: healing.meanQuality,
+    lowQualityPages: healing.lowQuality,
     expired,
     retiered,
     digestDate,

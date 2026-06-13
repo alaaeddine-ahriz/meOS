@@ -271,6 +271,11 @@ const migrations: string[] = [
   INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id)
     SELECT id, source_id FROM relationships WHERE source_id IS NOT NULL;
   `,
+  // 11 — quality scoring: the linter writes a 0..1 health score per wiki page so
+  // low-quality pages surface for review and the digest can report wiki health.
+  `
+  ALTER TABLE wiki_pages ADD COLUMN quality REAL;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

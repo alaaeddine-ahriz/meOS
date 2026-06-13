@@ -904,6 +904,23 @@ export class KnowledgeStore {
       .all() as Array<{ entity_id: number; entity_name: string; slug: string; type: string; body: string }>;
   }
 
+  /** Persist a page's lint score (0..1). */
+  setWikiQuality(entityId: number, quality: number): void {
+    this.db.prepare("UPDATE wiki_pages SET quality = ? WHERE entity_id = ?").run(quality, entityId);
+  }
+
+  /** Pages below a quality threshold, worst first — surfaced for review. */
+  lowQualityPages(threshold = 0.6): Array<{ entity_id: number; entity_name: string; quality: number }> {
+    return this.db
+      .prepare(
+        `SELECT w.entity_id, w.quality, e.name AS entity_name
+         FROM wiki_pages w JOIN entities e ON e.id = w.entity_id
+         WHERE w.quality IS NOT NULL AND w.quality < ?
+         ORDER BY w.quality ASC`,
+      )
+      .all(threshold) as Array<{ entity_id: number; entity_name: string; quality: number }>;
+  }
+
   // --- hybrid retrieval -------------------------------------------------
 
   /** All active observations carrying an embedding, with owning-entity context. */
