@@ -109,7 +109,10 @@ export async function buildContextPack(
       ...observations.map((o) => {
         const source = o.source_id ? store.getSource(o.source_id) : undefined;
         if (source) sources.set(source.id, source);
-        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}] ${o.text}`;
+        // Tag non-working tiers so the model can weight a stable, cross-source
+        // "semantic" fact above a fresh "working" capture.
+        const tier = o.memory_tier !== "working" ? `, ${o.memory_tier}` : "";
+        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${o.text}`;
       }),
       ...relationships.map((r) =>
         r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,

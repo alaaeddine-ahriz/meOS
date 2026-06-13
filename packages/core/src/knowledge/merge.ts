@@ -1,6 +1,8 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { cosineSimilarity } from "../embedding/vectors.js";
 import type { Extraction } from "../extract/schema.js";
+import { initialConfidence } from "../memory/confidence.js";
+import { classifyMemoryTier } from "../memory/memory-tiers.js";
 import { detectSensitivity, redactSecrets } from "../memory/privacy.js";
 import { normalizeRelationshipLabel, strongerSensitivity } from "./schema-doc.js";
 import { slugify, type KnowledgeStore } from "./store.js";
@@ -97,6 +99,7 @@ export async function mergeExtraction(
 
   const newObservationIds: number[] = [];
   const reinforcedObservationIds: number[] = [];
+  const sourceType = store.getSourceType(sourceId);
   const resolvable = extraction.observations.filter((o) => resolve(o.entity) !== undefined);
   // Redact credentials before anything touches storage or the embedder.
   const texts = resolvable.map((o) => redactSecrets(o.claim));
@@ -121,7 +124,7 @@ export async function mergeExtraction(
           text,
           sourceId,
           embedding: vector,
-          confidence: Math.min(0.9, Math.max(0.1, observation.confidence)),
+          confidence: initialConfidence(observation.confidence, sourceType),
           kind: observation.kind,
           sourceQuote: observation.sourceQuote ? redactSecrets(observation.sourceQuote) : null,
           charStart: span?.start ?? null,
@@ -130,6 +133,8 @@ export async function mergeExtraction(
           validUntil: observation.validUntil,
           // Honour the extractor's label, but a detected credential always wins.
           sensitivity: strongerSensitivity(observation.sensitivity, detectSensitivity(observation.claim)),
+          // A new claim enters at its natural tier; corroboration promotes it later.
+          memoryTier: classifyMemoryTier({ kind: observation.kind, sourceType, sourceCount: 1 }),
         }),
       );
       changed.add(entityId);

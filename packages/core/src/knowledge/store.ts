@@ -29,6 +29,7 @@ export interface ObservationRow {
   valid_from: string | null;
   valid_until: string | null;
   sensitivity: "normal" | "private" | "secret";
+  memory_tier: "working" | "episodic" | "semantic" | "procedural";
   created_at: string;
   last_confirmed_at: string;
 }
@@ -149,6 +150,14 @@ export class KnowledgeStore {
       | { content: string | null }
       | undefined;
     return row?.content ?? undefined;
+  }
+
+  /** A source's type (file/image/conversation/session…) — drives source quality and tiering. */
+  getSourceType(id: number): string | undefined {
+    const row = this.db.prepare("SELECT type FROM sources WHERE id = ?").get(id) as
+      | { type: string }
+      | undefined;
+    return row?.type;
   }
 
   addChunks(sourceId: number, chunks: Array<{ text: string; embedding: Float32Array }>): void {
@@ -431,13 +440,14 @@ export class KnowledgeStore {
     validFrom?: string | null;
     validUntil?: string | null;
     sensitivity?: "normal" | "private" | "secret";
+    memoryTier?: "working" | "episodic" | "semantic" | "procedural";
   }): number {
     const result = this.db
       .prepare(
         `INSERT INTO observations
            (entity_id, text, source_id, confidence, embedding, kind, source_quote,
-            char_start, char_end, valid_from, valid_until, sensitivity)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            char_start, char_end, valid_from, valid_until, sensitivity, memory_tier)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.entityId,
@@ -452,6 +462,7 @@ export class KnowledgeStore {
         input.validFrom ?? null,
         input.validUntil ?? null,
         input.sensitivity ?? "normal",
+        input.memoryTier ?? "working",
       );
     const id = Number(result.lastInsertRowid);
     if (input.sourceId !== undefined) this.recordObservationSource(id, input.sourceId);
@@ -479,7 +490,7 @@ export class KnowledgeStore {
       .prepare(
         `SELECT id, entity_id, text, source_id, tier, confidence, status, superseded_by,
                 kind, source_quote, char_start, char_end, valid_from, valid_until, sensitivity,
-                created_at, last_confirmed_at
+                memory_tier, created_at, last_confirmed_at
          FROM observations WHERE entity_id = ? AND status = 'active'
          ORDER BY confidence DESC, last_confirmed_at DESC`,
       )
@@ -500,7 +511,7 @@ export class KnowledgeStore {
       .prepare(
         `SELECT id, entity_id, text, source_id, tier, confidence, status, superseded_by,
                 kind, source_quote, char_start, char_end, valid_from, valid_until, sensitivity,
-                created_at, last_confirmed_at
+                memory_tier, created_at, last_confirmed_at
          FROM observations WHERE id = ?`,
       )
       .get(id) as ObservationRow | undefined;
@@ -572,6 +583,42 @@ export class KnowledgeStore {
       )
       .run(floor, amount, floor, olderThanDays);
     return result.changes;
+  }
+
+  /**
+   * Retire active claims whose stated validity window has passed (time-based
+   * supersession). The pages they sat on are flagged stale so the prose updates.
+   * `today` is an ISO date (YYYY-MM-DD). Returns how many expired.
+   */
+  expireObservationsByValidity(today: string): number {
+    const entities = this.db
+      .prepare(
+        "SELECT DISTINCT entity_id FROM observations WHERE status = 'active' AND valid_until IS NOT NULL AND valid_until < ?",
+      )
+      .all(today) as Array<{ entity_id: number }>;
+    const result = this.db
+      .prepare(
+        "UPDATE observations SET status = 'superseded' WHERE status = 'active' AND valid_until IS NOT NULL AND valid_until < ?",
+      )
+      .run(today);
+    for (const { entity_id } of entities) this.markWikiStale(entity_id);
+    return result.changes;
+  }
+
+  setMemoryTier(id: number, tier: "working" | "episodic" | "semantic" | "procedural"): void {
+    this.db.prepare("UPDATE observations SET memory_tier = ? WHERE id = ?").run(tier, id);
+  }
+
+  /** Per active claim: its kind, source type, and distinct source count — drives tier reclassification. */
+  observationTierInputs(): Array<{ id: number; kind: string; source_type: string | null; source_count: number; memory_tier: string }> {
+    return this.db
+      .prepare(
+        `SELECT o.id, o.kind, o.memory_tier, s.type AS source_type,
+                (SELECT COUNT(*) FROM observation_sources os WHERE os.observation_id = o.id) AS source_count
+         FROM observations o LEFT JOIN sources s ON s.id = o.source_id
+         WHERE o.status = 'active'`,
+      )
+      .all() as Array<{ id: number; kind: string; source_type: string | null; source_count: number; memory_tier: string }>;
   }
 
   /** Wiki pages with no connections to the rest of the graph, surfaced for review. */

@@ -8,6 +8,7 @@ import type { KnowledgeStore, WikiChange } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 import type { WikiWriter } from "../wiki/writer.js";
 import { detectContradictions } from "./contradictions.js";
+import { runRetention } from "./retention.js";
 
 const DIGEST_SYSTEM_PROMPT = `You write the daily digest for MeOS, a personal second brain.
 The digest is a calm morning briefing the user reads in under two minutes.
@@ -29,6 +30,10 @@ export interface ConsolidationReport {
   crystallized: number;
   /** Wiki pages whose [[links]] pointed at unknown entities, queued for repair. */
   brokenLinksRepaired: number;
+  /** Claims retired because their validity window passed. */
+  expired: number;
+  /** Claims that moved memory tier this pass (e.g. working → semantic). */
+  retiered: number;
   digestDate: string;
 }
 
@@ -105,14 +110,14 @@ export async function runConsolidation(deps: {
   const schema = deps.schema ?? DEFAULT_SCHEMA_MD;
   const since = deps.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
 
-  const decayed = store.decayStaleConfidence();
-  const promoted = store.promoteFacts();
-  // Fold in new knowledge and queue repairs *before* regenerating, so this one
-  // pass both writes the new pages and fixes the broken links it surfaced.
+  // Fold in new knowledge first, then run the lifecycle over everything (so
+  // crystallized corroboration can promote facts and tiers the same night), then
+  // regenerate — one pass that writes the new pages and fixes what it surfaced.
   const crystallized = deps.embedder
     ? await crystallizeChat({ store, llm, embedder: deps.embedder, schema, since })
     : 0;
   const brokenLinksRepaired = repairBrokenLinks(store);
+  const { decayed, promoted, expired, retiered } = runRetention(store);
   const wikiChanges = await wiki.regenerateStale();
   const staleRegenerated = wikiChanges.length;
 
@@ -153,7 +158,7 @@ export async function runConsolidation(deps: {
           "Wiki pages with no connections to the rest of the graph (possible orphans):",
           ...(orphans.length ? orphans.slice(0, 20).map((o) => `- ${o.name} (${o.type})`) : ["(none)"]),
           "",
-          `Maintenance: ${decayed} facts decayed, ${promoted} observations promoted to established facts, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${brokenLinksRepaired} broken link(s) repaired.`,
+          `Maintenance: ${decayed} facts decayed, ${promoted} promoted to established facts, ${expired} expired past their validity, ${retiered} re-tiered, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${brokenLinksRepaired} broken link(s) repaired.`,
         ].join("\n"),
       },
     ],
@@ -171,6 +176,8 @@ export async function runConsolidation(deps: {
     orphanCount: orphans.length,
     crystallized,
     brokenLinksRepaired,
+    expired,
+    retiered,
     digestDate,
   };
 }

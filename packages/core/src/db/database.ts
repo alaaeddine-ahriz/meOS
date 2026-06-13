@@ -245,6 +245,14 @@ const migrations: string[] = [
   ALTER TABLE observations ADD COLUMN valid_until TEXT;
   ALTER TABLE observations ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'normal';
   `,
+  // 9 — memory tiers: an abstraction ladder over the corroboration tier. A
+  // claim is working (fresh/single-source), episodic (tied to an event/session),
+  // semantic (stable, corroborated across sources), or procedural (a how-to).
+  // Reclassified each consolidation as evidence accumulates.
+  `
+  ALTER TABLE observations ADD COLUMN memory_tier TEXT NOT NULL DEFAULT 'working';
+  CREATE INDEX idx_observations_tier ON observations(memory_tier, status);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
