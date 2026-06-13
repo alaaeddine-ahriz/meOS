@@ -42,25 +42,22 @@ function stripFrontmatter(markdown: string): string {
  * the agentic writer returns nothing, so a page is never empty and the wiki
  * retrieval stream is always populated. Plain, factual, link-free prose.
  */
-function synthesizeBody(entity: EntityRow, observations: ObservationRow[], relationships: RelationshipView[]): string {
+function synthesizeBody(entity: EntityRow, observations: ObservationRow[]): string {
   const parts: string[] = [];
+  // Lead with the summary, then the facts — but skip a fact that merely restates
+  // the summary (common for sparse entities) to avoid an echo.
   if (entity.summary) parts.push(entity.summary);
+  const summaryNorm = (entity.summary ?? "").trim().toLowerCase();
 
-  if (observations.length > 0) {
-    const facts = observations.slice(0, 30).map((o) => {
-      const hedge = o.confidence < 0.4 ? " (low confidence)" : "";
-      return `- ${o.text}${hedge}`;
-    });
-    parts.push(`## What we know\n${facts.join("\n")}`);
-  }
+  const facts = observations
+    .slice(0, 30)
+    .filter((o) => o.text.trim().toLowerCase() !== summaryNorm)
+    .map((o) => `- ${o.text}${o.confidence < 0.4 ? " (low confidence)" : ""}`);
+  if (facts.length > 0) parts.push(`## What we know\n${facts.join("\n")}`);
 
-  if (relationships.length > 0) {
-    const links = relationships.slice(0, 30).map((r) =>
-      r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
-    );
-    parts.push(`## Connections\n${links.join("\n")}`);
-  }
-
+  // Relationships are deliberately omitted: the page renders its own Connections
+  // section and the graph view already shows them — repeating them in the body
+  // is redundant.
   return parts.join("\n\n").trim() || `${entity.name} is a ${entity.type} in your knowledge base.`;
 }
 
@@ -168,7 +165,7 @@ export class WikiWriter {
     // a deterministic body assembled from the same observations and
     // relationships, so the compiled-knowledge retrieval stream is always lit.
     const agentBody = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
-    const body = agentBody || synthesizeBody(entity, observations, relationships);
+    const body = agentBody || synthesizeBody(entity, observations);
     const summary =
       (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() || entity.summary || `${entity.name} (${entity.type}).`;
 
@@ -256,7 +253,7 @@ export class WikiWriter {
       // whether the retrieval index already has this entity.
       if (!diskBody) {
         const observations = this.store.activeObservations(entity.id).filter((o) => o.sensitivity === "normal");
-        const body = synthesizeBody(entity, observations, this.store.relationshipsFor(entity.id));
+        const body = synthesizeBody(entity, observations);
         if (body) {
           const dest = this.pagePath(entity);
           fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -274,5 +271,35 @@ export class WikiWriter {
     const vectors = await this.embedder.embed(pending.map((p) => p.body));
     pending.forEach((p, i) => this.store.upsertWikiPage(p.entity.id, p.body, vectors[i]));
     return pending.length;
+  }
+
+  /**
+   * Re-synthesise pages that were auto-generated (deterministic, no [[links]]),
+   * so an improvement to the synthesis format propagates to existing data
+   * without an LLM. Agent-authored pages (which use [[wiki-links]]) are left
+   * untouched. Rewrites disk and the retrieval index. Returns how many changed.
+   */
+  async refreshSyntheticPages(): Promise<number> {
+    if (!this.embedder) return 0;
+    const updates: Array<{ entity: EntityRow; body: string; count: number; mean: number }> = [];
+    for (const entity of this.store.listEntities()) {
+      const file = this.readPage(entity);
+      const current = file ? stripFrontmatter(file) : "";
+      // Only touch synthetic pages — agent prose links entities with [[...]].
+      if (current.includes("[[")) continue;
+      const observations = this.store.activeObservations(entity.id).filter((o) => o.sensitivity === "normal");
+      const body = synthesizeBody(entity, observations);
+      if (body === current) continue;
+      updates.push({ entity, body, count: observations.length, mean: meanOf(observations) });
+    }
+    if (updates.length === 0) return 0;
+    const vectors = await this.embedder.embed(updates.map((u) => u.body));
+    updates.forEach((u, i) => {
+      const dest = this.pagePath(u.entity);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, composePage(u.entity, u.body, u.count, u.mean));
+      this.store.upsertWikiPage(u.entity.id, u.body, vectors[i]);
+    });
+    return updates.length;
   }
 }

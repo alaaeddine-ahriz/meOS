@@ -124,4 +124,38 @@ describe("wiki backfill", () => {
     expect(onDisk).toContain("Dana leads Orion.");
     expect(onDisk).toContain("A designer.");
   });
+
+  it("omits relationships from the synthesised body (the page renders them separately)", async () => {
+    const s = store();
+    const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
+    const orion = s.createEntity({ type: "project", name: "Orion" });
+    s.upsertRelationship(dana.id, orion.id, "works on");
+    s.insertObservation({ entityId: dana.id, text: "Dana ships fast." });
+    const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
+
+    await wiki.backfillPages();
+    const body = s.allWikiPageVectors().find((p) => p.entity_id === dana.id)!.body;
+    expect(body).toContain("Dana ships fast.");
+    expect(body).not.toMatch(/Connections/i);
+    expect(body).not.toContain("works on");
+  });
+
+  it("refreshSyntheticPages rewrites auto-generated pages but leaves agent prose alone", async () => {
+    const s = store();
+    const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
+    const marcus = s.createEntity({ type: "person", name: "Marcus", summary: "An engineer." });
+    s.insertObservation({ entityId: dana.id, text: "Dana ships fast." });
+    const dir = path.join(tmp, "person");
+    fs.mkdirSync(dir, { recursive: true });
+    // a synthetic page with the old Connections format, and an agent page with [[links]]
+    fs.writeFileSync(path.join(dir, `${dana.slug}.md`), `---\nentity_id: ${dana.id}\n---\n# Dana\n\nA designer.\n\n## Connections\n- Dana works on Orion\n`);
+    fs.writeFileSync(path.join(dir, `${marcus.slug}.md`), `---\nentity_id: ${marcus.id}\n---\n# Marcus\n\nMarcus collaborates with [[Dana]].\n`);
+    const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
+
+    expect(await wiki.refreshSyntheticPages()).toBe(1); // only Dana's synthetic page
+
+    expect(fs.readFileSync(path.join(dir, `${dana.slug}.md`), "utf-8")).not.toMatch(/Connections/i);
+    // the agent-authored page (with [[links]]) is untouched
+    expect(fs.readFileSync(path.join(dir, `${marcus.slug}.md`), "utf-8")).toContain("[[Dana]]");
+  });
 });
