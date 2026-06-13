@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { DEFAULT_SCHEMA_MD, withSchema } from "../knowledge/schema-doc.js";
+import { withProfile } from "../profile/profile-doc.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
@@ -66,16 +67,19 @@ export async function crystallizeSession(deps: {
   embedder: Embedder;
   conversationId: number;
   schema?: string;
+  /** The user profile lens; defaults to none (injection becomes a no-op). */
+  profile?: string;
 }): Promise<SessionCrystal | undefined> {
   const { store, llm, embedder, conversationId } = deps;
   const schema = deps.schema ?? DEFAULT_SCHEMA_MD;
+  const profile = deps.profile ?? "";
 
   const messages = store.listMessages(conversationId);
   if (messages.length === 0) return undefined;
 
   const transcript = messages.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
   const distilled = await llm.completeStructured({
-    system: withSchema(DIGEST_SYSTEM_PROMPT, schema),
+    system: withProfile(withSchema(DIGEST_SYSTEM_PROMPT, schema), profile),
     cacheSystem: true,
     schema: sessionDigestSchema,
     schemaName: "session_digest",
@@ -96,7 +100,7 @@ export async function crystallizeSession(deps: {
 
   // Extract knowledge from the digest and merge it like any source. "session"
   // source type carries its own quality weight in the confidence policy.
-  const extraction = await extractKnowledge(llm, { title, text: digest }, schema);
+  const extraction = await extractKnowledge(llm, { title, text: digest }, schema, profile);
   const merge = await mergeExtraction(store, embedder, extraction, sourceId, digest);
   for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
 

@@ -1,9 +1,11 @@
 import type { ChatStatus } from "ai";
 import { FileText, Library, Paperclip, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, streamChat, type EntitySummary, type LlmErrorKind, type Message as MessageRecord, type SourceRef } from "../api.js";
+import { DiffView } from "../components/DiffView.js";
 import { SourceList } from "../components/SourceList.js";
+import { Button } from "@/components/ui/button";
 import {
   Conversation,
   ConversationContent,
@@ -40,13 +42,31 @@ import {
 import { InputGroupAddon } from "@/components/ui/input-group";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { resolveWikiLinks } from "@/lib/wikilinks";
+import { cn } from "@/lib/utils";
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
   { label: "Catch me up", prompt: "What has changed across my notes recently?" },
   { label: "About someone", prompt: "Tell me about the people I've been working with lately." },
   { label: "Project status", prompt: "Summarise the current state of my active projects." },
   { label: "Recall a decision", prompt: "What decisions have I made recently, and why?" },
+  { label: "Edit my profile", prompt: "/profile " },
 ];
+
+/** Slash commands surfaced when the composer input begins with "/". */
+const SLASH_COMMANDS: Array<{ command: string; description: string }> = [
+  { command: "/profile", description: "Tell MeOS what to change about your profile" },
+];
+
+// A `/profile` reply embeds the change as a diff between these markers (see the
+// server's profile-command). The chat renders it as a real diff + an action.
+const PROFILE_DIFF_RE = /@@PROFILE_DIFF@@\n([\s\S]*?)\n@@END@@/;
+
+/** Split an assistant reply into its prose and an optional embedded profile diff. */
+function splitProfileEdit(content: string): { text: string; patch: string | null } {
+  const match = PROFILE_DIFF_RE.exec(content);
+  if (!match) return { text: content, patch: null };
+  return { text: content.slice(0, match.index).trim(), patch: match[1]!.trim() };
+}
 
 // Text formats MeOS can read; references to other files are declined client-side.
 const TEXT_FILE_ACCEPT = ".md,.markdown,.txt,.csv,.json,.org";
@@ -236,14 +256,24 @@ export function ChatView() {
                             </Reasoning>
                           )}
                           {message.content ? (
-                            <div onClick={onProseClick} className="text-[15px]">
-                              <MessageResponse className="prose-meos" isAnimating={busy && index === lastIndex}>
-                                {resolveWikiLinks(message.content, entities)}
-                              </MessageResponse>
-                              <div className="mt-3">
-                                <SourceList sources={liveSources.get(index) ?? message.sources ?? []} />
-                              </div>
-                            </div>
+                            (() => {
+                              const { text: proseText, patch: profilePatch } = splitProfileEdit(message.content);
+                              return (
+                                <div onClick={onProseClick} className="text-[15px]">
+                                  {proseText && (
+                                    <MessageResponse className="prose-meos" isAnimating={busy && index === lastIndex}>
+                                      {resolveWikiLinks(proseText, entities)}
+                                    </MessageResponse>
+                                  )}
+                                  {profilePatch && (
+                                    <ProfileEditResult patch={profilePatch} onOpen={() => navigate("/settings")} />
+                                  )}
+                                  <div className="mt-3">
+                                    <SourceList sources={liveSources.get(index) ?? message.sources ?? []} />
+                                  </div>
+                                </div>
+                              );
+                            })()
                           ) : reasoning ? null : (
                             <Shimmer className="text-sm" duration={1.6}>
                               Consulting the knowledge base…
@@ -270,6 +300,23 @@ export function ChatView() {
         </div>
       </div>
     </PromptInputProvider>
+  );
+}
+
+/** The result of a `/profile` edit: the change as a diff, plus a link to the full profile. */
+function ProfileEditResult({ patch, onOpen }: { patch: string; onOpen: () => void }) {
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      <DiffView patch={patch} />
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onOpen}
+        className="self-start border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+      >
+        See full profile
+      </Button>
+    </div>
   );
 }
 
@@ -313,6 +360,44 @@ function Composer({
   const [wikiPickerOpen, setWikiPickerOpen] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Slash-command menu: surfaced while the input is a bare "/command" token.
+  const { textInput } = usePromptInputController();
+  const value = textInput.value;
+  const slashMatch = /^\/(\S*)$/.exec(value);
+  const [cmdClosed, setCmdClosed] = useState(false);
+  const [cmdIndex, setCmdIndex] = useState(0);
+  const matchedCommands = slashMatch
+    ? SLASH_COMMANDS.filter((c) => c.command.slice(1).startsWith(slashMatch[1]!.toLowerCase()))
+    : [];
+  const showCommands = !cmdClosed && slashMatch !== null && matchedCommands.length > 0;
+
+  useEffect(() => {
+    setCmdIndex(0);
+    if (!value.startsWith("/")) setCmdClosed(false);
+  }, [value]);
+
+  const completeCommand = (command: string) => {
+    textInput.setInput(`${command} `);
+    setCmdClosed(true);
+  };
+
+  const onCommandKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!showCommands) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setCmdIndex((i) => (i + 1) % matchedCommands.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setCmdIndex((i) => (i - 1 + matchedCommands.length) % matchedCommands.length);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      completeCommand((matchedCommands[cmdIndex] ?? matchedCommands[0]!).command);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setCmdClosed(true);
+    }
+  };
 
   const addWiki = (entity: EntitySummary) => {
     setWikiRefs((current) => (current.some((e) => e.id === entity.id) ? current : [...current, entity]));
@@ -367,10 +452,33 @@ function Composer({
         }}
       />
 
-      <PromptInput
-        onSubmit={onSubmit}
-        className="rounded-2xl border-line bg-desk shadow-sm transition-colors focus-within:border-lamp-dim"
-      >
+      <div className="relative">
+        {showCommands && (
+          <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-desk shadow-lg">
+            <div className="px-3 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-dim">Commands</div>
+            {matchedCommands.map((cmd, i) => (
+              <button
+                key={cmd.command}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => completeCommand(cmd.command)}
+                onMouseEnter={() => setCmdIndex(i)}
+                className={cn(
+                  "flex w-full items-baseline gap-2 px-3 py-2 text-left transition-colors",
+                  i === cmdIndex ? "bg-card" : "hover:bg-card/50",
+                )}
+              >
+                <span className="font-mono text-[13px] text-paper">{cmd.command}</span>
+                <span className="text-[12px] text-dim">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <PromptInput
+          onSubmit={onSubmit}
+          className="rounded-2xl border-line bg-desk shadow-sm transition-colors focus-within:border-lamp-dim"
+        >
         {hasRefs && (
           <PromptInputHeader className="px-3 pt-2.5">
             {wikiRefs.map((entity) => {
@@ -393,7 +501,8 @@ function Composer({
 
         <PromptInputBody>
           <PromptInputTextarea
-            placeholder="Ask your second brain…"
+            onKeyDown={onCommandKeyDown}
+            placeholder="Ask your second brain…  (type / for commands)"
             className="min-h-12 text-[15px] text-paper placeholder:text-dim"
           />
         </PromptInputBody>
@@ -414,7 +523,8 @@ function Composer({
           </PromptInputTools>
           <PromptInputSubmit status={status} className="rounded-lg bg-lamp text-ink hover:bg-lamp/85" />
         </PromptInputFooter>
-      </PromptInput>
+        </PromptInput>
+      </div>
 
       {fileError && <p className="mt-2 px-1 text-[12px] text-ember">{fileError}</p>}
 

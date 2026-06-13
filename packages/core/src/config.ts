@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ensureSchemaDoc } from "./knowledge/schema-doc.js";
+import { ensureProfileDocs } from "./profile/profile-doc.js";
 
 export type LlmProvider = "anthropic" | "openai" | "google" | "local" | "stub";
 
@@ -149,4 +150,7 @@ export function ensureDataDirs(config: MeosConfig): void {
   // Seed the schema document (the user-editable conventions every LLM stage
   // reads) if the user has none yet.
   ensureSchemaDoc(config.dataDir);
+  // Seed the profile scaffold (the user lens every LLM stage injects), private
+  // by default — its documents hold sensitive professional context.
+  ensureProfileDocs(config.dataDir);
 }

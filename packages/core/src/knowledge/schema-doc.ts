@@ -136,6 +136,9 @@ traceable. Never invent facts.
 - **image** — an image read by the model (OCR + description).
 - **conversation** — the user's own statements in chat, crystallized back.
 - **session** — a distilled summary of a completed work thread.
+- **profile_context** — a document the user uploaded to describe their world;
+  it feeds the profile *lens*, not the knowledge graph, so it is never extracted
+  into entities or pages.
 
 ## Confidence rules
 

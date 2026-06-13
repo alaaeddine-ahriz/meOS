@@ -15,6 +15,7 @@ import {
   Sparkles,
   Sun,
   Trash2,
+  UserCircle,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
@@ -38,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { isTauri } from "@/lib/platform";
+import { ProfileSection } from "./ProfileSection";
 import {
   type Density,
   type FontPreset,
@@ -81,6 +83,7 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
 
 /** The sections of Settings, surfaced as in-page tabs so each panel stays focused. */
 const TABS = [
+  { id: "profile", label: "Profile", icon: UserCircle },
   { id: "appearance", label: "Appearance", icon: PaletteIcon },
   { id: "intelligence", label: "Intelligence", icon: Sparkles },
   { id: "folders", label: "Folders", icon: FolderOpen },
@@ -138,7 +141,7 @@ function PanelIntro({ children }: { children: ReactNode }) {
 }
 
 export function SettingsView() {
-  const [tab, setTab] = useState<TabId>("appearance");
+  const [tab, setTab] = useState<TabId>("profile");
 
   return (
     <Page>
@@ -165,6 +168,7 @@ export function SettingsView() {
       </nav>
 
       <div className="mt-8">
+        {tab === "profile" && <ProfileSection />}
         {tab === "appearance" && <AppearanceSection />}
         {tab === "intelligence" && <IntelligenceSection />}
         {tab === "folders" && <FoldersSection />}

@@ -4,6 +4,7 @@ import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { mergeExtraction } from "../knowledge/merge.js";
 import { DEFAULT_SCHEMA_MD, withSchema } from "../knowledge/schema-doc.js";
+import { withProfile } from "../profile/profile-doc.js";
 import type { KnowledgeStore, WikiChange } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 import { healWiki } from "../wiki/self-healing.js";
@@ -54,15 +55,16 @@ async function crystallizeChat(deps: {
   llm: LlmClient;
   embedder: Embedder;
   schema: string;
+  profile: string;
   since: string;
 }): Promise<number> {
-  const { store, llm, embedder, schema, since } = deps;
+  const { store, llm, embedder, schema, profile, since } = deps;
   const messages = store.recentUserMessages(since);
   if (messages.length === 0) return 0;
 
   const text = messages.map((m) => m.content).join("\n\n");
   const title = `Chat notes (${since.slice(0, 10)})`;
-  const extraction = await extractKnowledge(llm, { title, text }, schema);
+  const extraction = await extractKnowledge(llm, { title, text }, schema, profile);
   if (extraction.entities.length === 0 && extraction.observations.length === 0) return 0;
 
   const sourceId = store.createSource({ type: "conversation", title, content: text });
@@ -87,18 +89,21 @@ export async function runConsolidation(deps: {
   embedder?: Embedder;
   /** The schema document shared by every LLM stage; defaults to the built-in. */
   schema?: string;
+  /** The user profile lens; defaults to none (injection becomes a no-op). */
+  profile?: string;
   /** ISO date-time lower bound for "what changed"; defaults to the last 24h. */
   since?: string;
 }): Promise<ConsolidationReport> {
   const { store, llm, wiki, digestDir } = deps;
   const schema = deps.schema ?? DEFAULT_SCHEMA_MD;
+  const profile = deps.profile ?? "";
   const since = deps.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
 
   // Fold in new knowledge first, then run the lifecycle over everything (so
   // crystallized corroboration can promote facts and tiers the same night), then
   // regenerate — one pass that writes the new pages and fixes what it surfaced.
   const crystallized = deps.embedder
-    ? await crystallizeChat({ store, llm, embedder: deps.embedder, schema, since })
+    ? await crystallizeChat({ store, llm, embedder: deps.embedder, schema, profile, since })
     : 0;
   // Lint every page, persist its quality score, and flag auto-fixable issues
   // (broken links, orphan prose) for the regeneration below to repair.
@@ -115,7 +120,7 @@ export async function runConsolidation(deps: {
 
   const digestDate = new Date().toISOString().slice(0, 10);
   const content = await llm.complete({
-    system: withSchema(DIGEST_SYSTEM_PROMPT, schema),
+    system: withProfile(withSchema(DIGEST_SYSTEM_PROMPT, schema), profile),
     cacheSystem: true,
     messages: [
       {

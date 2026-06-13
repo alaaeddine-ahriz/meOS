@@ -163,6 +163,37 @@ export interface Contradiction {
   proposal?: ContradictionProposal;
 }
 
+export interface ProfileSectionView {
+  id: string;
+  title: string;
+  description: string;
+  placeholder: string;
+  content: string;
+}
+
+export interface ProfileData {
+  sections: ProfileSectionView[];
+  gitSync: boolean;
+}
+
+/** A reviewable AI proposal: the full proposed profile keyed by section id + a note. */
+export interface ProfileProposal {
+  profile: Record<string, string>;
+  summary: string;
+}
+
+export interface ProfileVersion {
+  version: string;
+  savedAt: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  op: string;
+  detail: string | null;
+  created_at: string;
+}
+
 /** Coarse cause of an LLM failure; mirrors core's LlmErrorKind. */
 export type LlmErrorKind =
   | "auth"
@@ -282,6 +313,54 @@ export const api = {
     json<{ markdown: string }>(
       `/api/outputs/${mode}?format=json${entity ? `&entity=${encodeURIComponent(entity)}` : ""}`,
     ),
+
+  // --- profile (the user lens) ---
+  getProfile: () => json<ProfileData>("/api/profile"),
+  saveProfileSection: (id: string, content: string) =>
+    json<ProfileData>(`/api/profile/${id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ content }),
+    }),
+  applyProfile: (profile: Record<string, string>) =>
+    json<ProfileData & { applied: string[] }>("/api/profile/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profile }),
+    }),
+  uploadProfileDocs: async (files: File[]): Promise<{ proposal: ProfileProposal; documents: string[] }> => {
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    const response = await fetch(`${API_BASE}/api/profile/upload`, { method: "POST", body: form });
+    const data = (await response.json().catch(() => ({}))) as
+      | { proposal: ProfileProposal; documents: string[] }
+      | { error?: string };
+    if (!response.ok) throw new Error((data as { error?: string }).error || `Upload failed (${response.status})`);
+    return data as { proposal: ProfileProposal; documents: string[] };
+  },
+  draftProfile: () => json<{ proposal: ProfileProposal }>("/api/profile/draft", { method: "POST" }),
+  draftProfileFromWiki: () =>
+    json<{ proposal: ProfileProposal }>("/api/profile/draft-from-wiki", { method: "POST" }),
+  editProfile: (instruction: string, useUploaded = false) =>
+    json<{ proposal: ProfileProposal }>("/api/profile/edit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ instruction, useUploaded }),
+    }),
+  getProfileHistory: (id: string) => json<{ versions: ProfileVersion[] }>(`/api/profile/${id}/history`),
+  restoreProfileVersion: (id: string, version: string) =>
+    json<ProfileData>(`/api/profile/${id}/restore`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ version }),
+    }),
+  getProfileAudit: () => json<{ entries: AuditEntry[] }>("/api/profile/audit"),
+  setProfilePrivacy: (sync: boolean) =>
+    json<{ gitSync: boolean }>("/api/profile/privacy", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sync }),
+    }),
 };
 
 export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {

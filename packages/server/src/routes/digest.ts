@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { applyResolution, loadSchema, proposeResolution, runConsolidation, type ResolutionAction } from "@meos/core";
+import { applyResolution, loadProfileContext, loadSchema, proposeResolution, runConsolidation, type ResolutionAction } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
 
 const RESOLUTION_ACTIONS = new Set<ResolutionAction>(["supersede_a", "supersede_b", "keep_both", "context_specific"]);
@@ -23,6 +23,7 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
           wiki: ctx.wiki,
           embedder: ctx.embedder,
           schema: loadSchema(ctx.config.dataDir),
+          profile: loadProfileContext(ctx.config.dataDir),
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
         await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [

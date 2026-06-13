@@ -10,6 +10,7 @@ import {
   JobQueue,
   KnowledgeStore,
   loadConfig,
+  loadProfileContext,
   loadSchema,
   MeosEvents,
   openDatabase,
@@ -158,6 +159,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
         embedder,
         conversationId,
         schema: loadSchema(config.dataDir),
+        profile: loadProfileContext(config.dataDir),
       });
       if (crystal) {
         scheduleWikiRefresh();

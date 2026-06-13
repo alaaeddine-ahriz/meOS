@@ -17,8 +17,8 @@ export type { ParsedDocument } from "./ingest/parse.js";
 export { chunkText } from "./ingest/chunk.js";
 export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
-export { entityTypeSchema, extractionSchema, observationKindSchema, sensitivitySchema } from "./extract/schema.js";
-export type { EntityType, ExtractedObservation, Extraction } from "./extract/schema.js";
+export { entityTypeSchema, extractionSchema, observationKindSchema, relevanceSchema, sensitivitySchema } from "./extract/schema.js";
+export type { EntityType, ExtractedObservation, Extraction, Relevance } from "./extract/schema.js";
 export { containsPII, containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
@@ -50,6 +50,25 @@ export {
 export type { ObservationKind, Sensitivity } from "./knowledge/schema-doc.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
+export {
+  composeProfileContext,
+  ensureProfileDocs,
+  ensureProfilePrivacy,
+  listProfileHistory,
+  loadProfile,
+  loadProfileContext,
+  loadProfileSection,
+  PROFILE_DIR,
+  PROFILE_SECTION_IDS,
+  PROFILE_SECTIONS,
+  profileSection,
+  readProfileVersion,
+  saveProfileSection,
+  withProfile,
+} from "./profile/profile-doc.js";
+export type { Profile, ProfileSectionDef, ProfileSectionId, ProfileVersion } from "./profile/profile-doc.js";
+export { draftProfileFromContext, draftProfileFromKnowledge, editProfileWithInstruction } from "./profile/profile-assistant.js";
+export type { ProfileProposal } from "./profile/profile-assistant.js";
 export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";

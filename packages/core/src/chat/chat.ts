@@ -2,6 +2,7 @@ import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
 import type { KnowledgeStore, SourceRef } from "../knowledge/store.js";
 import type { ChatMessage, LlmClient } from "../llm/types.js";
+import { withProfile } from "../profile/profile-doc.js";
 import type { QueryIntent } from "./query-planner.js";
 import { buildContextPack } from "./retrieval.js";
 
@@ -32,6 +33,7 @@ Rules:
 - The context annotates facts with confidence scores. State well-supported facts (>= 0.7) plainly; explicitly hedge weakly-supported ones ("a single note from March suggests...").
 - Surface relevant connections the user may not have asked about directly ("this relates to...").
 - If the knowledge base does not contain enough information to answer confidently, say so plainly. Never fill gaps with general world knowledge or invention — you are an interface to the user's knowledge, not a general assistant.
+- For broad questions ("what should I focus on?", "summarise my projects", "what matters in my current work?"), let the user profile lead: weight the user's stated projects, work context, and goals as the priority signal.
 - Be concise and specific. This is a thinking tool; answer the question first, elaborate only where it helps.`;
 
 const HISTORY_LIMIT = 20;
@@ -43,6 +45,12 @@ export class ChatService {
     private readonly embedder: Embedder,
     /** When provided, onChatAnswer fires after each reply (file-back automation). */
     private readonly events?: MeosEvents,
+    /**
+     * Supplies the user profile lens at answer time (re-read each turn so edits
+     * apply immediately). Returns "" when the profile is empty — injection is
+     * then a no-op.
+     */
+    private readonly getProfileContext?: () => string,
   ) {}
 
   /**
@@ -72,7 +80,8 @@ export class ChatService {
     ];
 
     const intentHint = INTENT_GUIDANCE[context.intent];
-    const system = intentHint ? `${SYSTEM_PROMPT}\n\n${intentHint}` : SYSTEM_PROMPT;
+    const base = intentHint ? `${SYSTEM_PROMPT}\n\n${intentHint}` : SYSTEM_PROMPT;
+    const system = withProfile(base, this.getProfileContext?.() ?? "");
 
     if (context.sources.length > 0) {
       yield { type: "sources", sources: context.sources };

@@ -15,6 +15,15 @@ export type EntityType = z.infer<typeof entityTypeSchema>;
 export const observationKindSchema = z.enum(OBSERVATION_KINDS);
 export const sensitivitySchema = z.enum(SENSITIVITY_LEVELS);
 
+/**
+ * How relevant an entity is to the user, judged against their profile lens.
+ * high = directly about the user, their projects, work, goals, decisions;
+ * medium = useful context around those; low = generic or passing mention.
+ * Low-relevance new entities are not auto-promoted into the knowledge base.
+ */
+export const relevanceSchema = z.enum(["high", "medium", "low"]);
+export type Relevance = z.infer<typeof relevanceSchema>;
+
 export const extractionSchema = z.object({
   entities: z.array(
     z.object({
@@ -22,6 +31,14 @@ export const extractionSchema = z.object({
       type: entityTypeSchema,
       aliases: z.array(z.string()),
       summary: z.string(),
+      /**
+       * Relevance to the user's world (profile lens). Optional so extractions
+       * predating the field — and the test stub — still validate; absent is
+       * treated as "medium".
+       */
+      relevance: relevanceSchema.optional(),
+      /** Why this entity matters (or doesn't) to the user. */
+      relevanceReason: z.string().optional(),
     }),
   ),
   relationships: z.array(

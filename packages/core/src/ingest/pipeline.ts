@@ -3,6 +3,7 @@ import type { MeosEvents } from "../events.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { readImage } from "../extract/image.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
+import { loadProfileContext } from "../profile/profile-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { LlmClient } from "../llm/types.js";
@@ -117,7 +118,8 @@ export class IngestionPipeline {
 
       store.updateInboxItem(inboxItemId, "extracting");
       const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
-      const extraction = await extractKnowledge(this.deps.llm, parsed, schema);
+      const profile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
+      const extraction = await extractKnowledge(this.deps.llm, parsed, schema, profile);
 
       store.updateInboxItem(inboxItemId, "merging");
       const { merge, postMergeNote } = await this.withMergeLock(async () => {

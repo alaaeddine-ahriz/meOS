@@ -62,6 +62,12 @@ export async function mergeExtraction(
   for (const candidate of extraction.entities) {
     let id = resolve(candidate.name);
     if (id === undefined) {
+      // Relevance gate (profile lens): a brand-new entity the extractor judged
+      // only loosely relevant to the user is not promoted into the graph — it
+      // would just become a generic encyclopedia page. Existing entities are
+      // still reinforced below; only the creation of new low-relevance ones is
+      // suppressed.
+      if (candidate.relevance === "low") continue;
       const entity = store.createEntity({
         type: candidate.type,
         name: candidate.name,

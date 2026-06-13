@@ -1,0 +1,90 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - navigation [ref=e5]:
+      - link "Chat ⌘1" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e7]
+        - generic [ref=e9]: Chat
+        - generic: ⌘1
+      - link "Wiki ⌘2" [ref=e10] [cursor=pointer]:
+        - /url: /wiki
+        - img [ref=e11]
+        - generic [ref=e13]: Wiki
+        - generic: ⌘2
+      - link "Graph ⌘3" [ref=e14] [cursor=pointer]:
+        - /url: /graph
+        - img [ref=e15]
+        - generic [ref=e22]: Graph
+        - generic: ⌘3
+      - link "Inbox absorbing 219 items ⌘4" [ref=e119] [cursor=pointer]:
+        - /url: /inbox
+        - img [ref=e24]
+        - generic [ref=e27]: Inbox
+        - generic "absorbing 219 items" [ref=e120]
+        - generic: ⌘4
+      - link "Digest ⌘5" [ref=e28] [cursor=pointer]:
+        - /url: /digest
+        - img [ref=e29]
+        - generic [ref=e32]: Digest
+        - generic: ⌘5
+      - link "Conflicts ⌘6" [ref=e33] [cursor=pointer]:
+        - /url: /contradictions
+        - img [ref=e34]
+        - generic [ref=e41]: Conflicts
+        - generic: ⌘6
+    - generic [ref=e42]:
+      - button "Capture ⌘J" [ref=e43]:
+        - img [ref=e44]
+        - generic [ref=e46]: Capture
+        - generic: ⌘J
+      - button "Jump to… ⌘K" [ref=e47]:
+        - img [ref=e48]
+        - generic [ref=e51]: Jump to…
+        - generic: ⌘K
+      - link "Settings ⌘," [ref=e52] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e53]
+        - generic [ref=e56]: Settings
+        - generic: ⌘,
+  - main [ref=e57]:
+    - generic [ref=e59]:
+      - generic [ref=e62]:
+        - heading "Settings" [level=1] [ref=e63]
+        - paragraph [ref=e64]: How MeOS sees your world.
+      - navigation [ref=e65]:
+        - button "Appearance" [ref=e66]:
+          - img [ref=e67]
+          - text: Appearance
+        - button "Intelligence" [active] [ref=e74]:
+          - img [ref=e75]
+          - text: Intelligence
+        - button "Folders" [ref=e78]:
+          - img [ref=e79]
+          - text: Folders
+        - button "Sync" [ref=e81]:
+          - img [ref=e82]
+          - text: Sync
+        - button "Reset" [ref=e86]:
+          - img [ref=e87]
+          - text: Reset
+      - generic [ref=e122]:
+        - paragraph [ref=e123]: The model that reads your documents, maintains the wiki, and answers your questions. API keys stay on this machine.
+        - generic [ref=e124]:
+          - button "Anthropic" [ref=e125]
+          - button "OpenAI" [ref=e126]
+          - button "Google" [ref=e127]
+          - button "Local (LM Studio)" [ref=e128]
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - textbox "http://localhost:1234/v1" [ref=e131]: http://127.0.0.1:1234
+            - button "Detect models" [ref=e132]:
+              - img
+              - text: Detect models
+          - combobox [ref=e133]:
+            - generic: google/gemma-4-e4b
+            - img
+          - paragraph [ref=e134]: 2 models loaded on the server
+          - button "Save" [ref=e136]
+  - generic [ref=e116]:
+    - heading "Command Palette" [level=2] [ref=e117]
+    - paragraph [ref=e118]: Search for a command to run...

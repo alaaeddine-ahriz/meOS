@@ -1,9 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { buildContextPack, ChatService, LlmError } from "@meos/core";
+import { buildContextPack, ChatService, LlmError, loadProfileContext } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { isProfileCommand, runProfileCommand } from "../profile-command.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder, ctx.events);
+  // Re-read the profile each turn so edits apply immediately (no restart).
+  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder, ctx.events, () =>
+    loadProfileContext(ctx.config.dataDir),
+  );
 
   app.post("/api/conversations", async (_request, reply) => {
     return reply.code(201).send({ id: ctx.store.createConversation() });
@@ -61,6 +65,24 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     const send = (event: object) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 
     send({ type: "start", conversationId });
+
+    // Slash commands are app directives, not questions — handle them before the
+    // retrieval/answer pipeline. `/profile <instruction>` edits the profile lens.
+    if (isProfileCommand(message)) {
+      try {
+        await runProfileCommand(ctx, conversationId, message, send);
+        send({ type: "done" });
+      } catch (error) {
+        if (error instanceof LlmError) {
+          send({ type: "error", message: error.message, kind: error.kind });
+        } else {
+          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      reply.raw.end();
+      return;
+    }
+
     try {
       for await (const event of chat.respond(conversationId, message)) {
         send(event);

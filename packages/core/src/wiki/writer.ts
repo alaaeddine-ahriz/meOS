@@ -3,6 +3,7 @@ import path from "node:path";
 import { createBashTool } from "bash-tool";
 import type { Embedder } from "../embedding/embedder.js";
 import { loadSchema, withSchema } from "../knowledge/schema-doc.js";
+import { loadProfileContext, withProfile } from "../profile/profile-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import type { EntityRow, KnowledgeStore, ObservationRow, RelationshipView, WikiChange } from "../knowledge/store.js";
 
@@ -19,6 +20,7 @@ Rules:
 - Observations are listed with a confidence score. State high-confidence facts plainly. Hedge low-confidence ones explicitly ("a single note suggests...", "as of <date>...").
 - Link other known entities inline using [[Entity Name]] wiki-link syntax, using their exact names from the known-entities list (grep the wiki to confirm a name before linking). Link each entity at most a few times; never link a page to itself.
 - Structure: a short opening paragraph, then "## " sections only if there is enough material to justify them. No top-level title and no frontmatter (those are added by the system — write body prose only).
+- When a user profile lens is provided, frame the page around the user's world: emphasise how this entity connects to their projects, work, goals, and decisions, rather than writing a generic encyclopedia entry. Never invent that connection — only draw it from the observations and relationships given.
 - Prefer EDITING the existing page: keep prose that is still accurate, weave in new facts, and only rewrite parts the new observations change. If the page does not exist yet, write it from scratch.`;
 
 const MAX_KNOWN_ENTITIES = 300;
@@ -213,10 +215,12 @@ export class WikiWriter {
       uploadDirectory: { source: this.wikiDir, include: "**/*.md" },
     });
 
-    const schema = loadSchema(path.dirname(this.wikiDir));
+    const dataDir = path.dirname(this.wikiDir);
+    const schema = loadSchema(dataDir);
+    const profileContext = loadProfileContext(dataDir);
     try {
       await this.llm.runAgent({
-        system: `${withSchema(SYSTEM_PROMPT, schema)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
+        system: `${withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
         tools,
         sandbox,
         prompt: [

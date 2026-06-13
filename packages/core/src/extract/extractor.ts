@@ -1,4 +1,5 @@
 import { DEFAULT_SCHEMA_MD, OBSERVATION_KINDS, RELATIONSHIP_VOCABULARY, withSchema } from "../knowledge/schema-doc.js";
+import { withProfile } from "../profile/profile-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import { extractionSchema, type Extraction } from "./schema.js";
 
@@ -7,8 +8,9 @@ You read documents the user has captured and extract what matters into a knowled
 following the schema below.
 
 Rules:
-- Extract entities only when they matter to the user's world (see the schema's entity types).
+- Extract entities only when they matter to the user's world (see the schema's entity types and, when present, the user profile lens below).
 - Skip generic terms, document boilerplate, and entities mentioned only in passing with no substance.
+- Classify each entity's "relevance" to the user (high/medium/low) and give a one-line "relevanceReason". high = directly about the user, their projects, work, goals, relationships, decisions; medium = useful context around those; low = generic or passing mention. Be strict: a concept mentioned once with no connection to the user's world is "low".
 - Each observation is an atomic, self-contained claim about one entity, phrased in third person, understandable without the source document. Include dates when the document states them.
 - Every observation must reference an entity from your entities list by its exact name.
 - "kind" classifies the claim, one of: ${OBSERVATION_KINDS.join(", ")}.
@@ -22,9 +24,11 @@ export async function extractKnowledge(
   llm: LlmClient,
   source: { title: string; text: string },
   schema: string = DEFAULT_SCHEMA_MD,
+  /** The user profile lens; when non-empty, steers relevance toward the user's world. */
+  profileContext = "",
 ): Promise<Extraction> {
   return llm.completeStructured({
-    system: withSchema(SYSTEM_PROMPT, schema),
+    system: withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext),
     cacheSystem: true,
     schema: extractionSchema,
     schemaName: "knowledge_extraction",

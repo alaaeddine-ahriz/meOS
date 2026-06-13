@@ -997,8 +997,10 @@ export class KnowledgeStore {
   recentUserMessages(sinceIso: string): Array<{ content: string; created_at: string }> {
     return this.db
       .prepare(
+        // Exclude slash commands (e.g. /profile) — they are directives to the
+        // app, not statements about the user's world worth crystallizing.
         `SELECT content, created_at FROM messages
-         WHERE role = 'user' AND created_at >= ? ORDER BY id`,
+         WHERE role = 'user' AND created_at >= ? AND content NOT LIKE '/%' ORDER BY id`,
       )
       .all(sinceIso) as Array<{ content: string; created_at: string }>;
   }
