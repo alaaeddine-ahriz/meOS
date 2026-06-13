@@ -7,7 +7,7 @@ import type { SourceRef } from "../api.js";
 /**
  * Collapsible list of the documents an answer or wiki page draws on. In the
  * desktop app, clicking a source reveals the original file in Finder; sources
- * without a file on disk (quick captures) are inert.
+ * without a file on disk are inert.
  */
 export function SourceList({ sources, defaultOpen = false }: { sources: SourceRef[]; defaultOpen?: boolean }) {
   if (sources.length === 0) return null;

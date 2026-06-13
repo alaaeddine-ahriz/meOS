@@ -1,9 +1,8 @@
-import { GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, PenLine, Search, Settings, Waypoints } from "lucide-react";
+import { GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, Search, Settings, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
 import { api } from "./api.js";
-import { CaptureDialog } from "./components/CaptureDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
@@ -28,7 +27,6 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [captureOpen, setCaptureOpen] = useState(false);
   const [queuePending, setQueuePending] = useState(0);
   const navigate = useNavigate();
 
@@ -42,9 +40,6 @@ export function App() {
       } else if (event.key === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
-      } else if (event.key === "j") {
-        event.preventDefault();
-        setCaptureOpen((open) => !open);
       } else if (event.key === ",") {
         event.preventDefault();
         navigate("/settings");
@@ -98,14 +93,6 @@ export function App() {
 
         <div className="mt-auto flex flex-col gap-0.5">
           <button
-            onClick={() => setCaptureOpen(true)}
-            className="group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-faded transition-colors hover:bg-card/50 hover:text-paper"
-          >
-            <PenLine className="size-4 shrink-0 opacity-70" />
-            <span>Capture</span>
-            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘J</Kbd>
-          </button>
-          <button
             onClick={() => setPaletteOpen(true)}
             className="group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-faded transition-colors hover:bg-card/50 hover:text-paper"
           >
@@ -143,8 +130,7 @@ export function App() {
         </Routes>
       </main>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} onCapture={() => setCaptureOpen(true)} />
-      <CaptureDialog open={captureOpen} onOpenChange={setCaptureOpen} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

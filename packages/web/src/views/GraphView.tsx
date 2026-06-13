@@ -388,7 +388,7 @@ export function GraphView() {
 
       {loaded && counts.nodes === 0 && (
         <p className="pointer-events-auto absolute left-10 top-32 text-sm text-faded">
-          Nothing to map yet. Capture thoughts or add watched folders in{" "}
+          Nothing to map yet. Add watched folders in{" "}
           <Link className="text-lamp" to="/settings">Settings</Link> and the graph will grow on its own.
         </p>
       )}

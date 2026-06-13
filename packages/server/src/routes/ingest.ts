@@ -21,21 +21,6 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     return reply.code(202).send({ accepted });
   });
 
-  app.post<{ Body: { title?: string; text: string } }>("/api/ingest/text", async (request, reply) => {
-    const { title, text } = request.body ?? {};
-    if (!text?.trim()) {
-      return reply.code(400).send({ error: "Field 'text' is required" });
-    }
-    const resolvedTitle = title?.trim() || `Note ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-    const inboxItemId = ctx.store.createInboxItem(resolvedTitle);
-    ctx.queue.push(() =>
-      ctx.pipeline
-        .ingest({ kind: "text", title: resolvedTitle, text, origin: "quick-capture" }, inboxItemId)
-        .then(() => undefined),
-    );
-    return reply.code(202).send({ inboxItemId });
-  });
-
   app.get("/api/inbox", async () => ({
     queuePending: ctx.queue.pending,
     items: ctx.store.listInbox(),

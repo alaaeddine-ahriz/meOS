@@ -176,7 +176,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
     const knowledge = wikiKnowledge(ctx);
     if (!knowledge.trim()) {
       return reply.code(400).send({
-        error: "Nothing in the knowledge base yet — capture some notes first, then generate a profile from them.",
+        error: "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
       });
     }
     try {

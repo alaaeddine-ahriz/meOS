@@ -75,7 +75,7 @@ export function WikiView() {
 
         {loaded && entities.length === 0 && (
           <p className="rise-1 mt-10 text-sm text-faded">
-            Nothing here yet. Capture thoughts or add watched folders in{" "}
+            Nothing here yet. Add watched folders in{" "}
             <Link className="text-lamp" to="/settings">Settings</Link> and pages will appear on their own.
           </p>
         )}

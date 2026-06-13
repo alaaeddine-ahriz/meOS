@@ -23,11 +23,9 @@ const VIEWS = [
 export function CommandPalette({
   open,
   onOpenChange,
-  onCapture,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCapture?: () => void;
 }) {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -55,16 +53,6 @@ export function CommandPalette({
       <CommandList className="max-h-72">
         <CommandEmpty className="py-3 text-sm text-dim">Nothing matches.</CommandEmpty>
         <CommandGroup heading="Actions">
-          <CommandItem
-            value="capture-thought"
-            onSelect={() => {
-              onOpenChange(false);
-              onCapture?.();
-            }}
-          >
-            <span>Capture a thought</span>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">⌘J</span>
-          </CommandItem>
           <CommandItem value="new-chat" onSelect={() => choose("/")}>
             <span>New chat</span>
             <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">chat</span>

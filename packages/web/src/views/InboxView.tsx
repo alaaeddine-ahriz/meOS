@@ -2,7 +2,6 @@ import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Page, PageHeader } from "@/components/Page";
-import { Kbd } from "@/components/ui/kbd";
 import { cn } from "@/lib/utils";
 import { api, type InboxItem } from "../api.js";
 
@@ -104,8 +103,8 @@ export function InboxView() {
             })}
             {items.length === 0 && (
               <li className="py-6 text-sm text-dim">
-                Nothing yet. Capture a thought with <Kbd className="text-dim">⌘J</Kbd> or add{" "}
-                <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>.
+                Nothing yet. Add{" "}
+                <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link> and MeOS starts reading.
               </li>
             )}
           </ul>

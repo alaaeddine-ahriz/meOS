@@ -12,14 +12,14 @@ import {
   Moon,
   Palette as PaletteIcon,
   RefreshCw,
+  Search,
   Sparkles,
   Sun,
   Trash2,
   UserCircle,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
-import { Page, PageHeader } from "@/components/Page";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
 import {
@@ -75,17 +75,49 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
   { value: "compact", label: "Compact" },
 ];
 
-/** The sections of Settings, surfaced as in-page tabs so each panel stays focused. */
-const TABS = [
-  { id: "profile", label: "Profile", icon: UserCircle },
-  { id: "appearance", label: "Appearance", icon: PaletteIcon },
-  { id: "intelligence", label: "Intelligence", icon: Sparkles },
-  { id: "folders", label: "Folders", icon: FolderOpen },
-  { id: "sync", label: "Sync", icon: GitBranch },
-  { id: "reset", label: "Reset", icon: Trash2 },
-] as const;
+/** One selectable Settings section. */
+type SettingsItem = {
+  id: TabId;
+  label: string;
+  icon: LucideIcon;
+  /** Shown under the title at the top of the panel. */
+  blurb: string;
+};
 
-type TabId = (typeof TABS)[number]["id"];
+type TabId = "profile" | "appearance" | "intelligence" | "folders" | "sync" | "reset";
+
+/**
+ * The sections of Settings, presented as a grouped left rail — a focused panel
+ * to the right of a searchable list, in the manner of a desktop preferences pane.
+ */
+const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
+  {
+    heading: "Workspace",
+    items: [
+      { id: "profile", label: "Profile", icon: UserCircle, blurb: "Who you are, in MeOS's own words." },
+      { id: "appearance", label: "Appearance", icon: PaletteIcon, blurb: "Mode, palette, typeface and density." },
+      {
+        id: "intelligence",
+        label: "Intelligence",
+        icon: Sparkles,
+        blurb: "The model that reads, writes and answers.",
+      },
+    ],
+  },
+  {
+    heading: "Knowledge",
+    items: [
+      { id: "folders", label: "Folders", icon: FolderOpen, blurb: "The folders MeOS reads and keeps watching." },
+      { id: "sync", label: "Sync", icon: GitBranch, blurb: "Version your wiki and digests with Git." },
+    ],
+  },
+  {
+    heading: "Advanced",
+    items: [{ id: "reset", label: "Reset", icon: Trash2, blurb: "Erase everything MeOS has learned." }],
+  },
+];
+
+const ITEMS: SettingsItem[] = GROUPS.flatMap((group) => group.items);
 
 const inputClass =
   "border-line bg-transparent font-mono text-[13px] text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0";
@@ -139,40 +171,86 @@ function PanelIntro({ children }: { children: ReactNode }) {
 
 export function SettingsView() {
   const [tab, setTab] = useState<TabId>("profile");
+  const [query, setQuery] = useState("");
+
+  // Filter the rail by name; hide a group entirely once nothing in it matches.
+  const groups = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return GROUPS;
+    return GROUPS.map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.label.toLowerCase().includes(needle)),
+    })).filter((group) => group.items.length > 0);
+  }, [query]);
+
+  const active = ITEMS.find((item) => item.id === tab) ?? ITEMS[0]!;
 
   return (
-    <Page>
-      <PageHeader title="Settings" description="How MeOS sees your world." />
+    <div className="flex h-full">
+      <aside
+        className={cn(
+          "flex w-60 shrink-0 flex-col border-r border-line bg-desk/40 px-3 py-6",
+          isTauri && "pt-10",
+        )}
+      >
+        <div className="relative px-1">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search settings"
+            className={cn(inputClass, "h-9 rounded-lg bg-card/50 pl-9 font-sans text-sm")}
+          />
+        </div>
 
-      <nav className="rise mt-8 flex flex-wrap gap-1 border-b border-line">
-        {TABS.map(({ id, label, icon: Icon }) => {
-          const active = tab === id;
-          return (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={cn(
-                "relative -mb-px flex items-center gap-2 px-3 py-2.5 text-sm transition-colors",
-                active ? "text-paper" : "text-faded hover:text-paper",
-              )}
-            >
-              <Icon className="size-3.5 opacity-70" />
-              {label}
-              {active && <span className="absolute inset-x-0 -bottom-px h-px bg-lamp" />}
-            </button>
-          );
-        })}
-      </nav>
+        <nav className="mt-5 flex flex-col gap-5 overflow-y-auto">
+          {groups.map((group) => (
+            <div key={group.heading} className="flex flex-col gap-1">
+              <span className="px-2.5 pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+                {group.heading}
+              </span>
+              {group.items.map(({ id, label, icon: Icon }) => {
+                const isActive = tab === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => setTab(id)}
+                    className={cn(
+                      "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
+                      isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
+                    )}
+                  >
+                    <Icon className="size-4 shrink-0 opacity-70" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {groups.length === 0 && (
+            <p className="px-2.5 text-sm text-dim">Nothing matches “{query.trim()}”.</p>
+          )}
+        </nav>
+      </aside>
 
-      <div className="mt-8">
-        {tab === "profile" && <ProfileSection />}
-        {tab === "appearance" && <AppearanceSection />}
-        {tab === "intelligence" && <IntelligenceSection />}
-        {tab === "folders" && <FoldersSection />}
-        {tab === "sync" && <GitSyncSection />}
-        {tab === "reset" && <ResetSection />}
+      <div className="h-full flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-2xl px-10 py-10">
+          <header className="rise">
+            <h1 className="font-serif text-2xl text-paper">{active.label}</h1>
+            <p className="mt-1 text-sm text-dim">{active.blurb}</p>
+          </header>
+
+          <div className="mt-8">
+            {tab === "profile" && <ProfileSection />}
+            {tab === "appearance" && <AppearanceSection />}
+            {tab === "intelligence" && <IntelligenceSection />}
+            {tab === "folders" && <FoldersSection />}
+            {tab === "sync" && <GitSyncSection />}
+            {tab === "reset" && <ResetSection />}
+          </div>
+        </div>
       </div>
-    </Page>
+    </div>
   );
 }
 
@@ -376,7 +454,7 @@ function IntelligenceSection() {
           <div className="flex flex-col gap-3">
             {cloudProvider && llm ? (
               <>
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <Combobox
                     value={model}
                     onChange={setModel}
@@ -385,11 +463,10 @@ function IntelligenceSection() {
                     placeholder={loadingCloud ? "Loading models…" : "Choose a model"}
                     searchPlaceholder="Search or type a model…"
                     emptyText="No matching models."
-                    className={comboboxClass}
+                    className={cn(comboboxClass, "flex-1 min-w-0")}
                   />
                   <Button
                     variant="outline"
-                    size="sm"
                     onClick={() =>
                       void refreshCloudModels(
                         provider as "anthropic" | "openai" | "google",

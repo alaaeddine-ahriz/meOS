@@ -247,12 +247,6 @@ export const api = {
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getGraph: () => json<WikiGraph>("/api/wiki/graph"),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),
-  ingestText: (text: string) =>
-    json<{ inboxItemId: number }>("/api/ingest/text", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text }),
-    }),
   listFolders: () => json<{ folders: WatchedFolder[] }>("/api/settings/folders"),
   addFolder: (path: string) =>
     json<{ folder: WatchedFolder }>("/api/settings/folders", {
