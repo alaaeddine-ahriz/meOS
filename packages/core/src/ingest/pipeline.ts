@@ -1,4 +1,5 @@
 import type { Embedder } from "../embedding/embedder.js";
+import type { MeosEvents } from "../events.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { readImage } from "../extract/image.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
@@ -52,6 +53,8 @@ export class IngestionPipeline {
       scheduleWikiRefresh?: () => void;
       /** Data dir to read the user's schema document from for extraction. */
       dataDir?: string;
+      /** Event bus; onNewSource / onMemoryWrite fire here for automation hooks. */
+      events?: MeosEvents;
     },
   ) {}
 
@@ -125,6 +128,12 @@ export class IngestionPipeline {
         const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
         return { merge, postMergeNote };
       });
+
+      // Automation hooks: a source landed, and memory was written. Subscribers
+      // (contradiction checks, crystallization, etc.) react without the pipeline
+      // knowing them. Awaited inside the try so failures surface on the item.
+      await this.deps.events?.emit("onMemoryWrite", { sourceId, newObservationIds: merge.newObservationIds });
+      await this.deps.events?.emit("onNewSource", { sourceId, merge });
 
       if (this.deps.scheduleWikiRefresh) {
         this.deps.scheduleWikiRefresh();

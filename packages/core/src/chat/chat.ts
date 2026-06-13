@@ -1,4 +1,5 @@
 import type { Embedder } from "../embedding/embedder.js";
+import type { MeosEvents } from "../events.js";
 import type { KnowledgeStore, SourceRef } from "../knowledge/store.js";
 import type { ChatMessage, LlmClient } from "../llm/types.js";
 import type { QueryIntent } from "./query-planner.js";
@@ -40,6 +41,8 @@ export class ChatService {
     private readonly store: KnowledgeStore,
     private readonly llm: LlmClient,
     private readonly embedder: Embedder,
+    /** When provided, onChatAnswer fires after each reply (file-back automation). */
+    private readonly events?: MeosEvents,
   ) {}
 
   /**
@@ -92,5 +95,13 @@ export class ChatService {
     if (context.sources.length > 0) {
       this.store.linkMessageSources(messageId, context.sources.map((source) => source.id));
     }
+    // Automation hook: a turn completed — a subscriber may decide the answer is
+    // worth filing back into memory. Fire-and-forget so it never delays the UI.
+    void this.events?.emit("onChatAnswer", {
+      conversationId,
+      messageId,
+      question: userMessage,
+      answer: reply,
+    });
   }
 }

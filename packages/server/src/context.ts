@@ -10,6 +10,7 @@ import {
   KnowledgeStore,
   loadConfig,
   loadSchema,
+  MeosEvents,
   openDatabase,
   overlayStoredLlmConfig,
   SwitchableLlmClient,
@@ -39,6 +40,7 @@ export interface AppContext {
   queue: JobQueue;
   watcher: FolderWatcher;
   git: GitSync;
+  events: MeosEvents;
 }
 
 /**

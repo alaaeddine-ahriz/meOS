@@ -52,6 +52,8 @@ export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
 export { WikiWriter } from "./wiki/writer.js";
 export { JobQueue, SerialQueue } from "./jobs/queue.js";
+export { MeosEvents } from "./events.js";
+export type { MeosEvent, MeosEventHandler, MeosEventMap } from "./events.js";
 export { buildContextPack } from "./chat/retrieval.js";
 export type { ContextPack, RetrievalOptions } from "./chat/retrieval.js";
 export { classifyIntent } from "./chat/query-planner.js";

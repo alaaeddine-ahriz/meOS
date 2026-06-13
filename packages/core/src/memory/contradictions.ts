@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { MeosEvents } from "../events.js";
 import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
@@ -37,6 +38,8 @@ export async function detectContradictions(
   llm: LlmClient,
   newObservationIds: number[],
   schema: string = DEFAULT_SCHEMA_MD,
+  /** When provided, onContradiction fires for each conflict recorded for review. */
+  events?: MeosEvents,
 ): Promise<ContradictionSummary> {
   const summary: ContradictionSummary = { superseded: 0, contradictions: 0 };
   if (newObservationIds.length === 0) return summary;
@@ -85,8 +88,9 @@ export async function detectContradictions(
         store.markSuperseded(conflict.existing_id, conflict.new_id);
         summary.superseded++;
       } else {
-        store.createContradiction(conflict.new_id, conflict.existing_id, conflict.note);
+        const contradictionId = store.createContradiction(conflict.new_id, conflict.existing_id, conflict.note);
         summary.contradictions++;
+        await events?.emit("onContradiction", { contradictionId, entityId });
       }
     }
     if (judgement.conflicts.length > 0) store.markWikiStale(entityId);
