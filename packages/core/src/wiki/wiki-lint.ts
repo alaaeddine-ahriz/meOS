@@ -1,5 +1,5 @@
-import { DECAY_AFTER_DAYS } from "../memory/confidence.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
+import { isStale } from "../memory/temporal.js";
 
 /**
  * Wiki quality scoring + lint (gist item 10): LLM-written pages accumulate noise
@@ -70,11 +70,11 @@ export function lintPage(store: KnowledgeStore, entityId: number, body: string):
     issues.push({ code: "ungrounded_claims", severity: "review", detail: `${observations.length - grounded} uncited claim(s)` });
   }
 
-  // Staleness: claims long unconfirmed and decayed.
-  const cutoff = Date.now() - DECAY_AFTER_DAYS * 86_400_000;
-  const stale = observations.filter((o) => (Date.parse(o.last_confirmed_at) || Date.now()) < cutoff).length;
+  // Staleness: claims unconfirmed past their kind's horizon (a stale task and a
+  // stale architecture decision are not the same age).
+  const stale = observations.filter((o) => isStale(o)).length;
   if (observations.length > 0 && stale / observations.length > 0.5) {
-    issues.push({ code: "stale_claims", severity: "review", detail: `${stale} claim(s) unconfirmed for over ${DECAY_AFTER_DAYS} days` });
+    issues.push({ code: "stale_claims", severity: "review", detail: `${stale} claim(s) unconfirmed past their freshness horizon` });
   }
 
   // Vagueness: hedge words with no specifics, a sign of weak synthesis.

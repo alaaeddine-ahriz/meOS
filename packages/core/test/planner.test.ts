@@ -33,7 +33,8 @@ describe("intent-routed retrieval", () => {
     const pack = await buildContextPack(s, new HashEmbedder(), "what is the timeline of Dana's history?");
 
     expect(pack.intent).toBe("trace_timeline");
-    expect(pack.text).toContain("2020-01-01: Dana joined the team.");
+    // every fact leads with its date so the model can place and weigh it
+    expect(pack.text).toContain("[2020-01-01, confidence 0.50] Dana joined the team.");
     // earliest event appears before the later one
     expect(pack.text.indexOf("Dana joined")).toBeLessThan(pack.text.indexOf("Dana was promoted"));
   });

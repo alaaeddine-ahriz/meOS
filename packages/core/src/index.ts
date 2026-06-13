@@ -99,6 +99,18 @@ export { clampConfidence, initialConfidence, sourceQuality } from "./memory/conf
 export { classifyMemoryTier, reclassifyMemoryTiers } from "./memory/memory-tiers.js";
 export type { MemoryTier } from "./memory/memory-tiers.js";
 export { expireStaleValidity } from "./memory/supersession.js";
+export {
+  ageInDays,
+  DEFAULT_STALE_AFTER_DAYS,
+  effectiveDateOf,
+  formatAge,
+  isStale,
+  isUpcoming,
+  STALE_AFTER_DAYS,
+  staleAfterDays,
+  temporalTag,
+} from "./memory/temporal.js";
+export type { TemporalClaim } from "./memory/temporal.js";
 export { runRetention } from "./memory/retention.js";
 export type { RetentionReport } from "./memory/retention.js";
 export { runConsolidation } from "./memory/consolidate.js";

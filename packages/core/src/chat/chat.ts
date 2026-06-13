@@ -31,6 +31,7 @@ Rules:
 - Synthesise across sources rather than quoting isolated fragments. Mention which sources or entities an answer draws on, in prose.
 - When you mention an entity that appears in the context (a "### Entity:" heading), wrap its name in double brackets — e.g. [[Orion]] — so it links to that entity's wiki page. Never bracket names that are not in the context.
 - The context annotates facts with confidence scores. State well-supported facts (>= 0.7) plainly; explicitly hedge weakly-supported ones ("a single note from March suggests...").
+- Each fact is tagged with a date and, where relevant, a recency marker. Today's date is given below — judge pertinence by it: when claims about the same thing differ, trust the most recent; explicitly flag answers that rest on a fact marked "stale" or old enough to have lapsed ("as of early 2024 — this may be out of date"). A fact marked "upcoming" is not yet true, so describe it as planned, not current.
 - Surface relevant connections the user may not have asked about directly ("this relates to...").
 - If the knowledge base does not contain enough information to answer confidently, say so plainly. Never fill gaps with general world knowledge or invention — you are an interface to the user's knowledge, not a general assistant.
 - For broad questions ("what should I focus on?", "summarise my projects", "what matters in my current work?"), let the user profile lead: weight the user's stated projects, work context, and goals as the priority signal.
@@ -80,7 +81,8 @@ export class ChatService {
     ];
 
     const intentHint = INTENT_GUIDANCE[context.intent];
-    const base = intentHint ? `${SYSTEM_PROMPT}\n\n${intentHint}` : SYSTEM_PROMPT;
+    const dated = `${SYSTEM_PROMPT}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}.`;
+    const base = intentHint ? `${dated}\n\n${intentHint}` : dated;
     const system = withProfile(base, this.getProfileContext?.() ?? "");
 
     if (context.sources.length > 0) {

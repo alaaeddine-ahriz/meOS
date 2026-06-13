@@ -1,7 +1,8 @@
 import type { KnowledgeStore } from "../knowledge/store.js";
-import { DECAY_AFTER_DAYS, DECAY_STEP, PROMOTE_THRESHOLD } from "./confidence.js";
+import { DECAY_STEP, PROMOTE_THRESHOLD } from "./confidence.js";
 import { reclassifyMemoryTiers } from "./memory-tiers.js";
 import { expireStaleValidity } from "./supersession.js";
+import { DEFAULT_STALE_AFTER_DAYS, STALE_AFTER_DAYS } from "./temporal.js";
 
 export interface RetentionReport {
   /** Claims whose confidence decayed for going long unconfirmed. */
@@ -22,7 +23,7 @@ export interface RetentionReport {
  */
 export function runRetention(store: KnowledgeStore): RetentionReport {
   const expired = expireStaleValidity(store);
-  const decayed = store.decayStaleConfidence(DECAY_AFTER_DAYS, DECAY_STEP);
+  const decayed = store.decayStaleConfidenceByKind(STALE_AFTER_DAYS, DEFAULT_STALE_AFTER_DAYS, DECAY_STEP);
   const promoted = store.promoteFacts(PROMOTE_THRESHOLD);
   const retiered = reclassifyMemoryTiers(store);
   return { decayed, promoted, expired, retiered };

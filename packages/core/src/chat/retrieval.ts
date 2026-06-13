@@ -1,6 +1,7 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { reciprocalRankFusion, topK } from "../embedding/vectors.js";
 import { effectiveDate, type EntityRow, type KnowledgeStore, type SourceRef } from "../knowledge/store.js";
+import { temporalTag } from "../memory/temporal.js";
 import { classifyIntent, type QueryIntent } from "./query-planner.js";
 
 export interface ContextPack {
@@ -140,9 +141,9 @@ export async function buildContextPack(
         // Tag non-working tiers so the model can weight a stable, cross-source
         // "semantic" fact above a fresh "working" capture.
         const tier = o.memory_tier !== "working" ? `, ${o.memory_tier}` : "";
-        // Lead with the date when tracing a timeline.
-        const when = intent === "trace_timeline" ? `${effectiveDate(o).slice(0, 10)}: ` : "";
-        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${when}${o.text}`;
+        // Lead every fact with its date (+ stale/upcoming marker) so the model
+        // can judge whether it's still pertinent, not just how well-supported.
+        return `- [${temporalTag(o)}, confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${o.text}`;
       }),
       ...relationships.map((r) =>
         r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,

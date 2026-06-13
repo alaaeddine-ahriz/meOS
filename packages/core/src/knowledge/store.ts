@@ -824,6 +824,37 @@ export class KnowledgeStore {
   }
 
   /**
+   * Kind-aware confidence decay (rohitg00's per-kind forgetting curve): each
+   * kind ages on its own horizon — a task goes stale in weeks, a decision in a
+   * year — instead of one flat cutoff for everything. Returns claims decayed.
+   */
+  decayStaleConfidenceByKind(
+    horizons: Record<string, number>,
+    defaultDays: number,
+    amount = 0.01,
+    floor = 0.05,
+  ): number {
+    const stmt = this.db.prepare(
+      `UPDATE observations
+         SET confidence = MAX(?, confidence - ?)
+         WHERE status = 'active' AND confidence > ? AND kind = ?
+           AND last_confirmed_at < datetime('now', '-' || ? || ' days')`,
+    );
+    const kinds = this.db
+      .prepare("SELECT DISTINCT kind FROM observations WHERE status = 'active'")
+      .all() as Array<{ kind: string }>;
+    let changed = 0;
+    const apply = this.db.transaction(() => {
+      for (const { kind } of kinds) {
+        const days = horizons[kind] ?? defaultDays;
+        changed += stmt.run(floor, amount, floor, kind, days).changes;
+      }
+    });
+    apply();
+    return changed;
+  }
+
+  /**
    * Retire active claims whose stated validity window has passed (time-based
    * supersession). The pages they sat on are flagged stale so the prose updates.
    * `today` is an ISO date (YYYY-MM-DD). Returns how many expired.
