@@ -4,7 +4,7 @@ import { createBashTool } from "bash-tool";
 import type { Embedder } from "../embedding/embedder.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
 import type { LlmClient } from "../llm/types.js";
-import type { EntityRow, KnowledgeStore, WikiChange } from "../knowledge/store.js";
+import type { EntityRow, KnowledgeStore, ObservationRow, RelationshipView, WikiChange } from "../knowledge/store.js";
 
 const SYSTEM_PROMPT = `You are the wiki maintainer of MeOS, a personal second brain.
 You maintain wiki pages that summarise everything the system knows about an entity.
@@ -35,6 +35,56 @@ function stripFrontmatter(markdown: string): string {
     }
   }
   return text.replace(/^\s*# .*\n+/, "").trim();
+}
+
+/**
+ * Deterministic page body from an entity's knowledge — the safety net used when
+ * the agentic writer returns nothing, so a page is never empty and the wiki
+ * retrieval stream is always populated. Plain, factual, link-free prose.
+ */
+function synthesizeBody(entity: EntityRow, observations: ObservationRow[], relationships: RelationshipView[]): string {
+  const parts: string[] = [];
+  if (entity.summary) parts.push(entity.summary);
+
+  if (observations.length > 0) {
+    const facts = observations.slice(0, 30).map((o) => {
+      const hedge = o.confidence < 0.4 ? " (low confidence)" : "";
+      return `- ${o.text}${hedge}`;
+    });
+    parts.push(`## What we know\n${facts.join("\n")}`);
+  }
+
+  if (relationships.length > 0) {
+    const links = relationships.slice(0, 30).map((r) =>
+      r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
+    );
+    parts.push(`## Connections\n${links.join("\n")}`);
+  }
+
+  return parts.join("\n\n").trim() || `${entity.name} is a ${entity.type} in your knowledge base.`;
+}
+
+/** The full on-disk page: deterministic frontmatter (owned by code) + title + body. */
+function composePage(entity: EntityRow, body: string, observationCount: number, meanConfidence: number): string {
+  const frontmatter = [
+    "---",
+    `entity_id: ${entity.id}`,
+    `type: ${entity.type}`,
+    `name: ${JSON.stringify(entity.name)}`,
+    `slug: ${entity.slug}`,
+    `observations: ${observationCount}`,
+    `mean_confidence: ${meanConfidence.toFixed(2)}`,
+    `updated: ${new Date().toISOString()}`,
+    "---",
+    "",
+  ].join("\n");
+  return `${frontmatter}# ${entity.name}\n\n${body}\n`;
+}
+
+function meanOf(observations: ObservationRow[]): number {
+  return observations.length === 0
+    ? 0
+    : observations.reduce((sum, o) => sum + o.confidence, 0) / observations.length;
 }
 
 export class WikiWriter {
@@ -113,25 +163,14 @@ export class WikiWriter {
       ].join("\n"),
     });
 
-    const body = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
-    const summary = (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim();
-
-    const confidences = observations.map((o) => o.confidence);
-    const meanConfidence =
-      confidences.length > 0 ? confidences.reduce((a, b) => a + b, 0) / confidences.length : 0;
-
-    const frontmatter = [
-      "---",
-      `entity_id: ${entity.id}`,
-      `type: ${entity.type}`,
-      `name: ${JSON.stringify(entity.name)}`,
-      `slug: ${entity.slug}`,
-      `observations: ${observations.length}`,
-      `mean_confidence: ${meanConfidence.toFixed(2)}`,
-      `updated: ${new Date().toISOString()}`,
-      "---",
-      "",
-    ].join("\n");
+    // The agentic write is best-effort: some models/providers complete the run
+    // without reliably writing the file. Never ship an empty page — fall back to
+    // a deterministic body assembled from the same observations and
+    // relationships, so the compiled-knowledge retrieval stream is always lit.
+    const agentBody = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
+    const body = agentBody || synthesizeBody(entity, observations, relationships);
+    const summary =
+      (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() || entity.summary || `${entity.name} (${entity.type}).`;
 
     // Only touch the file when the prose actually changed: a no-op rewrite
     // would churn the frontmatter timestamp, dirty git, and surface an empty
@@ -141,7 +180,7 @@ export class WikiWriter {
     if (changed) {
       const file = this.pagePath(entity);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, `${frontmatter}# ${entity.name}\n\n${body}\n`);
+      fs.writeFileSync(file, composePage(entity, body, observations.length, meanOf(observations)));
       // Persist the compiled prose so chat retrieves it directly (and BM25 can
       // index it); embed it when an embedder is available for semantic recall.
       if (body) {
@@ -207,18 +246,33 @@ export class WikiWriter {
   async backfillPages(): Promise<number> {
     if (!this.embedder) return 0;
     const persisted = new Set(this.store.allWikiPageVectors().map((p) => p.entity_id));
-    const pending: Array<{ entityId: number; body: string }> = [];
+    const pending: Array<{ entity: EntityRow; body: string }> = [];
     for (const entity of this.store.listEntities()) {
-      if (persisted.has(entity.id)) continue;
       const file = this.readPage(entity);
-      if (!file) continue;
-      const body = stripFrontmatter(file);
-      if (body) pending.push({ entityId: entity.id, body });
+      let diskBody = file ? stripFrontmatter(file) : "";
+
+      // Fill a blank/missing page on disk from a deterministic synthesis (no LLM)
+      // so the visible wiki and git-synced artifact aren't empty — independent of
+      // whether the retrieval index already has this entity.
+      if (!diskBody) {
+        const observations = this.store.activeObservations(entity.id).filter((o) => o.sensitivity === "normal");
+        const body = synthesizeBody(entity, observations, this.store.relationshipsFor(entity.id));
+        if (body) {
+          const dest = this.pagePath(entity);
+          fs.mkdirSync(path.dirname(dest), { recursive: true });
+          fs.writeFileSync(dest, composePage(entity, body, observations.length, meanOf(observations)));
+          diskBody = body;
+        }
+      }
+
+      // Index any entity missing from the retrieval table, so chat can retrieve
+      // its compiled prose.
+      if (!persisted.has(entity.id) && diskBody) pending.push({ entity, body: diskBody });
     }
     if (pending.length === 0) return 0;
     // Embed in one batch; bulk so it doesn't jump the interactive queue.
     const vectors = await this.embedder.embed(pending.map((p) => p.body));
-    pending.forEach((p, i) => this.store.upsertWikiPage(p.entityId, p.body, vectors[i]));
+    pending.forEach((p, i) => this.store.upsertWikiPage(p.entity.id, p.body, vectors[i]));
     return pending.length;
   }
 }

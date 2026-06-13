@@ -102,4 +102,26 @@ describe("wiki backfill", () => {
     // idempotent: a second run backfills nothing
     expect(await wiki.backfillPages()).toBe(0);
   });
+
+  it("synthesises a body for an empty on-disk page and writes it back", async () => {
+    const s = store();
+    const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
+    s.insertObservation({ entityId: dana.id, text: "Dana leads Orion." });
+    // an empty page on disk (frontmatter + title only) — the agentic-writer gap
+    const dir = path.join(tmp, "person");
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${dana.slug}.md`);
+    fs.writeFileSync(file, `---\nentity_id: ${dana.id}\n---\n# Dana\n\n`);
+    const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
+
+    expect(await wiki.backfillPages()).toBe(1);
+
+    // the retrieval index now has a real body…
+    const page = s.allWikiPageVectors().find((p) => p.entity_id === dana.id)!;
+    expect(page.body).toContain("Dana leads Orion.");
+    // …and the empty disk file was filled with the same prose
+    const onDisk = fs.readFileSync(file, "utf-8");
+    expect(onDisk).toContain("Dana leads Orion.");
+    expect(onDisk).toContain("A designer.");
+  });
 });
