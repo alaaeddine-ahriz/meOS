@@ -1,6 +1,15 @@
+import { Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { api, type Contradiction, type DuplicateProposal, type ResolutionAction } from "../api.js";
 
@@ -27,6 +36,10 @@ export function ContradictionsView() {
   const [busy, setBusy] = useState<number | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("conflicts");
+  // Which tab's auto-apply the user is being asked to confirm, and whether a
+  // confirmed run is in flight. Auto mode never acts without this confirmation.
+  const [confirmAuto, setConfirmAuto] = useState<Tab | null>(null);
+  const [autoRunning, setAutoRunning] = useState(false);
 
   const load = () =>
     api
@@ -88,6 +101,60 @@ export function ContradictionsView() {
     }
   };
 
+  // Conflicts whose proposal carries a clear suggestion — the only ones auto
+  // mode will touch. Items with no proposal stay for the user to decide.
+  const autoResolvable = items.filter((c) => c.proposal);
+
+  // Apply every duplicate's suggested merge in one confirmed pass. Merges are
+  // done one at a time, re-fetching between each: in a cluster (A≈B≈C) merging
+  // one pair deletes an entity the other proposals still reference, so the
+  // server-recomputed list is the only safe source of the next valid merge.
+  const runAutoMerge = async () => {
+    setAutoRunning(true);
+    try {
+      let queue = await api.getDuplicates().then((r) => r.duplicates).catch(() => []);
+      // Each successful merge removes one entity, so the proposal count strictly
+      // trends down; this bound just guarantees termination if a pair keeps failing.
+      let guard = queue.length * 2 + 5;
+      while (guard-- > 0) {
+        const d = queue[0];
+        if (!d) break;
+        const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
+        try {
+          await api.mergeEntities(loserId, d.suggestedWinnerId);
+          queue = await api.getDuplicates().then((r) => r.duplicates).catch(() => []);
+        } catch {
+          // Drop the offending pair locally so we don't spin on it; keep going.
+          queue = queue.slice(1);
+        }
+      }
+    } finally {
+      await loadDuplicates();
+      void load(); // merges can retire duplicate-driven conflicts
+      setAutoRunning(false);
+      setConfirmAuto(null);
+    }
+  };
+
+  // Apply each conflict's suggested resolution in one confirmed pass. Each
+  // resolve is keyed by id and independent, so a snapshot loop is enough.
+  const runAutoResolve = async () => {
+    setAutoRunning(true);
+    try {
+      for (const c of autoResolvable) {
+        try {
+          await api.resolveContradiction(c.id, c.proposal!.suggested);
+          setItems((cur) => cur.filter((x) => x.id !== c.id));
+        } catch {
+          // leave it; the user can retry that one manually
+        }
+      }
+    } finally {
+      setAutoRunning(false);
+      setConfirmAuto(null);
+    }
+  };
+
   return (
     <Page>
       <PageHeader
@@ -106,6 +173,13 @@ export function ContradictionsView() {
 
       {tab === "linked" && (
         <div className="rise rise-1 mt-8 flex flex-col gap-2 pb-16">
+          {duplicates.length > 0 && (
+            <AutoBar
+              label={`Merge all ${duplicates.length} using the suggested winner`}
+              disabled={autoRunning}
+              onClick={() => setConfirmAuto("linked")}
+            />
+          )}
           {duplicates.length === 0 ? (
             <p className="text-sm text-faded">No likely duplicates. Every entity looks distinct.</p>
           ) : (
@@ -151,6 +225,13 @@ export function ContradictionsView() {
 
       {tab === "conflicts" && (
       <div className="rise rise-1 mt-8 flex flex-col gap-4 pb-16">
+        {autoResolvable.length > 0 && (
+          <AutoBar
+            label={`Resolve ${autoResolvable.length} of ${items.length} using the suggestion`}
+            disabled={autoRunning}
+            onClick={() => setConfirmAuto("conflicts")}
+          />
+        )}
         {loading ? (
           <p className="text-sm text-faded">Loading…</p>
         ) : items.length === 0 ? (
@@ -198,7 +279,90 @@ export function ContradictionsView() {
         )}
       </div>
       )}
+
+      <Dialog open={confirmAuto !== null} onOpenChange={(open) => !open && !autoRunning && setConfirmAuto(null)}>
+        <DialogContent showCloseButton={!autoRunning}>
+          {confirmAuto === "linked" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Auto-merge duplicates?</DialogTitle>
+                <DialogDescription>
+                  meOS will merge {duplicates.length} likely-duplicate{" "}
+                  {duplicates.length === 1 ? "pair" : "pairs"}, keeping the suggested entity each time.
+                </DialogDescription>
+              </DialogHeader>
+              <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-faded">
+                {duplicates.map((d) => {
+                  const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
+                  const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
+                  return (
+                    <li key={`${d.aId}-${d.bId}`}>
+                      Keep <span className="text-paper">{winnerName}</span>, merge in {loserName}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Auto-resolve conflicts?</DialogTitle>
+                <DialogDescription>
+                  meOS will apply the suggested resolution to {autoResolvable.length} of {items.length}{" "}
+                  {items.length === 1 ? "conflict" : "conflicts"}. Conflicts with no clear suggestion stay for you to decide.
+                </DialogDescription>
+              </DialogHeader>
+              <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-faded">
+                {autoResolvable.map((c) => (
+                  <li key={c.id}>
+                    <span className="text-paper">{c.entity_name}</span> — {ACTION_LABEL[c.proposal!.suggested]}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={autoRunning}
+              onClick={() => setConfirmAuto(null)}
+              className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={autoRunning}
+              onClick={() => void (confirmAuto === "linked" ? runAutoMerge() : runAutoResolve())}
+              className="border-lamp-dim bg-transparent text-lamp hover:border-lamp hover:bg-lamp/10 hover:text-lamp"
+            >
+              {autoRunning ? "Applying…" : confirmAuto === "linked" ? "Merge all" : "Resolve all"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Page>
+  );
+}
+
+/** A subtle row offering to apply every suggestion in the current tab at once. */
+function AutoBar({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+  return (
+    <div className="mb-2 flex items-center justify-between rounded-lg border border-dashed border-line bg-card/20 px-3 py-2">
+      <span className="text-xs text-faded">{label}</span>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={disabled}
+        onClick={onClick}
+        className="gap-1.5 border-lamp-dim bg-transparent text-lamp hover:border-lamp hover:bg-lamp/10 hover:text-lamp"
+      >
+        <Wand2 className="size-3.5" />
+        Auto
+      </Button>
+    </div>
   );
 }
 
