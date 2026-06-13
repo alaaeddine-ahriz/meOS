@@ -41,6 +41,8 @@ export interface RelationshipView {
   to_entity: number;
   from_name: string;
   to_name: string;
+  confidence: number;
+  status: "active" | "superseded" | "contradicted";
 }
 
 export interface InboxItemRow {
@@ -389,25 +391,52 @@ export class KnowledgeStore {
 
   // --- relationships ---
 
-  /** Returns true when a new relationship was created (false if it already existed). */
+  /**
+   * Record a relationship from a source. A repeat from a *new* source raises the
+   * edge's confidence (like an observation); the same source never inflates it.
+   * Returns true only when the edge was newly created.
+   */
   upsertRelationship(fromEntity: number, toEntity: number, label: string, sourceId?: number): boolean {
-    const result = this.db
-      .prepare(
-        `INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)
-         ON CONFLICT(from_entity, to_entity, label) DO NOTHING`,
-      )
-      .run(fromEntity, toEntity, label, sourceId ?? null);
-    return result.changes > 0;
+    const existing = this.db
+      .prepare("SELECT id FROM relationships WHERE from_entity = ? AND to_entity = ? AND label = ?")
+      .get(fromEntity, toEntity, label) as { id: number } | undefined;
+    if (existing) {
+      if (sourceId !== undefined) {
+        const isNewSource =
+          this.db
+            .prepare("INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)")
+            .run(existing.id, sourceId).changes > 0;
+        if (isNewSource) {
+          this.db
+            .prepare("UPDATE relationships SET confidence = MIN(0.95, confidence + 0.15) WHERE id = ?")
+            .run(existing.id);
+        }
+      }
+      return false;
+    }
+    const id = Number(
+      this.db
+        .prepare("INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)")
+        .run(fromEntity, toEntity, label, sourceId ?? null).lastInsertRowid,
+    );
+    if (sourceId !== undefined) {
+      this.db
+        .prepare("INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)")
+        .run(id, sourceId);
+    }
+    return true;
   }
 
+  /** Active edges only, for the graph view. */
   allRelationships(): RelationshipView[] {
     return this.db
       .prepare(
-        `SELECT r.id, r.label, r.from_entity, r.to_entity,
+        `SELECT r.id, r.label, r.from_entity, r.to_entity, r.confidence, r.status,
                 ef.name AS from_name, et.name AS to_name
          FROM relationships r
          JOIN entities ef ON ef.id = r.from_entity
-         JOIN entities et ON et.id = r.to_entity`,
+         JOIN entities et ON et.id = r.to_entity
+         WHERE r.status = 'active'`,
       )
       .all() as RelationshipView[];
   }
@@ -415,14 +444,41 @@ export class KnowledgeStore {
   relationshipsFor(entityId: number): RelationshipView[] {
     return this.db
       .prepare(
-        `SELECT r.id, r.label, r.from_entity, r.to_entity,
+        `SELECT r.id, r.label, r.from_entity, r.to_entity, r.confidence, r.status,
                 ef.name AS from_name, et.name AS to_name
          FROM relationships r
          JOIN entities ef ON ef.id = r.from_entity
          JOIN entities et ON et.id = r.to_entity
-         WHERE r.from_entity = ? OR r.to_entity = ?`,
+         WHERE (r.from_entity = ? OR r.to_entity = ?) AND r.status = 'active'`,
       )
       .all(entityId, entityId) as RelationshipView[];
+  }
+
+  /**
+   * Graph traversal for downstream impact: entities one hop from any seed via an
+   * active edge, ranked by how strongly/often they connect to the seed set.
+   * Excludes the seeds themselves. This is the graph stream that retrieval fuses
+   * alongside vector and keyword search.
+   */
+  graphNeighbors(seedIds: number[], limit = 10): number[] {
+    if (seedIds.length === 0) return [];
+    const placeholders = seedIds.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT neighbor, SUM(confidence) AS score FROM (
+           SELECT to_entity AS neighbor, confidence FROM relationships
+             WHERE status = 'active' AND from_entity IN (${placeholders})
+           UNION ALL
+           SELECT from_entity AS neighbor, confidence FROM relationships
+             WHERE status = 'active' AND to_entity IN (${placeholders})
+         )
+         WHERE neighbor NOT IN (${placeholders})
+         GROUP BY neighbor
+         ORDER BY score DESC, neighbor
+         LIMIT ?`,
+      )
+      .all(...seedIds, ...seedIds, ...seedIds, limit) as Array<{ neighbor: number }>;
+    return rows.map((row) => row.neighbor);
   }
 
   // --- observations ---

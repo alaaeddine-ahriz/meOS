@@ -81,6 +81,13 @@ export async function buildContextPack(
     if (obs) addEntity(obs.entity_id);
   }
 
+  // Graph stream (3rd retrieval signal): pull entities one hop from the directly
+  // matched seeds via active edges, so "what's impacted if I change X?" surfaces
+  // dependents, decisions, and risks that share no query text with X. Seeds keep
+  // priority; neighbours fill the remaining section slots.
+  const graphNeighbors = store.graphNeighbors(entityOrder.slice(0, 6), 8);
+  for (const entityId of graphNeighbors) addEntity(entityId);
+
   const sections: string[] = [];
   const sources = new Map<number, SourceRef>();
   const matchedEntities: EntityRow[] = [];
@@ -97,7 +104,7 @@ export async function buildContextPack(
   if (wikiSection.length > 0) sections.push(wikiSection.join("\n\n"));
 
   // --- entity graph expansion (curated facts + relationships) ---
-  for (const entityId of entityOrder.slice(0, 6)) {
+  for (const entityId of entityOrder.slice(0, 8)) {
     const entity = store.getEntity(entityId);
     if (!entity) continue;
     matchedEntities.push(entity);

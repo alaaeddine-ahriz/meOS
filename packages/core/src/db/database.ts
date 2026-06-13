@@ -253,6 +253,24 @@ const migrations: string[] = [
   ALTER TABLE observations ADD COLUMN memory_tier TEXT NOT NULL DEFAULT 'working';
   CREATE INDEX idx_observations_tier ON observations(memory_tier, status);
   `,
+  // 10 — typed-graph lifecycle: relationships gain a confidence (rising with
+  // each independent source, like observations), a status (active/superseded/
+  // contradicted) so traversal can ignore retired edges, and per-source
+  // provenance.
+  `
+  ALTER TABLE relationships ADD COLUMN confidence REAL NOT NULL DEFAULT 0.5;
+  ALTER TABLE relationships ADD COLUMN status TEXT NOT NULL DEFAULT 'active';
+
+  CREATE TABLE relationship_sources (
+    relationship_id INTEGER NOT NULL REFERENCES relationships(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(relationship_id, source_id)
+  );
+  CREATE INDEX idx_rel_sources_rel ON relationship_sources(relationship_id);
+  INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id)
+    SELECT id, source_id FROM relationships WHERE source_id IS NOT NULL;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
