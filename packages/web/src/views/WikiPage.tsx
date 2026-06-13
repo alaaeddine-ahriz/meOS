@@ -138,7 +138,16 @@ export function WikiPageView() {
                     >
                       {observation.confidence.toFixed(2)}
                     </span>
-                    <span className="text-faded">{observation.text}</span>
+                    <span className="flex-1 text-faded">{observation.text}</span>
+                    <span
+                      className={cn(
+                        "shrink-0 whitespace-nowrap font-mono text-[11px]",
+                        observation.stale ? "text-ember" : "text-dim",
+                      )}
+                      title={observation.stale ? "Unconfirmed past this fact's freshness horizon" : `Recorded ${new Date(observation.recordedAt + "Z").toLocaleDateString()}`}
+                    >
+                      {observation.when}
+                    </span>
                   </li>
                 ))}
               </ul>

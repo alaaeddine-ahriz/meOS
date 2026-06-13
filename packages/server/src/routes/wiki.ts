@@ -1,4 +1,4 @@
-import { findDuplicateEntities } from "@meos/core";
+import { findDuplicateEntities, isStale, temporalTag } from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import { commitWikiChanges, type AppContext } from "../context.js";
 
@@ -101,6 +101,10 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         tier: o.tier,
         recordedAt: o.created_at,
         lastConfirmedAt: o.last_confirmed_at,
+        // Recency surfaced to the UI: the same date/stale/upcoming tag the chat
+        // model sees, so the user judges a fact's pertinence the same way.
+        when: temporalTag(o),
+        stale: isStale(o),
       })),
     };
   });

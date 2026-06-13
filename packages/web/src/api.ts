@@ -24,6 +24,10 @@ export interface WikiPage {
     tier: string;
     recordedAt: string;
     lastConfirmedAt: string;
+    /** Date (+ stale/upcoming/until marker) — the recency tag shown to the user. */
+    when: string;
+    /** True when unconfirmed past its kind's freshness horizon. */
+    stale: boolean;
   }>;
 }
 
