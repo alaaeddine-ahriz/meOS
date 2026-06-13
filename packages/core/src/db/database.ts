@@ -276,6 +276,18 @@ const migrations: string[] = [
   `
   ALTER TABLE wiki_pages ADD COLUMN quality REAL;
   `,
+  // 12 — governance: an append-only audit trail of memory operations, each with
+  // a justification, so every automated change to the knowledge base is
+  // accountable and reviewable.
+  `
+  CREATE TABLE audit_log (
+    id INTEGER PRIMARY KEY,
+    op TEXT NOT NULL,
+    detail TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_audit_created ON audit_log(id DESC);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

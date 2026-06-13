@@ -20,12 +20,29 @@ const SECRET_PATTERNS: RegExp[] = [
 
 export const REDACTION_PLACEHOLDER = "[REDACTED]";
 
+/**
+ * Personal data that is sensitive but not a credential — it stays in memory
+ * (unredacted, the user may want to recall it) but is kept *out* of the
+ * portable, git-synced wiki by being classed "private".
+ */
+const PII_PATTERNS: RegExp[] = [
+  /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/, // email
+  /(?<!\d)(?:\+?\d[\s().-]?){9,}\d(?!\d)/, // phone-ish run of digits
+  /\b\d{3}-\d{2}-\d{4}\b/, // US SSN
+  /\b(?:\d[ -]?){13,16}\b/, // card-number-ish
+];
+
 /** True when the text contains a recognised credential. */
 export function containsSecret(text: string): boolean {
   return SECRET_PATTERNS.some((pattern) => {
     pattern.lastIndex = 0;
     return pattern.test(text);
   });
+}
+
+/** True when the text contains recognised personal data (email, phone, SSN, card). */
+export function containsPII(text: string): boolean {
+  return PII_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 /** Replace recognised credentials with a placeholder, leaving prose intact. */
@@ -42,10 +59,12 @@ export function redactSecrets(text: string): string {
 }
 
 /**
- * Detection-side sensitivity: "secret" when a credential is present, else
- * "normal". The extractor may independently label a claim "private"; the stored
- * sensitivity is the stronger of the two (see strongerSensitivity).
+ * Detection-side sensitivity: "secret" for a credential, "private" for personal
+ * data (PII), else "normal". The extractor may independently label a claim; the
+ * stored sensitivity is the stronger of the two (see strongerSensitivity).
  */
 export function detectSensitivity(text: string): Sensitivity {
-  return containsSecret(text) ? "secret" : "normal";
+  if (containsSecret(text)) return "secret";
+  if (containsPII(text)) return "private";
+  return "normal";
 }

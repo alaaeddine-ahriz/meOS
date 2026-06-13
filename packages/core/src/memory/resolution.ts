@@ -110,5 +110,6 @@ export function applyResolution(store: KnowledgeStore, contradictionId: number, 
   } else {
     store.resolveContradiction(contradictionId);
   }
+  store.logAudit("resolve_contradiction", `contradiction ${contradictionId} resolved: ${action}`);
   return true;
 }

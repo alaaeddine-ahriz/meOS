@@ -45,6 +45,11 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
     })),
   }));
 
+  // Governance: the append-only audit trail of automated memory operations.
+  app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request) => ({
+    entries: ctx.store.recentAudit(Number(request.query.limit) || 100),
+  }));
+
   app.post<{ Params: { id: string }; Body: { action?: ResolutionAction } }>(
     "/api/contradictions/:id/resolve",
     async (request, reply) => {

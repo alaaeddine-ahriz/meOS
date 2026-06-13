@@ -582,6 +582,34 @@ export class KnowledgeStore {
       .run(newId, oldId);
   }
 
+  /**
+   * Reverse a supersession (governance: bulk/automated retirements must be
+   * undoable). Reactivates the observation and clears its superseded_by. Returns
+   * true when an observation was actually restored.
+   */
+  reverseSupersession(observationId: number): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE observations SET status = 'active', superseded_by = NULL WHERE id = ? AND status = 'superseded'",
+      )
+      .run(observationId);
+    return result.changes > 0;
+  }
+
+  // --- audit trail (governance) ----------------------------------------
+
+  /** Append a memory operation to the audit trail with a justification. */
+  logAudit(op: string, detail?: string): void {
+    this.db.prepare("INSERT INTO audit_log (op, detail) VALUES (?, ?)").run(op, detail ?? null);
+  }
+
+  /** The most recent audit entries, newest first. */
+  recentAudit(limit = 100): Array<{ id: number; op: string; detail: string | null; created_at: string }> {
+    return this.db
+      .prepare("SELECT id, op, detail, created_at FROM audit_log ORDER BY id DESC LIMIT ?")
+      .all(limit) as Array<{ id: number; op: string; detail: string | null; created_at: string }>;
+  }
+
   createContradiction(observationA: number, observationB: number, note?: string): number {
     const result = this.db
       .prepare("INSERT INTO contradictions (observation_a, observation_b, note) VALUES (?, ?, ?)")

@@ -19,7 +19,7 @@ export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
 export { entityTypeSchema, extractionSchema, observationKindSchema, sensitivitySchema } from "./extract/schema.js";
 export type { EntityType, ExtractedObservation, Extraction } from "./extract/schema.js";
-export { containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
+export { containsPII, containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
 export { KnowledgeStore, slugify } from "./knowledge/store.js";
