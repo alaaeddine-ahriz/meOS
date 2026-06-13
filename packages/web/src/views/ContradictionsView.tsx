@@ -35,9 +35,12 @@ export function ContradictionsView() {
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
 
+  const loadDuplicates = () =>
+    api.getDuplicates().then((r) => setDuplicates(r.duplicates)).catch(() => setDuplicates([]));
+
   useEffect(() => {
     void load();
-    api.getDuplicates().then((r) => setDuplicates(r.duplicates)).catch(() => setDuplicates([]));
+    void loadDuplicates();
   }, []);
 
   const merge = async (d: DuplicateProposal) => {
@@ -46,7 +49,11 @@ export function ContradictionsView() {
     try {
       const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
       await api.mergeEntities(loserId, d.suggestedWinnerId);
-      setDuplicates((cur) => cur.filter((x) => `${x.aId}-${x.bId}` !== key));
+      // Re-fetch rather than dropping just this pair: a merge deletes an entity,
+      // and in a duplicate cluster (A≈B≈C) other proposals still reference the
+      // now-gone entity. Merging those would silently 400 ("unknown entity").
+      // The server recomputes proposals against the surviving entities.
+      await loadDuplicates();
       // a merge can retire a duplicate-driven contradiction; refresh the list
       void load();
     } catch {
