@@ -70,3 +70,5 @@ export { runRetention } from "./memory/retention.js";
 export type { RetentionReport } from "./memory/retention.js";
 export { runConsolidation } from "./memory/consolidate.js";
 export type { ConsolidationReport } from "./memory/consolidate.js";
+export { applyResolution, proposeResolution } from "./memory/resolution.js";
+export type { ResolutionAction, ResolutionProposal } from "./memory/resolution.js";

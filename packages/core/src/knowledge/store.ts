@@ -618,6 +618,47 @@ export class KnowledgeStore {
     }>;
   }
 
+  /** A contradiction with both sides' lifecycle signals, for proposing a resolution. */
+  getContradiction(id: number):
+    | {
+        id: number;
+        entity_id: number;
+        observation_a: number;
+        observation_b: number;
+        note: string | null;
+        resolved: number;
+      }
+    | undefined {
+    return this.db
+      .prepare(
+        `SELECT c.id, c.note, c.resolved, c.observation_a, c.observation_b, oa.entity_id
+         FROM contradictions c JOIN observations oa ON oa.id = c.observation_a
+         WHERE c.id = ?`,
+      )
+      .get(id) as
+      | { id: number; entity_id: number; observation_a: number; observation_b: number; note: string | null; resolved: number }
+      | undefined;
+  }
+
+  /**
+   * Close a contradiction. Optionally retire one side (supersession) — the
+   * accepted resolution. The entity's page is flagged so its prose updates.
+   */
+  resolveContradiction(id: number, supersede?: { loserId: number; winnerId: number }): void {
+    const contradiction = this.getContradiction(id);
+    if (!contradiction) return;
+    const tx = this.db.transaction(() => {
+      if (supersede) {
+        this.db
+          .prepare("UPDATE observations SET status = 'superseded', superseded_by = ? WHERE id = ?")
+          .run(supersede.winnerId, supersede.loserId);
+      }
+      this.db.prepare("UPDATE contradictions SET resolved = 1 WHERE id = ?").run(id);
+      this.markWikiStale(contradiction.entity_id);
+    });
+    tx();
+  }
+
   /** Observations corroborated past the threshold graduate to established facts. */
   promoteFacts(confidenceThreshold = 0.75): number {
     const result = this.db
