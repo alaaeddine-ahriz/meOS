@@ -82,9 +82,17 @@ export interface WatchedFolder {
 
 export type LlmProvider = "anthropic" | "openai" | "google" | "local";
 
+export type CloudProvider = "anthropic" | "openai" | "google";
+
+/** A model list for a cloud provider, with whether it came from the provider or our bundled fallback. */
+export interface ModelListing {
+  models: string[];
+  source: "live" | "curated";
+  error?: string;
+}
+
 export interface LlmSettings {
   provider: LlmProvider;
-  models: Record<"anthropic" | "openai" | "google", string[]>;
   providers: {
     anthropic: { model: string; hasKey: boolean };
     openai: { model: string; hasKey: boolean };
@@ -270,6 +278,17 @@ export const api = {
     const data = (await response.json().catch(() => ({}))) as { models?: string[]; error?: string };
     if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
     return { models: data.models ?? [] };
+  },
+  // Models a cloud provider's key can use, discovered live (with a curated
+  // fallback). The unsaved key, if any, rides in a header so the picker can
+  // refresh before saving without leaking the key into the URL.
+  listProviderModels: async (provider: CloudProvider, apiKey?: string): Promise<ModelListing> => {
+    const response = await fetch(`${API_BASE}/api/settings/llm/${provider}/models`, {
+      headers: apiKey ? { "x-llm-api-key": apiKey } : undefined,
+    });
+    const data = (await response.json().catch(() => ({}))) as Partial<ModelListing> & { error?: string };
+    if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
+    return { models: data.models ?? [], source: data.source ?? "curated", error: data.error };
   },
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),

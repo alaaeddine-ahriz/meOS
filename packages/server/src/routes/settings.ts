@@ -4,8 +4,8 @@ import type { FastifyInstance } from "fastify";
 import {
   createLlmClient,
   ensureDataDirs,
+  listProviderModels,
   normalizeLocalBaseUrl,
-  PROVIDER_MODELS,
   resetDatabase,
   type LlmProvider,
 } from "@meos/core";
@@ -31,7 +31,6 @@ function llmSettingsView(ctx: AppContext) {
   const { llm } = ctx.config;
   return {
     provider: llm.provider,
-    models: PROVIDER_MODELS,
     providers: {
       anthropic: { model: llm.anthropic.model, hasKey: hasKey(ctx, "anthropic") },
       openai: { model: llm.openai.model, hasKey: hasKey(ctx, "openai") },
@@ -72,6 +71,23 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
     }
   });
 
+  // Discover the models a cloud provider's key can actually use, so the picker
+  // reflects the account's catalogue instead of a list we hard-code. The key is
+  // read from the `x-llm-api-key` header (the UI's unsaved input) or, absent
+  // that, the saved/env key — keeping it out of the URL and the logs. Discovery
+  // falls back to the curated list on any failure, so this never 500s.
+  app.get<{ Params: { provider: string } }>("/api/settings/llm/:provider/models", async (request, reply) => {
+    const provider = request.params.provider;
+    if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
+      return reply.code(400).send({ error: `Unknown cloud provider: ${provider}` });
+    }
+    const cloud = provider as CloudProvider;
+    const header = request.headers["x-llm-api-key"];
+    const typedKey = (Array.isArray(header) ? header[0] : header)?.trim();
+    const apiKey = typedKey || ctx.config.llm[cloud].apiKey || ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
+    return listProviderModels(cloud, apiKey);
+  });
+
   app.put<{ Body: { provider?: string; model?: string; apiKey?: string; baseUrl?: string } }>(
     "/api/settings/llm",
     async (request, reply) => {
@@ -93,10 +109,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         }
       } else {
         const cloud = provider as CloudProvider;
+        // Models are discovered live from the provider, so we trust any non-empty
+        // identifier here rather than gate it against a list we'd have to keep current.
         if (model?.trim()) {
-          if (!PROVIDER_MODELS[cloud].includes(model.trim())) {
-            return reply.code(400).send({ error: `Unknown ${cloud} model: ${model}` });
-          }
           llm[cloud].model = model.trim();
           if (cloud === "anthropic") llm.anthropic.extractionModel = model.trim();
         }

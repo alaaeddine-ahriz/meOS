@@ -30,14 +30,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { isTauri } from "@/lib/platform";
 import { ProfileSection } from "./ProfileSection";
 import {
@@ -95,6 +89,9 @@ type TabId = (typeof TABS)[number]["id"];
 
 const inputClass =
   "border-line bg-transparent font-mono text-[13px] text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0";
+
+const comboboxClass =
+  "border-line bg-transparent font-mono text-[13px] text-paper hover:bg-transparent hover:text-paper focus-visible:border-lamp-dim focus-visible:ring-0";
 
 const actionButtonClass =
   "shrink-0 border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper";
@@ -238,6 +235,11 @@ function IntelligenceSection() {
   const [localModels, setLocalModels] = useState<string[]>([]);
   const [localModelsError, setLocalModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
+  // Models discovered live from the active cloud provider, with a curated fallback.
+  const [cloudModels, setCloudModels] = useState<string[]>([]);
+  const [cloudSource, setCloudSource] = useState<"live" | "curated">("curated");
+  const [cloudModelsError, setCloudModelsError] = useState<string | null>(null);
+  const [loadingCloud, setLoadingCloud] = useState(false);
 
   const applyLlm = (settings: LlmSettings, nextProvider?: LlmProvider) => {
     const active = nextProvider ?? settings.provider;
@@ -277,12 +279,39 @@ function IntelligenceSection() {
     if (provider === "local" && baseUrl) void refreshLocalModels(baseUrl);
   }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Ask the cloud provider which models its key can use. Passes the unsaved key
+  // when present so the list can be refreshed before saving; otherwise the server
+  // uses the saved/env key.
+  const refreshCloudModels = async (target: "anthropic" | "openai" | "google", key?: string) => {
+    setLoadingCloud(true);
+    setCloudModelsError(null);
+    try {
+      const listing = await api.listProviderModels(target, key);
+      setCloudModels(listing.models);
+      setCloudSource(listing.source);
+      setCloudModelsError(listing.source === "curated" ? listing.error ?? null : null);
+    } catch (e) {
+      setCloudModels([]);
+      setCloudSource("curated");
+      setCloudModelsError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingCloud(false);
+    }
+  };
+
+  // Pull the model list whenever a cloud provider becomes active.
+  useEffect(() => {
+    if (provider !== "local") void refreshCloudModels(provider as "anthropic" | "openai" | "google");
+  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const chooseProvider = (next: LlmProvider) => {
     setLlmError(null);
     setLlmSaved(false);
     setApiKey("");
     setLocalModelsError(null);
+    setCloudModelsError(null);
     if (next !== "local") setLocalModels([]);
+    else setCloudModels([]);
     if (llm) applyLlm(llm, next);
     else setProvider(next);
   };
@@ -301,6 +330,8 @@ function IntelligenceSection() {
       applyLlm(updated, provider);
       setApiKey("");
       setLlmSaved(true);
+      // A freshly-saved key may reveal the account's real catalogue.
+      if (provider !== "local") void refreshCloudModels(provider as "anthropic" | "openai" | "google");
     } catch (e) {
       setLlmError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -310,6 +341,9 @@ function IntelligenceSection() {
 
   const cloudProvider = provider !== "local";
   const keySaved = cloudProvider && llm ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey : false;
+  // Always keep the currently-selected model selectable, even if discovery hasn't
+  // returned it (a key that's saved but unverified, an offline refresh, etc.).
+  const cloudOptions = model && !cloudModels.includes(model) ? [model, ...cloudModels] : cloudModels;
 
   return (
     <section className="rise flex flex-col gap-4">
@@ -341,18 +375,42 @@ function IntelligenceSection() {
 
           <div className="flex flex-col gap-3">
             {cloudProvider && llm ? (
-              <Select value={model} onValueChange={setModel}>
-                <SelectTrigger className="w-full border-line bg-transparent font-mono text-[13px] text-paper focus-visible:border-lamp-dim focus-visible:ring-0">
-                  <SelectValue placeholder="Choose a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {llm.models[provider as "anthropic" | "openai" | "google"].map((m) => (
-                    <SelectItem key={m} value={m} className="font-mono text-[13px]">
-                      {m}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <>
+                <div className="flex items-center gap-2">
+                  <Combobox
+                    value={model}
+                    onChange={setModel}
+                    options={cloudOptions}
+                    allowCustom
+                    placeholder={loadingCloud ? "Loading models…" : "Choose a model"}
+                    searchPlaceholder="Search or type a model…"
+                    emptyText="No matching models."
+                    className={comboboxClass}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      void refreshCloudModels(
+                        provider as "anthropic" | "openai" | "google",
+                        apiKey.trim() || undefined,
+                      )
+                    }
+                    disabled={loadingCloud}
+                    className={actionButtonClass}
+                    aria-label="Refresh model list"
+                  >
+                    <RefreshCw className={cn("size-3.5", loadingCloud && "animate-spin")} />
+                  </Button>
+                </div>
+                <p className="font-mono text-[11px] text-dim">
+                  {cloudSource === "live"
+                    ? `${cloudModels.length} model${cloudModels.length === 1 ? "" : "s"} available on your account`
+                    : cloudModelsError
+                      ? `⚠ ${cloudModelsError} — showing the built-in list.`
+                      : "Built-in list — paste a key and refresh to load your account's models."}
+                </p>
+              </>
             ) : (
               <>
                 <div className="flex items-center gap-2">
@@ -375,18 +433,16 @@ function IntelligenceSection() {
                 </div>
 
                 {localModels.length > 0 ? (
-                  <Select value={model} onValueChange={setModel}>
-                    <SelectTrigger className="w-full border-line bg-transparent font-mono text-[13px] text-paper focus-visible:border-lamp-dim focus-visible:ring-0">
-                      <SelectValue placeholder="Choose a loaded model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {localModels.map((m) => (
-                        <SelectItem key={m} value={m} className="font-mono text-[13px]">
-                          {m}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    value={model}
+                    onChange={setModel}
+                    options={localModels}
+                    allowCustom
+                    placeholder="Choose a loaded model"
+                    searchPlaceholder="Search or type a model…"
+                    emptyText="No matching models."
+                    className={comboboxClass}
+                  />
                 ) : (
                   <Input
                     value={model}

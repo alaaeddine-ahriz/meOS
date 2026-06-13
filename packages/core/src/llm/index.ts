@@ -75,6 +75,8 @@ export function createLlmClient(config: MeosConfig): LlmClient {
 }
 
 export { AiSdkClient } from "./ai-sdk.js";
+export { listProviderModels } from "./discover.js";
+export type { CloudProvider, ModelListing } from "./discover.js";
 export { LlmError, normalizeLlmError, providerLabel } from "./errors.js";
 export type { LlmErrorKind } from "./errors.js";
 export { StubLlmClient } from "./stub.js";
