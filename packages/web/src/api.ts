@@ -163,13 +163,26 @@ export interface Contradiction {
   proposal?: ContradictionProposal;
 }
 
+/** Coarse cause of an LLM failure; mirrors core's LlmErrorKind. */
+export type LlmErrorKind =
+  | "auth"
+  | "credits"
+  | "rate_limit"
+  | "timeout"
+  | "connection"
+  | "model"
+  | "bad_response"
+  | "bad_request"
+  | "server"
+  | "unknown";
+
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
   | { type: "reasoning"; text: string }
   | { type: "delta"; text: string }
   | { type: "done" }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; kind?: LlmErrorKind };
 
 import { isTauri } from "./lib/platform.js";
 

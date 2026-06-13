@@ -34,19 +34,21 @@ export function createLlmClient(config: MeosConfig): LlmClient {
       return new AiSdkClient(
         provider(llm.anthropic.model),
         provider(llm.anthropic.extractionModel),
+        undefined,
+        "anthropic",
       );
     }
     case "openai": {
       const provider = createOpenAI({ apiKey: llm.openai.apiKey });
-      return new AiSdkClient(provider(llm.openai.model));
+      return new AiSdkClient(provider(llm.openai.model), undefined, undefined, "openai");
     }
     case "google": {
       const provider = createGoogleGenerativeAI({ apiKey: llm.google.apiKey });
-      return new AiSdkClient(provider(llm.google.model));
+      return new AiSdkClient(provider(llm.google.model), undefined, undefined, "google");
     }
     case "ollama": {
       const provider = createOllama({ baseURL: `${llm.ollama.baseUrl}/api` });
-      return new AiSdkClient(provider(llm.ollama.model));
+      return new AiSdkClient(provider(llm.ollama.model), undefined, undefined, "ollama");
     }
     case "stub":
       return new StubLlmClient();
@@ -54,6 +56,8 @@ export function createLlmClient(config: MeosConfig): LlmClient {
 }
 
 export { AiSdkClient } from "./ai-sdk.js";
+export { LlmError, normalizeLlmError, providerLabel } from "./errors.js";
+export type { LlmErrorKind } from "./errors.js";
 export { StubLlmClient } from "./stub.js";
 export { SwitchableLlmClient } from "./switchable.js";
 export type { StubHandlers } from "./stub.js";

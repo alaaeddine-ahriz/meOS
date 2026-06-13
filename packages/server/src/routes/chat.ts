@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { buildContextPack, ChatService } from "@meos/core";
+import { buildContextPack, ChatService, LlmError } from "@meos/core";
 import type { AppContext } from "../context.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -67,7 +67,13 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
       }
       send({ type: "done" });
     } catch (error) {
-      send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      // LlmError carries an already-user-facing message and a kind the client
+      // uses to offer the right fix (e.g. open Settings on auth/credit errors).
+      if (error instanceof LlmError) {
+        send({ type: "error", message: error.message, kind: error.kind });
+      } else {
+        send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+      }
     }
     reply.raw.end();
   });

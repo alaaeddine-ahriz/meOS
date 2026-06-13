@@ -2,7 +2,7 @@ import type { ChatStatus } from "ai";
 import { FileText, Library, Paperclip, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, streamChat, type EntitySummary, type Message as MessageRecord, type SourceRef } from "../api.js";
+import { api, streamChat, type EntitySummary, type LlmErrorKind, type Message as MessageRecord, type SourceRef } from "../api.js";
 import { SourceList } from "../components/SourceList.js";
 import {
   Conversation,
@@ -89,7 +89,7 @@ export function ChatView() {
   const [messages, setMessages] = useState<MessageRecord[]>([]);
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ message: string; kind?: LlmErrorKind } | null>(null);
   // sources and reasoning arrive per streamed reply, keyed by the assistant
   // message's index
   const [liveSources, setLiveSources] = useState<ReadonlyMap<number, SourceRef[]>>(new Map());
@@ -166,14 +166,25 @@ export function ChatView() {
             return next;
           });
         } else if (event.type === "error") {
-          setError(event.message);
+          failTurn({ message: event.message, kind: event.kind });
         }
       }
-      setStatus("ready");
+      setStatus((current) => (current === "error" ? current : "ready"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setStatus("error");
+      failTurn({ message: e instanceof Error ? e.message : String(e) });
     }
+  };
+
+  // Drop the empty assistant placeholder (so it stops shimmering "Consulting…")
+  // and surface the error banner instead.
+  const failTurn = (next: { message: string; kind?: LlmErrorKind }) => {
+    setError(next);
+    setStatus("error");
+    setMessages((current) =>
+      current.length > 0 && current[current.length - 1]!.role === "assistant" && !current[current.length - 1]!.content
+        ? current.slice(0, -1)
+        : current,
+    );
   };
 
   const lastIndex = messages.length - 1;
@@ -246,7 +257,7 @@ export function ChatView() {
                   </Message>
                 );
               })}
-              {error && <p className="text-sm text-ember">⚠ {error}</p>}
+              {error && <ChatError error={error} />}
             </>
           </ConversationContent>
           <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
@@ -259,6 +270,24 @@ export function ChatView() {
         </div>
       </div>
     </PromptInputProvider>
+  );
+}
+
+// Errors the user fixes in Settings (key, credits, model) get a direct link.
+const SETTINGS_KINDS: ReadonlySet<LlmErrorKind> = new Set(["auth", "credits", "model"]);
+
+/** The chat error banner: the normalized LLM message plus, when relevant, a Settings link. */
+function ChatError({ error }: { error: { message: string; kind?: LlmErrorKind } }) {
+  const showSettings = error.kind !== undefined && SETTINGS_KINDS.has(error.kind);
+  return (
+    <div className="rounded-lg border border-ember/30 bg-ember/5 px-3 py-2.5 text-sm text-ember">
+      <p>⚠ {error.message}</p>
+      {showSettings && (
+        <Link to="/settings" className="mt-1 inline-block font-medium underline underline-offset-2 hover:text-paper">
+          Open Settings → Model
+        </Link>
+      )}
+    </div>
   );
 }
 

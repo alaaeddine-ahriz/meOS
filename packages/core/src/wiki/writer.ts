@@ -214,25 +214,34 @@ export class WikiWriter {
     });
 
     const schema = loadSchema(path.dirname(this.wikiDir));
-    await this.llm.runAgent({
-      system: `${withSchema(SYSTEM_PROMPT, schema)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
-      tools,
-      sandbox,
-      prompt: [
-        `Update the wiki page for this entity. The target file is "${relPath}".`,
-        "Read it first if it exists, then edit it in place (or create it) per the rules.",
-        "When done, write a single-sentence directory summary of the entity to",
-        `"${SUMMARY_FILE}".`,
-        "",
-        `Entity: ${entity.name} (type: ${entity.type})`,
-        "",
-        "Observations:",
-        observationLines.join("\n") || "(none)",
-        "",
-        "Relationships:",
-        relationshipLines.join("\n") || "(none)",
-      ].join("\n"),
-    });
+    try {
+      await this.llm.runAgent({
+        system: `${withSchema(SYSTEM_PROMPT, schema)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
+        tools,
+        sandbox,
+        prompt: [
+          `Update the wiki page for this entity. The target file is "${relPath}".`,
+          "Read it first if it exists, then edit it in place (or create it) per the rules.",
+          "When done, write a single-sentence directory summary of the entity to",
+          `"${SUMMARY_FILE}".`,
+          "",
+          `Entity: ${entity.name} (type: ${entity.type})`,
+          "",
+          "Observations:",
+          observationLines.join("\n") || "(none)",
+          "",
+          "Relationships:",
+          relationshipLines.join("\n") || "(none)",
+        ].join("\n"),
+      });
+    } catch (error) {
+      // An LLM failure here (no credits, rate limit, outage) must not abort the
+      // ingest: the knowledge is already merged. The agentic write is best-effort
+      // anyway, so fall through to the deterministic synthesis below — the page
+      // still gets a real body, just without the LLM's prose polish.
+      console.warn(`wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
+        error instanceof Error ? error.message : error);
+    }
 
     // The agentic write is best-effort: some models/providers complete the run
     // without reliably writing the file. Never ship an empty page — fall back to

@@ -6,6 +6,7 @@ import {
   type LanguageModel,
   type ModelMessage,
 } from "ai";
+import { normalizeLlmError } from "./errors.js";
 import type {
   AgentRequest,
   AgentResult,
@@ -34,6 +35,8 @@ export class AiSdkClient implements LlmClient {
     private readonly model: LanguageModel,
     private readonly extractionModel: LanguageModel = model,
     private readonly maxTokens = DEFAULT_MAX_TOKENS,
+    /** Config provider id ("anthropic" | "openai" | …) — used to phrase errors. */
+    private readonly provider?: string,
   ) {}
 
   /**
@@ -71,46 +74,66 @@ export class AiSdkClient implements LlmClient {
   }
 
   async complete(request: CompletionRequest): Promise<string> {
-    const { text } = await generateText({
-      model: this.model,
-      messages: this.buildMessages(request),
-      maxOutputTokens: request.maxTokens ?? this.maxTokens,
-    });
-    return text;
+    try {
+      const { text } = await generateText({
+        model: this.model,
+        messages: this.buildMessages(request),
+        maxOutputTokens: request.maxTokens ?? this.maxTokens,
+      });
+      return text;
+    } catch (error) {
+      throw normalizeLlmError(error, this.provider);
+    }
   }
 
   async completeStructured<T>(request: StructuredRequest<T>): Promise<T> {
-    const { object } = await generateObject({
-      model: this.extractionModel,
-      schema: request.schema,
-      schemaName: request.schemaName,
-      messages: this.buildMessages(request),
-      maxOutputTokens: request.maxTokens ?? this.maxTokens,
-    });
-    return object;
+    try {
+      const { object } = await generateObject({
+        model: this.extractionModel,
+        schema: request.schema,
+        schemaName: request.schemaName,
+        messages: this.buildMessages(request),
+        maxOutputTokens: request.maxTokens ?? this.maxTokens,
+      });
+      return object;
+    } catch (error) {
+      throw normalizeLlmError(error, this.provider);
+    }
   }
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamChunk> {
-    const { fullStream } = streamText({
-      model: this.model,
-      messages: this.buildMessages(request),
-      maxOutputTokens: request.maxTokens ?? this.maxTokens,
-    });
-    for await (const part of fullStream) {
-      if (part.type === "text-delta") yield { type: "text", text: part.text };
-      else if (part.type === "reasoning-delta") yield { type: "reasoning", text: part.text };
+    // streamText defers the network call to the first iteration, so a failed
+    // request (bad key, no credits) throws while we're draining fullStream —
+    // normalize there as well as at construction.
+    try {
+      const { fullStream } = streamText({
+        model: this.model,
+        messages: this.buildMessages(request),
+        maxOutputTokens: request.maxTokens ?? this.maxTokens,
+      });
+      for await (const part of fullStream) {
+        if (part.type === "text-delta") yield { type: "text", text: part.text };
+        else if (part.type === "reasoning-delta") yield { type: "reasoning", text: part.text };
+        else if (part.type === "error") throw part.error;
+      }
+    } catch (error) {
+      throw normalizeLlmError(error, this.provider);
     }
   }
 
   async runAgent(request: AgentRequest): Promise<AgentResult> {
-    const { text, steps } = await generateText({
-      model: this.model,
-      system: request.system,
-      prompt: request.prompt,
-      tools: request.tools,
-      maxOutputTokens: this.maxTokens,
-      stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_STEPS),
-    });
-    return { text, steps: steps.length };
+    try {
+      const { text, steps } = await generateText({
+        model: this.model,
+        system: request.system,
+        prompt: request.prompt,
+        tools: request.tools,
+        maxOutputTokens: this.maxTokens,
+        stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_STEPS),
+      });
+      return { text, steps: steps.length };
+    } catch (error) {
+      throw normalizeLlmError(error, this.provider);
+    }
   }
 }
