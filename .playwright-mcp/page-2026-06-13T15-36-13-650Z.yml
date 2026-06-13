@@ -1,0 +1,62 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - navigation [ref=e5]:
+      - link "Chat ⌘1" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - img [ref=e7]
+        - generic [ref=e9]: Chat
+        - generic: ⌘1
+      - link "Wiki ⌘2" [ref=e10] [cursor=pointer]:
+        - /url: /wiki
+        - img [ref=e11]
+        - generic [ref=e13]: Wiki
+        - generic: ⌘2
+      - link "Graph ⌘3" [ref=e14] [cursor=pointer]:
+        - /url: /graph
+        - img [ref=e15]
+        - generic [ref=e22]: Graph
+        - generic: ⌘3
+      - link "Inbox ⌘4" [ref=e23] [cursor=pointer]:
+        - /url: /inbox
+        - img [ref=e24]
+        - generic [ref=e27]: Inbox
+        - generic: ⌘4
+      - link "Digest ⌘5" [ref=e28] [cursor=pointer]:
+        - /url: /digest
+        - img [ref=e29]
+        - generic [ref=e32]: Digest
+        - generic: ⌘5
+      - link "Conflicts ⌘6" [ref=e33] [cursor=pointer]:
+        - /url: /contradictions
+        - img [ref=e34]
+        - generic [ref=e41]: Conflicts
+        - generic: ⌘6
+    - generic [ref=e42]:
+      - button "Capture ⌘J" [ref=e43]:
+        - img [ref=e44]
+        - generic [ref=e46]: Capture
+        - generic: ⌘J
+      - button "Jump to… ⌘K" [ref=e47]:
+        - img [ref=e48]
+        - generic [ref=e51]: Jump to…
+        - generic: ⌘K
+      - link "Settings ⌘," [ref=e52] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e53]
+        - generic [ref=e56]: Settings
+        - generic: ⌘,
+  - main [ref=e57]:
+    - generic [ref=e58]:
+      - generic:
+        - heading "Graph" [level=2]
+        - paragraph: 418 pages · 420 connections. Click a node to open its page.
+      - generic:
+        - generic: people
+        - generic: projects
+        - generic: organisations
+        - generic: concepts
+        - generic: places
+        - generic: decisions
+  - generic [ref=e60]:
+    - heading "Command Palette" [level=2] [ref=e61]
+    - paragraph [ref=e62]: Search for a command to run...
