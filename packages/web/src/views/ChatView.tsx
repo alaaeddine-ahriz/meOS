@@ -1,7 +1,7 @@
 import type { ChatStatus } from "ai";
 import { FileText, Library, Paperclip, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, streamChat, type EntitySummary, type Message as MessageRecord, type SourceRef } from "../api.js";
 import { SourceList } from "../components/SourceList.js";
 import {
@@ -55,6 +55,30 @@ const MAX_FILE_CHARS = 20000;
 interface FileRef {
   name: string;
   text: string;
+}
+
+const FILE_BLOCK = /<file name="([^"]*)">[\s\S]*?<\/file>\n?/g;
+const LEADING_MENTION = /^\[\[([^\]]+)\]\]\s*/;
+
+/**
+ * Split a sent user message back into its parts: the file blocks and leading
+ * wiki [[mentions]] the composer injected, plus the plain text the user typed —
+ * so references render as chips rather than raw markup in the bubble.
+ */
+function parseUserMessage(content: string): { text: string; files: string[]; wikis: string[] } {
+  const files: string[] = [];
+  let rest = content.replace(FILE_BLOCK, (_match, name: string) => {
+    files.push(name);
+    return "";
+  });
+  rest = rest.trimStart();
+  const wikis: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = LEADING_MENTION.exec(rest)) !== null) {
+    wikis.push(match[1]!);
+    rest = rest.slice(match[0].length);
+  }
+  return { text: rest.trim(), files, wikis };
 }
 
 export function ChatView() {
@@ -216,7 +240,7 @@ export function ChatView() {
                           )}
                         </>
                       ) : (
-                        message.content
+                        <UserMessage content={message.content} entities={entities} />
                       )}
                     </MessageContent>
                   </Message>
@@ -258,6 +282,7 @@ function Composer({
   const [wikiRefs, setWikiRefs] = useState<EntitySummary[]>([]);
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
   const [wikiPickerOpen, setWikiPickerOpen] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const addWiki = (entity: EntitySummary) => {
@@ -267,10 +292,22 @@ function Composer({
 
   const handleFiles = async (fileList: FileList | null) => {
     if (!fileList) return;
+    setFileError(null);
     const read = await Promise.all(
-      [...fileList].map(async (file) => ({ name: file.name, text: (await file.text()).slice(0, MAX_FILE_CHARS) })),
+      [...fileList].map(async (file) => ({ name: file.name, text: await file.text() })),
     );
-    setFileRefs((current) => [...current, ...read]);
+    const accepted: FileRef[] = [];
+    const rejected: string[] = [];
+    for (const file of read) {
+      // a NUL / replacement char means we decoded a binary file (e.g. .docx, .pdf)
+      // as text — skip it rather than inlining garbage into the prompt
+      if (/[\u0000\uFFFD]/.test(file.text)) rejected.push(file.name);
+      else accepted.push({ name: file.name, text: file.text.slice(0, MAX_FILE_CHARS) });
+    }
+    if (accepted.length > 0) setFileRefs((current) => [...current, ...accepted]);
+    if (rejected.length > 0) {
+      setFileError(`Can't read ${rejected.join(", ")} as text. Attach .md, .txt, .csv, .json or .org files.`);
+    }
   };
 
   const onSubmit = (message: PromptInputMessage) => {
@@ -350,6 +387,8 @@ function Composer({
         </PromptInputFooter>
       </PromptInput>
 
+      {fileError && <p className="mt-2 px-1 text-[12px] text-ember">{fileError}</p>}
+
       <CommandDialog
         open={wikiPickerOpen}
         onOpenChange={setWikiPickerOpen}
@@ -386,6 +425,53 @@ function RefChip({ children, onRemove }: { children: React.ReactNode; onRemove: 
         <X className="size-3" />
       </button>
     </span>
+  );
+}
+
+/** Renders a sent user message: reference chips (wiki pages link out, files don't) above the text. */
+function UserMessage({ content, entities }: { content: string; entities: EntitySummary[] }) {
+  const { text, files, wikis } = parseUserMessage(content);
+  const hasRefs = files.length > 0 || wikis.length > 0;
+  return (
+    <div className="flex flex-col gap-2">
+      {hasRefs && (
+        <div className="flex flex-wrap gap-1.5">
+          {wikis.map((name, index) => {
+            const entity = entities.find((e) => e.name === name);
+            const Icon = (entity && ENTITY_TYPES[entity.type]?.icon) ?? Library;
+            return (
+              <MsgChip
+                key={`w-${index}`}
+                icon={<Icon className="size-3.5 text-lamp" />}
+                label={name}
+                to={entity ? `/wiki/${entity.slug}` : undefined}
+              />
+            );
+          })}
+          {files.map((name, index) => (
+            <MsgChip key={`f-${index}`} icon={<FileText className="size-3.5 text-dim" />} label={name} />
+          ))}
+        </div>
+      )}
+      {text && <span className="whitespace-pre-wrap">{text}</span>}
+    </div>
+  );
+}
+
+/** A read-only reference chip inside a sent message; wiki chips link to their page. */
+function MsgChip({ icon, label, to }: { icon: ReactNode; label: string; to?: string }) {
+  const inner = (
+    <span className="flex items-center gap-1.5 rounded-md border border-line bg-desk px-2 py-0.5 text-[12px] text-faded">
+      {icon}
+      {label}
+    </span>
+  );
+  return to ? (
+    <Link to={to} className="transition-colors hover:text-paper">
+      {inner}
+    </Link>
+  ) : (
+    inner
   );
 }
 
