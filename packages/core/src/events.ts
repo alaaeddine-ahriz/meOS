@@ -29,26 +29,31 @@ export type MeosEvent = keyof MeosEventMap;
 export type MeosEventHandler<E extends MeosEvent> = (payload: MeosEventMap[E]) => void | Promise<void>;
 
 export class MeosEvents {
-  private readonly handlers: { [E in MeosEvent]?: Array<MeosEventHandler<E>> } = {};
+  // One handler list per event. Stored loosely (the public on/emit signatures
+  // keep each event's payload type sound; the variance across the union is only
+  // an internal-storage concern).
+  private readonly handlers = new Map<MeosEvent, Array<(payload: never) => void | Promise<void>>>();
   /** Reports a handler that threw; defaults to console.error, overridable for tests. */
   constructor(private readonly onError: (event: MeosEvent, error: unknown) => void = defaultOnError) {}
 
   on<E extends MeosEvent>(event: E, handler: MeosEventHandler<E>): () => void {
-    (this.handlers[event] ??= []).push(handler);
+    const list = this.handlers.get(event) ?? [];
+    list.push(handler as (payload: never) => void | Promise<void>);
+    this.handlers.set(event, list);
     return () => {
-      const list = this.handlers[event];
-      if (list) this.handlers[event] = list.filter((h) => h !== handler) as typeof list;
+      const current = this.handlers.get(event);
+      if (current) this.handlers.set(event, current.filter((h) => h !== handler));
     };
   }
 
   /** Fire an event, awaiting every handler. One failure never blocks the rest. */
   async emit<E extends MeosEvent>(event: E, payload: MeosEventMap[E]): Promise<void> {
-    const list = this.handlers[event];
+    const list = this.handlers.get(event);
     if (!list || list.length === 0) return;
     await Promise.all(
       list.map(async (handler) => {
         try {
-          await handler(payload);
+          await (handler as MeosEventHandler<E>)(payload);
         } catch (error) {
           this.onError(event, error);
         }

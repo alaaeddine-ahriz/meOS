@@ -3,7 +3,7 @@ import { buildContextPack, ChatService } from "@meos/core";
 import type { AppContext } from "../context.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder);
+  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder, ctx.events);
 
   app.post("/api/conversations", async (_request, reply) => {
     return reply.code(201).send({ id: ctx.store.createConversation() });

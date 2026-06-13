@@ -8,6 +8,7 @@ export function startScheduler(ctx: AppContext): Cron {
   return new Cron(ctx.config.consolidation.cron, () => {
     ctx.queue.push(
       async () => {
+        await ctx.events.emit("onSchedule", { reason: "cron" });
         const report = await runConsolidation({
           store: ctx.store,
           llm: ctx.llm,

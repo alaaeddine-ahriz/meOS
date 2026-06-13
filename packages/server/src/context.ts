@@ -92,6 +92,12 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const llm = new SwitchableLlmClient(createLlmClient(config));
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder);
+  // The automation bus: core stages emit lifecycle events, the server subscribes.
+  const events = new MeosEvents();
+  events.on("onContradiction", ({ entityId }) => {
+    const entity = store.getEntity(entityId);
+    console.log(`[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`);
+  });
 
   // Wiki regeneration runs decoupled from ingestion: stale flags accumulate in
   // the DB, and a single queued pass handles however many piled up — a batch
@@ -115,12 +121,14 @@ export function createContext(rootDir = findRootDir()): AppContext {
     wiki,
     scheduleWikiRefresh,
     dataDir: config.dataDir,
+    events,
     postMerge: async ({ merge }) => {
       const result = await detectContradictions(
         store,
         llm,
         merge.newObservationIds,
         loadSchema(config.dataDir),
+        events,
       );
       const notes: string[] = [];
       if (result.superseded > 0) notes.push(`${result.superseded} fact(s) superseded`);
@@ -132,5 +140,5 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const watcher = new FolderWatcher({ store, pipeline, queue });
   const git = new GitSync(config.dataDir);
 
-  return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher, git };
+  return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher, git, events };
 }
