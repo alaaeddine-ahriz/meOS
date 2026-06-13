@@ -8,10 +8,11 @@
 //! is left untouched.
 
 use std::net::{SocketAddr, TcpStream};
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::{Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent};
 
 const DEFAULT_PORT: u16 = 4321;
 
@@ -30,27 +31,77 @@ fn server_reachable(port: u16) -> bool {
     TcpStream::connect_timeout(&address, Duration::from_millis(250)).is_ok()
 }
 
-/// Entry point and working directory default to this repository's layout so a
-/// locally built app works with zero configuration; both can be overridden
-/// when the server lives elsewhere.
-fn spawn_server() -> Option<Child> {
-    let entry = std::env::var("MEOS_SERVER_ENTRY")
-        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../server/dist/main.js").to_string());
-    let root = std::env::var("MEOS_ROOT")
-        .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_string());
+/// The self-contained runtime shipped inside a packaged app as a Tauri
+/// resource (`bundle.resources`): a private Node, the vendored server, the web
+/// UI and a pre-seeded embedding model. Absent in `tauri dev`.
+struct Payload {
+    node: PathBuf,
+    entry: PathBuf,
+    app_dir: PathBuf,
+    web_dist: PathBuf,
+    model_cache: PathBuf,
+}
 
-    match Command::new("node")
-        .arg(&entry)
-        .current_dir(&root)
-        .env("MEOS_EXIT_WITH_PARENT", "1")
-        .spawn()
-    {
+/// Resolve the bundled payload from the app's resource dir. Returns None in a
+/// dev build, where no payload is bundled and the repo layout is used instead.
+fn bundled_payload(app: &AppHandle) -> Option<Payload> {
+    let payload = app.path().resource_dir().ok()?.join("payload");
+    let entry = payload.join("app/server/dist/main.js");
+    // The payload only exists in a packaged build; bail to the repo layout
+    // otherwise so `tauri dev` keeps running the server from source.
+    if !entry.exists() {
+        return None;
+    }
+    Some(Payload {
+        node: payload.join("runtime").join(if cfg!(windows) { "node.exe" } else { "node" }),
+        entry,
+        app_dir: payload.join("app"),
+        web_dist: payload.join("app/web"),
+        model_cache: payload.join("models"),
+    })
+}
+
+/// Spawn the knowledge server. A packaged app runs its bundled Node against the
+/// vendored server, redirecting the read-only resource bundle's data, model
+/// cache and web assets to writable per-user dirs (the matching `MEOS_*` env
+/// vars are read by the server). A dev build falls back to the repo layout and
+/// a system `node`, both overridable via `MEOS_SERVER_ENTRY` / `MEOS_ROOT`.
+fn spawn_server(app: &AppHandle) -> Option<Child> {
+    let mut command;
+    let label;
+    if let Some(p) = bundled_payload(app) {
+        let data_dir = app
+            .path()
+            .app_data_dir()
+            .map(|dir| dir.join("data"))
+            .unwrap_or_else(|_| p.app_dir.join("data"));
+        let _ = std::fs::create_dir_all(&data_dir);
+
+        command = Command::new(&p.node);
+        command
+            .arg(&p.entry)
+            .current_dir(&p.app_dir)
+            .env("MEOS_DATA_DIR", &data_dir)
+            .env("MEOS_MODEL_CACHE", &p.model_cache)
+            .env("MEOS_WEB_DIST", &p.web_dist);
+        label = p.entry.display().to_string();
+    } else {
+        let entry = std::env::var("MEOS_SERVER_ENTRY")
+            .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../server/dist/main.js").to_string());
+        let root = std::env::var("MEOS_ROOT")
+            .unwrap_or_else(|_| concat!(env!("CARGO_MANIFEST_DIR"), "/../../..").to_string());
+        command = Command::new("node");
+        command.arg(&entry).current_dir(&root);
+        label = entry;
+    }
+
+    match command.env("MEOS_EXIT_WITH_PARENT", "1").spawn() {
         Ok(child) => {
-            eprintln!("meos: started knowledge server ({entry})");
+            eprintln!("meos: started knowledge server ({label})");
             Some(child)
         }
         Err(error) => {
-            eprintln!("meos: could not start `node {entry}`: {error}");
+            eprintln!("meos: could not start knowledge server ({label}): {error}");
             None
         }
     }
@@ -84,7 +135,7 @@ fn main() {
                 eprintln!("meos: server already running on :{port}");
                 None
             } else {
-                spawn_server()
+                spawn_server(app.handle())
             };
 
             // Give a freshly spawned server a moment to listen so the first

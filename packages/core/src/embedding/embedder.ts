@@ -20,9 +20,12 @@ const { parentPort, workerData } = require("node:worker_threads");
 let extractorPromise = null;
 function load() {
   if (!extractorPromise) {
-    extractorPromise = import(workerData.transformersUrl).then(({ pipeline }) =>
-      pipeline("feature-extraction", workerData.model),
-    );
+    extractorPromise = import(workerData.transformersUrl).then(({ pipeline, env }) => {
+      // The default cache lives under node_modules, which is read-only inside a
+      // packaged desktop app; MEOS_MODEL_CACHE points it at a writable dir.
+      if (workerData.cacheDir) env.cacheDir = workerData.cacheDir;
+      return pipeline("feature-extraction", workerData.model);
+    });
   }
   return extractorPromise;
 }
@@ -80,6 +83,7 @@ export class LocalEmbedder implements Embedder {
         workerData: {
           model: this.model,
           transformersUrl: import.meta.resolve("@huggingface/transformers"),
+          cacheDir: process.env.MEOS_MODEL_CACHE,
         },
       });
       worker.unref();

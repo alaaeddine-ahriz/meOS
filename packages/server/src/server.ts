@@ -45,8 +45,11 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerGitRoutes(app, ctx);
 
   // In production the built web app is served from this same process; in dev
-  // the Vite server proxies /api here instead and this block is skipped.
-  const webDist = path.resolve(fileURLToPath(import.meta.url), "../../../web/dist");
+  // the Vite server proxies /api here instead and this block is skipped. The
+  // desktop bundle relocates the UI, so MEOS_WEB_DIST overrides the default
+  // (which assumes the repo's packages/server/dist ↔ packages/web/dist layout).
+  const webDist =
+    process.env.MEOS_WEB_DIST ?? path.resolve(fileURLToPath(import.meta.url), "../../../web/dist");
   if (fs.existsSync(webDist)) {
     await app.register(fastifyStatic, { root: webDist });
     app.setNotFoundHandler((request, reply) => {

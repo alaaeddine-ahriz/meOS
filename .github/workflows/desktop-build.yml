@@ -1,0 +1,89 @@
+# Builds the MeOS desktop app per platform. Native modules (better-sqlite3,
+# onnxruntime-node, sharp) can't be cross-compiled, so each target gets its own
+# native runner; scripts/bundle-runtime.mjs auto-detects that runner's
+# platform/arch. Trigger manually (Actions ▸ Run workflow) or by pushing a
+# v* tag. Artifacts are uploaded per platform; nothing is code-signed yet.
+name: Desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  bundle:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS (Apple Silicon)
+            bundles: dmg
+          - os: macos-13
+            label: macOS (Intel)
+            bundles: dmg
+          - os: windows-latest
+            label: Windows
+            bundles: nsis
+          - os: ubuntu-22.04
+            label: Linux
+            bundles: appimage
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri's Linux bundler (WebKitGTK + AppImage tooling) needs system libs.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Major must match NODE_VERSION in scripts/bundle-runtime.mjs (22.x): the
+      # bundled better-sqlite3 prebuild is ABI-bound to the Node we ship, and
+      # the script guards against a mismatch.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # dist for core/server/web must exist before the payload is assembled;
+      # the script vendors these builds into payload/app.
+      - name: Build core / server / web
+        run: pnpm build
+
+      - name: Assemble runtime payload
+        run: node scripts/bundle-runtime.mjs
+
+      # --bundles overrides tauri.conf's macOS-only "app" target per platform.
+      - name: Build desktop bundle
+        run: pnpm --filter @meos/desktop exec tauri build --bundles ${{ matrix.bundles }}
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: meos-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            packages/desktop/src-tauri/target/release/bundle/**/*.dmg
+            packages/desktop/src-tauri/target/release/bundle/**/*.exe
+            packages/desktop/src-tauri/target/release/bundle/**/*.AppImage

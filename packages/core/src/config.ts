@@ -110,6 +110,10 @@ export function loadConfig(rootDir: string): MeosConfig {
   if (envProvider && LLM_PROVIDERS.includes(envProvider)) {
     config.llm.provider = envProvider;
   }
+  // The desktop shell relocates data to a writable per-user directory because
+  // the app bundle itself is read-only; MEOS_DATA_DIR (absolute) wins outright.
+  const envDataDir = process.env.MEOS_DATA_DIR;
+  if (envDataDir) config.dataDir = envDataDir;
   if (!path.isAbsolute(config.dataDir)) {
     config.dataDir = path.join(rootDir, config.dataDir);
   }

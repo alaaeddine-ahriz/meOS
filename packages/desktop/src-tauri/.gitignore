@@ -1,2 +1,4 @@
 target/
 gen/schemas/
+# Generated per-platform on CI by scripts/bundle-runtime.mjs — too large to track.
+payload/
