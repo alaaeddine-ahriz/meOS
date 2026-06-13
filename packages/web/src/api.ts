@@ -134,6 +134,17 @@ export interface SourceDiff {
   }>;
 }
 
+export interface DuplicateProposal {
+  aId: number;
+  bId: number;
+  aName: string;
+  bName: string;
+  type: string;
+  reasons: string[];
+  score: number;
+  suggestedWinnerId: number;
+}
+
 export type ResolutionAction = "supersede_a" | "supersede_b" | "keep_both" | "context_specific";
 
 export interface ContradictionProposal {
@@ -224,6 +235,13 @@ export const api = {
   getGitLog: (limit = 50) => json<{ commits: GitCommit[] }>(`/api/settings/git/log?limit=${limit}`),
   getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
   getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
+  getDuplicates: () => json<{ duplicates: DuplicateProposal[] }>("/api/entities/duplicates"),
+  mergeEntities: (loserId: number, winnerId: number) =>
+    json<{ merged: boolean }>("/api/entities/merge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ loserId, winnerId }),
+    }),
   getContradictions: () => json<{ contradictions: Contradiction[] }>("/api/contradictions"),
   resolveContradiction: (id: number, action: ResolutionAction) =>
     json<{ resolved: boolean }>(`/api/contradictions/${id}/resolve`, {

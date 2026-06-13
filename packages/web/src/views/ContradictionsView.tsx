@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
-import { api, type Contradiction, type ResolutionAction } from "../api.js";
+import { api, type Contradiction, type DuplicateProposal, type ResolutionAction } from "../api.js";
 
 const ACTION_LABEL: Record<ResolutionAction, string> = {
   supersede_a: "Keep the first",
@@ -19,8 +19,10 @@ function suggestedWinner(action: ResolutionAction | undefined): "a" | "b" | null
 
 export function ContradictionsView() {
   const [items, setItems] = useState<Contradiction[]>([]);
+  const [duplicates, setDuplicates] = useState<DuplicateProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
+  const [merging, setMerging] = useState<string | null>(null);
 
   const load = () =>
     api
@@ -31,7 +33,24 @@ export function ContradictionsView() {
 
   useEffect(() => {
     void load();
+    api.getDuplicates().then((r) => setDuplicates(r.duplicates)).catch(() => setDuplicates([]));
   }, []);
+
+  const merge = async (d: DuplicateProposal) => {
+    const key = `${d.aId}-${d.bId}`;
+    setMerging(key);
+    try {
+      const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
+      await api.mergeEntities(loserId, d.suggestedWinnerId);
+      setDuplicates((cur) => cur.filter((x) => `${x.aId}-${x.bId}` !== key));
+      // a merge can retire a duplicate-driven contradiction; refresh the list
+      void load();
+    } catch {
+      // leave it; the user can retry
+    } finally {
+      setMerging(null);
+    }
+  };
 
   const resolve = async (id: number, action: ResolutionAction) => {
     setBusy(id);
@@ -51,6 +70,40 @@ export function ContradictionsView() {
         title="Contradictions"
         description="Conflicting facts the system couldn't reconcile on its own. Each carries a suggested resolution — you decide."
       />
+
+      {duplicates.length > 0 && (
+        <div className="rise rise-1 mt-8">
+          <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-dim">Likely duplicate entities</h2>
+          <div className="flex flex-col gap-2">
+            {duplicates.map((d) => {
+              const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
+              const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
+              return (
+                <div key={`${d.aId}-${d.bId}`} className="flex items-center gap-3 rounded-lg border border-line bg-card/40 p-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-paper">
+                      {d.aName} <span className="text-dim">↔</span> {d.bName}{" "}
+                      <span className="text-xs text-dim">({d.type})</span>
+                    </p>
+                    <p className="text-xs text-faded">
+                      {d.reasons.join("; ")} — keep <span className="text-paper">{winnerName}</span>, merge in {loserName}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={merging === `${d.aId}-${d.bId}`}
+                    onClick={() => void merge(d)}
+                    className="border-lamp-dim bg-transparent text-lamp hover:border-lamp hover:bg-lamp/10 hover:text-lamp"
+                  >
+                    Merge
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="rise rise-1 mt-8 flex flex-col gap-4 pb-16">
         {loading ? (
