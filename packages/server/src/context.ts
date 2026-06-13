@@ -141,6 +141,13 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const watcher = new FolderWatcher({ store, pipeline, queue });
   const git = new GitSync(config.dataDir);
 
+  // Light up the compiled-knowledge retrieval stream for pages written before
+  // wiki_pages existed (upgrade path): backfill from disk, locally, once.
+  queue.push(async () => {
+    const filled = await wiki.backfillPages();
+    if (filled > 0) console.log(`[wiki] backfilled ${filled} page(s) into the retrieval index`);
+  });
+
   // When a conversation closes, distil it into a first-class session source so
   // its reasoning compounds instead of evaporating (crystallization).
   events.on("onSessionEnd", ({ conversationId }) => {

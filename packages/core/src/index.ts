@@ -50,6 +50,8 @@ export {
 export type { ObservationKind, Sensitivity } from "./knowledge/schema-doc.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
+export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
+export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
 export { lintPage } from "./wiki/wiki-lint.js";
 export type { IssueSeverity, LintIssue, PageLintResult } from "./wiki/wiki-lint.js";

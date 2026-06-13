@@ -1,7 +1,39 @@
+import { findDuplicateEntities } from "@meos/core";
 import type { FastifyInstance } from "fastify";
-import type { AppContext } from "../context.js";
+import { commitWikiChanges, type AppContext } from "../context.js";
 
 export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // Likely-duplicate entities (human-gated dedup): detection only — the user
+  // confirms a merge, which is destructive, via POST /api/entities/merge.
+  app.get("/api/entities/duplicates", async () => ({
+    duplicates: findDuplicateEntities(ctx.store),
+  }));
+
+  app.post<{ Body: { loserId?: number; winnerId?: number } }>("/api/entities/merge", async (request, reply) => {
+    const { loserId, winnerId } = request.body ?? {};
+    if (typeof loserId !== "number" || typeof winnerId !== "number") {
+      return reply.code(400).send({ error: "Fields 'loserId' and 'winnerId' (numbers) are required" });
+    }
+    if (!ctx.store.mergeEntities(loserId, winnerId)) {
+      return reply.code(400).send({ error: "Merge failed (unknown entity or self-merge)" });
+    }
+    // The survivor's page needs rewriting around the merged knowledge.
+    ctx.queue.push(async () => {
+      const changes = await ctx.wiki.regenerateStale();
+      await commitWikiChanges(ctx, changes, "Entity merge");
+    });
+    return reply.send({ merged: true });
+  });
+
+  // Rebuild the compiled-prose retrieval index from pages on disk (no LLM).
+  app.post("/api/jobs/backfill-wiki", async (_request, reply) => {
+    ctx.queue.push(async () => {
+      const filled = await ctx.wiki.backfillPages();
+      app.log.info({ filled }, "wiki backfill finished");
+    });
+    return reply.code(202).send({ started: true });
+  });
+
   app.get("/api/wiki", async () => ({
     entities: ctx.store.listEntities().map((entity) => ({
       id: entity.id,

@@ -195,4 +195,30 @@ export class WikiWriter {
       await Promise.all(workers);
     }
   }
+
+  /**
+   * Backfill the wiki_pages table from pages already on disk, without calling
+   * the LLM. Pages written before persistence (or any upgrade) leave the
+   * compiled-knowledge retrieval stream dark; this reads each entity's existing
+   * Markdown, strips frontmatter, embeds the prose locally, and stores it so
+   * chat can retrieve compiled prose immediately. Only fills entities that have
+   * a file but no persisted page yet. Returns how many pages were backfilled.
+   */
+  async backfillPages(): Promise<number> {
+    if (!this.embedder) return 0;
+    const persisted = new Set(this.store.allWikiPageVectors().map((p) => p.entity_id));
+    const pending: Array<{ entityId: number; body: string }> = [];
+    for (const entity of this.store.listEntities()) {
+      if (persisted.has(entity.id)) continue;
+      const file = this.readPage(entity);
+      if (!file) continue;
+      const body = stripFrontmatter(file);
+      if (body) pending.push({ entityId: entity.id, body });
+    }
+    if (pending.length === 0) return 0;
+    // Embed in one batch; bulk so it doesn't jump the interactive queue.
+    const vectors = await this.embedder.embed(pending.map((p) => p.body));
+    pending.forEach((p, i) => this.store.upsertWikiPage(p.entityId, p.body, vectors[i]));
+    return pending.length;
+  }
 }

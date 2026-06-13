@@ -299,6 +299,49 @@ export class KnowledgeStore {
     return this.db.prepare("SELECT * FROM entities WHERE wiki_stale = 1").all() as EntityRow[];
   }
 
+  /**
+   * Merge a duplicate entity into a survivor (human-gated dedup). The loser's
+   * observations, relationships, aliases, and history move to the winner; the
+   * loser's name becomes an alias so future mentions resolve correctly; the
+   * loser is deleted and the winner's page flagged for a rewrite. Transactional
+   * and audited. Returns false when either id is unknown or they are the same.
+   */
+  mergeEntities(loserId: number, winnerId: number): boolean {
+    if (loserId === winnerId) return false;
+    const loser = this.getEntity(loserId);
+    const winner = this.getEntity(winnerId);
+    if (!loser || !winner) return false;
+
+    const run = this.db.transaction(() => {
+      // Names/aliases: the loser's name and aliases become the winner's aliases.
+      this.db.prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)").run(winnerId, loser.name);
+      this.db.prepare("UPDATE OR IGNORE entity_aliases SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db.prepare("DELETE FROM entity_aliases WHERE entity_id = ?").run(loserId);
+
+      // Observations (and their sources via observation_id) move wholesale.
+      this.db.prepare("UPDATE observations SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+
+      // Relationships: re-point loser's edges to the winner, skipping the
+      // self-edges and duplicates that would create (OR IGNORE drops those),
+      // then delete whatever couldn't be re-pointed.
+      this.db.prepare("UPDATE OR IGNORE relationships SET from_entity = ? WHERE from_entity = ? AND to_entity <> ?").run(winnerId, loserId, winnerId);
+      this.db.prepare("UPDATE OR IGNORE relationships SET to_entity = ? WHERE to_entity = ? AND from_entity <> ?").run(winnerId, loserId, winnerId);
+      this.db.prepare("DELETE FROM relationships WHERE from_entity = ? OR to_entity = ?").run(loserId, loserId);
+
+      // Wiki bookkeeping and history.
+      this.db.prepare("UPDATE OR IGNORE wiki_stale_sources SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db.prepare("DELETE FROM wiki_stale_sources WHERE entity_id = ?").run(loserId);
+      this.db.prepare("UPDATE wiki_commit_changes SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db.prepare("DELETE FROM wiki_pages WHERE entity_id = ?").run(loserId);
+
+      this.db.prepare("DELETE FROM entities WHERE id = ?").run(loserId);
+      this.db.prepare("UPDATE entities SET wiki_stale = 1 WHERE id = ?").run(winnerId);
+      this.logAudit("merge_entity", `"${loser.name}" (#${loserId}) merged into "${winner.name}" (#${winnerId})`);
+    });
+    run();
+    return true;
+  }
+
   addAlias(entityId: number, alias: string): void {
     this.db
       .prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)")
