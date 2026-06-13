@@ -1,6 +1,7 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { reciprocalRankFusion, topK } from "../embedding/vectors.js";
-import type { EntityRow, KnowledgeStore, SourceRef } from "../knowledge/store.js";
+import type { EntityRow, KnowledgeStore, ObservationRow, SourceRef } from "../knowledge/store.js";
+import { classifyIntent, type QueryIntent } from "./query-planner.js";
 
 export interface ContextPack {
   /** Formatted knowledge context ready to inject into the prompt. */
@@ -8,6 +9,20 @@ export interface ContextPack {
   matchedEntities: EntityRow[];
   /** Distinct source documents the context draws on. */
   sources: SourceRef[];
+  /** How the planner read the query — drives how this pack was assembled. */
+  intent: QueryIntent;
+}
+
+export interface RetrievalOptions {
+  /** Override the planner's classification (defaults to classifyIntent(query)). */
+  intent?: QueryIntent;
+  /** Max raw source excerpts to include. */
+  chunkCount?: number;
+}
+
+/** A claim's position on the timeline: its stated validFrom, else when it was recorded. */
+function observationDate(o: ObservationRow): string {
+  return o.valid_from ?? o.created_at;
 }
 
 /** Fuse a vector ranking and a BM25 ranking of the same id-space into one. */
@@ -30,8 +45,11 @@ export async function buildContextPack(
   store: KnowledgeStore,
   embedder: Embedder,
   query: string,
-  chunkCount = 6,
+  options: RetrievalOptions = {},
 ): Promise<ContextPack> {
+  const intent = options.intent ?? classifyIntent(query);
+  // "Where did I mention X" wants raw evidence, so widen the excerpt budget.
+  const chunkCount = options.chunkCount ?? (intent === "find_source" ? 12 : 6);
   const [queryVector] = await embedder.embed([query], { interactive: true });
   const qv = queryVector!;
 
@@ -93,7 +111,11 @@ export async function buildContextPack(
   const matchedEntities: EntityRow[] = [];
 
   // --- compiled wiki prose (top synthesised pages) ---
-  const wikiSection = wikiOrder
+  // For an entity summary, make sure the named entity's own page leads, even if
+  // it wasn't the top hybrid hit.
+  const wikiEntityOrder =
+    intent === "summarize_entity" ? [...literalEntities.map((e) => e.id), ...wikiOrder] : wikiOrder;
+  const wikiSection = [...new Set(wikiEntityOrder)]
     .slice(0, 3)
     .map((entityId) => wikiByEntity.get(entityId))
     .filter((page): page is NonNullable<typeof page> => page !== undefined)
@@ -109,6 +131,10 @@ export async function buildContextPack(
     if (!entity) continue;
     matchedEntities.push(entity);
     const observations = store.activeObservations(entity.id).slice(0, 25);
+    // A timeline question wants chronological order, not confidence order.
+    if (intent === "trace_timeline") {
+      observations.sort((a, b) => observationDate(a).localeCompare(observationDate(b)));
+    }
     const relationships = store.relationshipsFor(entity.id).slice(0, 25);
     const lines = [
       `### Entity: ${entity.name} (${entity.type})`,
@@ -119,13 +145,31 @@ export async function buildContextPack(
         // Tag non-working tiers so the model can weight a stable, cross-source
         // "semantic" fact above a fresh "working" capture.
         const tier = o.memory_tier !== "working" ? `, ${o.memory_tier}` : "";
-        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${o.text}`;
+        // Lead with the date when tracing a timeline.
+        const when = intent === "trace_timeline" ? `${observationDate(o).slice(0, 10)}: ` : "";
+        return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${when}${o.text}`;
       }),
       ...relationships.map((r) =>
         r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
       ),
     ].filter(Boolean);
     sections.push(lines.join("\n"));
+  }
+
+  // --- open contradictions (when that's what was asked) ---
+  if (intent === "find_contradictions") {
+    const named = new Set(matchedEntities.map((e) => e.name));
+    const open = store
+      .unresolvedContradictions()
+      .filter((c) => named.size === 0 || named.has(c.entity_name));
+    if (open.length > 0) {
+      sections.push(
+        [
+          "### Open contradictions:",
+          ...open.map((c) => `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`),
+        ].join("\n"),
+      );
+    }
   }
 
   // --- raw source excerpts (fallback, deduped against what's above) ---
@@ -145,5 +189,6 @@ export async function buildContextPack(
     text: sections.join("\n\n") || "(the knowledge base contains nothing relevant)",
     matchedEntities,
     sources: [...sources.values()],
+    intent,
   };
 }

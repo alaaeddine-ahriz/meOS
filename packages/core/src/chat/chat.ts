@@ -1,7 +1,22 @@
 import type { Embedder } from "../embedding/embedder.js";
 import type { KnowledgeStore, SourceRef } from "../knowledge/store.js";
 import type { ChatMessage, LlmClient } from "../llm/types.js";
+import type { QueryIntent } from "./query-planner.js";
 import { buildContextPack } from "./retrieval.js";
+
+/** Per-intent steer appended to the system prompt, from the query planner. */
+const INTENT_GUIDANCE: Partial<Record<QueryIntent, string>> = {
+  find_source:
+    "The user wants to find where something is recorded. Lead with the source documents, quote the relevant lines, and name the files.",
+  trace_timeline:
+    "The user wants a timeline. The facts are ordered chronologically and prefixed with dates — narrate the sequence over time.",
+  find_contradictions:
+    "The user is asking about conflicts. Surface the open contradictions plainly, present both sides, and suggest which is likelier (recency, source authority) without deciding for them.",
+  compare:
+    "The user wants a comparison. Structure the answer around the dimensions being compared and be explicit about trade-offs.",
+  summarize_entity:
+    "The user wants an overview of an entity. Lead with its wiki summary, then the most established (semantic, high-confidence) facts.",
+};
 
 export type ChatResponseEvent =
   | { type: "sources"; sources: SourceRef[] }
@@ -53,13 +68,16 @@ export class ChatService {
       },
     ];
 
+    const intentHint = INTENT_GUIDANCE[context.intent];
+    const system = intentHint ? `${SYSTEM_PROMPT}\n\n${intentHint}` : SYSTEM_PROMPT;
+
     if (context.sources.length > 0) {
       yield { type: "sources", sources: context.sources };
     }
 
     let reply = "";
     for await (const chunk of this.llm.stream({
-      system: SYSTEM_PROMPT,
+      system,
       cacheSystem: true,
       messages,
     })) {
