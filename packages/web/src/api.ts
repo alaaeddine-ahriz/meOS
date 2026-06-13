@@ -243,6 +243,12 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ loserId, winnerId }),
     }),
+  dismissDuplicate: (aId: number, bId: number) =>
+    json<{ dismissed: boolean }>("/api/entities/dismiss-duplicate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ aId, bId }),
+    }),
   getContradictions: () => json<{ contradictions: Contradiction[] }>("/api/contradictions"),
   resolveContradiction: (id: number, action: ResolutionAction) =>
     json<{ resolved: boolean }>(`/api/contradictions/${id}/resolve`, {

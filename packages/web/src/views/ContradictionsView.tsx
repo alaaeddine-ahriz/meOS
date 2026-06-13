@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { api, type Contradiction, type DuplicateProposal, type ResolutionAction } from "../api.js";
+
+type Tab = "linked" | "conflicts";
 
 const ACTION_LABEL: Record<ResolutionAction, string> = {
   supersede_a: "Keep the first",
@@ -22,7 +25,8 @@ export function ContradictionsView() {
   const [duplicates, setDuplicates] = useState<DuplicateProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
-  const [merging, setMerging] = useState<string | null>(null);
+  const [pending, setPending] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("conflicts");
 
   const load = () =>
     api
@@ -38,7 +42,7 @@ export function ContradictionsView() {
 
   const merge = async (d: DuplicateProposal) => {
     const key = `${d.aId}-${d.bId}`;
-    setMerging(key);
+    setPending(key);
     try {
       const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
       await api.mergeEntities(loserId, d.suggestedWinnerId);
@@ -48,7 +52,20 @@ export function ContradictionsView() {
     } catch {
       // leave it; the user can retry
     } finally {
-      setMerging(null);
+      setPending(null);
+    }
+  };
+
+  const dismiss = async (d: DuplicateProposal) => {
+    const key = `${d.aId}-${d.bId}`;
+    setPending(key);
+    try {
+      await api.dismissDuplicate(d.aId, d.bId);
+      setDuplicates((cur) => cur.filter((x) => `${x.aId}-${x.bId}` !== key));
+    } catch {
+      // leave it; the user can retry
+    } finally {
+      setPending(null);
     }
   };
 
@@ -67,19 +84,30 @@ export function ContradictionsView() {
   return (
     <Page>
       <PageHeader
-        title="Contradictions"
-        description="Conflicting facts the system couldn't reconcile on its own. Each carries a suggested resolution — you decide."
+        title="Conflicts"
+        description="Where your knowledge disagrees with itself — entities that look like the same thing, and claims that can't both be true. You decide each one."
       />
 
-      {duplicates.length > 0 && (
-        <div className="rise rise-1 mt-8">
-          <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-dim">Likely duplicate entities</h2>
-          <div className="flex flex-col gap-2">
-            {duplicates.map((d) => {
+      <nav className="rise mt-8 flex flex-wrap gap-1 border-b border-line">
+        <TabButton active={tab === "linked"} onClick={() => setTab("linked")} count={duplicates.length}>
+          Linked
+        </TabButton>
+        <TabButton active={tab === "conflicts"} onClick={() => setTab("conflicts")} count={items.length}>
+          Conflicts
+        </TabButton>
+      </nav>
+
+      {tab === "linked" && (
+        <div className="rise rise-1 mt-8 flex flex-col gap-2 pb-16">
+          {duplicates.length === 0 ? (
+            <p className="text-sm text-faded">No likely duplicates. Every entity looks distinct.</p>
+          ) : (
+            duplicates.map((d) => {
+              const key = `${d.aId}-${d.bId}`;
               const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
               const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
               return (
-                <div key={`${d.aId}-${d.bId}`} className="flex items-center gap-3 rounded-lg border border-line bg-card/40 p-3">
+                <div key={key} className="flex items-center gap-3 rounded-lg border border-line bg-card/40 p-3">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-paper">
                       {d.aName} <span className="text-dim">↔</span> {d.bName}{" "}
@@ -92,7 +120,16 @@ export function ContradictionsView() {
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={merging === `${d.aId}-${d.bId}`}
+                    disabled={pending === key}
+                    onClick={() => void dismiss(d)}
+                    className="border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+                  >
+                    Dismiss
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pending === key}
                     onClick={() => void merge(d)}
                     className="border-lamp-dim bg-transparent text-lamp hover:border-lamp hover:bg-lamp/10 hover:text-lamp"
                   >
@@ -100,11 +137,12 @@ export function ContradictionsView() {
                   </Button>
                 </div>
               );
-            })}
-          </div>
+            })
+          )}
         </div>
       )}
 
+      {tab === "conflicts" && (
       <div className="rise rise-1 mt-8 flex flex-col gap-4 pb-16">
         {loading ? (
           <p className="text-sm text-faded">Loading…</p>
@@ -152,7 +190,36 @@ export function ContradictionsView() {
           })
         )}
       </div>
+      )}
     </Page>
+  );
+}
+
+function TabButton({
+  children,
+  active,
+  count,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "relative -mb-px flex items-center gap-2 px-3 py-2.5 text-sm transition-colors",
+        active ? "text-paper" : "text-faded hover:text-paper",
+      )}
+    >
+      {children}
+      {count > 0 && (
+        <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
+      )}
+      {active && <span className="absolute inset-x-0 -bottom-px h-px bg-lamp" />}
+    </button>
   );
 }
 

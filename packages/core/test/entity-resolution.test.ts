@@ -33,6 +33,21 @@ describe("duplicate detection", () => {
     expect(proposal!.suggestedWinnerId).toBe(ahriz.id);
   });
 
+  it("stops proposing a pair the user has dismissed", () => {
+    const s = store();
+    const ahriz = s.createEntity({ type: "person", name: "Alaaeddine Ahriz" });
+    const elin = s.createEntity({ type: "person", name: "Alaa El Elin" });
+    const studia = s.createEntity({ type: "project", name: "StudIA" });
+    s.insertObservation({ entityId: ahriz.id, text: "x" });
+    s.upsertRelationship(ahriz.id, studia.id, "founded");
+    s.upsertRelationship(elin.id, studia.id, "founded");
+
+    expect(findDuplicateEntities(s)).toHaveLength(1);
+    // dismissal is order-independent: dismiss (b, a) suppresses the (a, b) pair
+    s.dismissDuplicate(elin.id, ahriz.id);
+    expect(findDuplicateEntities(s)).toHaveLength(0);
+  });
+
   it("does not flag clearly distinct entities", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });

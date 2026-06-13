@@ -288,6 +288,17 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_audit_created ON audit_log(id DESC);
   `,
+  // 13 — human-gated dedup, the "no" branch: a merge proposal the user dismisses
+  // is remembered (by entity-id pair, order-normalised) so detection stops
+  // re-surfacing the same pair on every reload.
+  `
+  CREATE TABLE dismissed_duplicates (
+    a_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    b_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (a_id, b_id)
+  );
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

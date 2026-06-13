@@ -92,6 +92,9 @@ export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[
   const byType = new Map<string, typeof entities>();
   for (const e of entities) byType.set(e.type, [...(byType.get(e.type) ?? []), e]);
 
+  // Pairs the user has explicitly rejected merging — never re-propose them.
+  const dismissed = store.dismissedDuplicateKeys();
+
   const roleCache = new Map<number, Set<string>>();
   const roles = (id: number) => {
     let r = roleCache.get(id);
@@ -111,6 +114,8 @@ export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[
       for (let j = i + 1; j < group.length; j++) {
         const a = group[i]!;
         const b = group[j]!;
+        const key = a.id < b.id ? `${a.id}-${b.id}` : `${b.id}-${a.id}`;
+        if (dismissed.has(key)) continue;
         const reasons: string[] = [];
         let score = 0;
 

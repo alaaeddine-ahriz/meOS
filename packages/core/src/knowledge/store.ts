@@ -348,6 +348,30 @@ export class KnowledgeStore {
     return true;
   }
 
+  /**
+   * Remember that the user rejected merging this pair, so duplicate detection
+   * stops proposing it. Stored order-normalised (low id first) so a, b and b, a
+   * are the same dismissal.
+   */
+  dismissDuplicate(aId: number, bId: number): boolean {
+    if (aId === bId) return false;
+    const [lo, hi] = aId < bId ? [aId, bId] : [bId, aId];
+    this.db
+      .prepare("INSERT OR IGNORE INTO dismissed_duplicates (a_id, b_id) VALUES (?, ?)")
+      .run(lo, hi);
+    this.logAudit("dismiss_duplicate", `merge proposal for #${lo} ↔ #${hi} dismissed`);
+    return true;
+  }
+
+  /** Order-normalised `${lo}-${hi}` keys of every pair the user has dismissed. */
+  dismissedDuplicateKeys(): Set<string> {
+    const rows = this.db.prepare("SELECT a_id, b_id FROM dismissed_duplicates").all() as Array<{
+      a_id: number;
+      b_id: number;
+    }>;
+    return new Set(rows.map((r) => `${r.a_id}-${r.b_id}`));
+  }
+
   addAlias(entityId: number, alias: string): void {
     this.db
       .prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)")
