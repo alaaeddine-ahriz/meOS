@@ -31,6 +31,9 @@ interface Sim {
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 4;
 const LINK_DISTANCE = 90;
+// Cap per-tick speed so the explicit integrator can't diverge: with many nodes
+// the repulsion impulses overshoot and positions otherwise explode to infinity.
+const MAX_SPEED = 30;
 const FALLBACK_COLOR = "#8f8779";
 
 function cssVar(name: string): string {
@@ -83,6 +86,11 @@ function tick(sim: Sim): void {
     node.vy -= node.y * 0.012 * alpha;
     node.vx *= 0.85;
     node.vy *= 0.85;
+    const speed = Math.sqrt(node.vx * node.vx + node.vy * node.vy);
+    if (speed > MAX_SPEED) {
+      node.vx = (node.vx / speed) * MAX_SPEED;
+      node.vy = (node.vy / speed) * MAX_SPEED;
+    }
     node.x += node.vx;
     node.y += node.vy;
   }
