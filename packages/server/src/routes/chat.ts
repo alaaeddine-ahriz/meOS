@@ -21,6 +21,17 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     return { messages: ctx.store.listMessages(id) };
   });
 
+  // Close a conversation: distil it into a first-class session source in the
+  // background (crystallization). Fires the onSessionEnd hook.
+  app.post<{ Params: { id: string } }>("/api/conversations/:id/end", async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!ctx.store.conversationExists(id)) {
+      return reply.code(404).send({ error: "No such conversation" });
+    }
+    await ctx.events.emit("onSessionEnd", { conversationId: id });
+    return reply.code(202).send({ crystallizing: true });
+  });
+
   app.post<{ Body: { conversationId?: number; message: string } }>("/api/chat", async (request, reply) => {
     const { message } = request.body ?? {};
     if (!message?.trim()) {

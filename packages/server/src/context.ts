@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   createEmbedder,
   createLlmClient,
+  crystallizeSession,
   detectContradictions,
   ensureDataDirs,
   IngestionPipeline,
@@ -139,6 +140,24 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const queue = new JobQueue(INGEST_CONCURRENCY);
   const watcher = new FolderWatcher({ store, pipeline, queue });
   const git = new GitSync(config.dataDir);
+
+  // When a conversation closes, distil it into a first-class session source so
+  // its reasoning compounds instead of evaporating (crystallization).
+  events.on("onSessionEnd", ({ conversationId }) => {
+    queue.push(async () => {
+      const crystal = await crystallizeSession({
+        store,
+        llm,
+        embedder,
+        conversationId,
+        schema: loadSchema(config.dataDir),
+      });
+      if (crystal) {
+        scheduleWikiRefresh();
+        console.log(`[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`);
+      }
+    });
+  });
 
   return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher, git, events };
 }

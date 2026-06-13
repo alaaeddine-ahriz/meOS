@@ -76,3 +76,5 @@ export { runConsolidation } from "./memory/consolidate.js";
 export type { ConsolidationReport } from "./memory/consolidate.js";
 export { applyResolution, proposeResolution } from "./memory/resolution.js";
 export type { ResolutionAction, ResolutionProposal } from "./memory/resolution.js";
+export { crystallizeSession } from "./memory/crystallize.js";
+export type { SessionCrystal } from "./memory/crystallize.js";
