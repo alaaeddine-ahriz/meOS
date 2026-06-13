@@ -41,7 +41,7 @@ const VAGUE = /\b(some|several|various|many|a few|a number of|certain|things|stu
  */
 export function lintPage(store: KnowledgeStore, entityId: number, body: string): PageLintResult {
   const issues: LintIssue[] = [];
-  const observations = store.activeObservations(entityId).filter((o) => o.sensitivity === "normal");
+  const observations = store.visibleObservations(entityId);
   const relationships = store.relationshipsFor(entityId);
 
   if (body.trim().length === 0) {

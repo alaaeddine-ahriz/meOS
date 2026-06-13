@@ -1,5 +1,5 @@
 import { sourceQuality } from "./confidence.js";
-import type { KnowledgeStore } from "../knowledge/store.js";
+import { effectiveDate, type KnowledgeStore } from "../knowledge/store.js";
 
 /**
  * Contradiction resolution (gist item 11): detection is step one, resolving is
@@ -47,10 +47,9 @@ export function proposeResolution(store: KnowledgeStore, contradictionId: number
   const load = (id: number): Side | undefined => {
     const o = store.getObservation(id);
     if (!o) return undefined;
-    const when = o.valid_from ?? o.created_at;
     return {
       id,
-      recency: Date.parse(when) || Date.now(),
+      recency: Date.parse(effectiveDate(o)) || Date.now(),
       confidence: o.confidence,
       authority: sourceQuality(o.source_id ? store.getSourceType(o.source_id) : undefined),
       sourceCount: store.observationSourceCount(id),

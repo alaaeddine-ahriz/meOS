@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { MeosEvents } from "../events.js";
-import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
+import { DEFAULT_SCHEMA_MD, withSchema } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 
@@ -60,7 +60,7 @@ export async function detectContradictions(
 
     const entity = store.getEntity(entityId)!;
     const judgement = await llm.completeStructured({
-      system: `${SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}`,
+      system: withSchema(SYSTEM_PROMPT, schema),
       cacheSystem: true,
       schema: judgementSchema,
       schemaName: "contradiction_judgement",

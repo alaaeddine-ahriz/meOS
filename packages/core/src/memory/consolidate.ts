@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { mergeExtraction } from "../knowledge/merge.js";
-import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
+import { DEFAULT_SCHEMA_MD, withSchema } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore, WikiChange } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 import { healWiki } from "../wiki/self-healing.js";
@@ -115,7 +115,7 @@ export async function runConsolidation(deps: {
 
   const digestDate = new Date().toISOString().slice(0, 10);
   const content = await llm.complete({
-    system: `${DIGEST_SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}`,
+    system: withSchema(DIGEST_SYSTEM_PROMPT, schema),
     cacheSystem: true,
     messages: [
       {

@@ -1,4 +1,4 @@
-import type { KnowledgeStore } from "./knowledge/store.js";
+import { effectiveDate, type KnowledgeStore } from "./knowledge/store.js";
 import { proposeResolution } from "./memory/resolution.js";
 
 /**
@@ -23,7 +23,7 @@ export function decisionBrief(store: KnowledgeStore): string {
   const decisions = store.observationsByKind("decision");
   if (decisions.length === 0) return "# Decision brief\n\n_No decisions recorded yet._";
   const lines = decisions.map((d) => {
-    const when = (d.valid_from ?? d.created_at).slice(0, 10);
+    const when = effectiveDate(d).slice(0, 10);
     const source = d.source_id ? store.getSource(d.source_id)?.title : undefined;
     return `- **${when}** — ${d.text}${confidenceTag(d.confidence)}${source ? ` _(source: ${source})_` : ""}`;
   });
@@ -38,9 +38,8 @@ export function entityTimeline(store: KnowledgeStore, entityId: number): string 
   const entity = store.getEntity(entityId);
   if (!entity) return "_Unknown entity._";
   const dated = store
-    .activeObservations(entityId)
-    .filter((o) => o.sensitivity === "normal")
-    .map((o) => ({ when: o.valid_from ?? o.created_at, text: o.text, confidence: o.confidence }))
+    .visibleObservations(entityId)
+    .map((o) => ({ when: effectiveDate(o), text: o.text, confidence: o.confidence }))
     .sort((a, b) => a.when.localeCompare(b.when));
   if (dated.length === 0) return `# Timeline — ${entity.name}\n\n_No dated facts yet._`;
   const lines = dated.map((d) => `- **${d.when.slice(0, 10)}** — ${d.text}${confidenceTag(d.confidence)}`);
@@ -107,7 +106,7 @@ export function contradictionReport(store: KnowledgeStore): string {
 export function meetingBrief(store: KnowledgeStore, entityId: number): string {
   const entity = store.getEntity(entityId);
   if (!entity) return "_Unknown entity._";
-  const observations = store.activeObservations(entityId).filter((o) => o.sensitivity === "normal");
+  const observations = store.visibleObservations(entityId);
   const facts = observations.filter((o) => o.kind === "fact" || o.kind === "requirement" || o.kind === "preference");
   const decisions = observations.filter((o) => o.kind === "decision");
   const risks = observations.filter((o) => o.kind === "risk" || o.kind === "open_question");

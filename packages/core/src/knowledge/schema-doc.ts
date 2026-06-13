@@ -79,6 +79,15 @@ export function normalizeRelationshipLabel(label: string): string {
   return label.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/**
+ * Append the schema document to a system prompt. The delimiter and join live
+ * here so every LLM stage (extraction, contradiction, crystallization, digest,
+ * wiki) injects the schema identically.
+ */
+export function withSchema(systemPrompt: string, schema: string): string {
+  return `${systemPrompt}\n\n--- SCHEMA ---\n${schema}`;
+}
+
 export const DEFAULT_SCHEMA_MD = `# MeOS Schema
 
 This file defines how MeOS reads your sources and maintains your knowledge base.

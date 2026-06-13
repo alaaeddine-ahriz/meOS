@@ -1,6 +1,6 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { reciprocalRankFusion, topK } from "../embedding/vectors.js";
-import type { EntityRow, KnowledgeStore, ObservationRow, SourceRef } from "../knowledge/store.js";
+import { effectiveDate, type EntityRow, type KnowledgeStore, type SourceRef } from "../knowledge/store.js";
 import { classifyIntent, type QueryIntent } from "./query-planner.js";
 
 export interface ContextPack {
@@ -18,11 +18,6 @@ export interface RetrievalOptions {
   intent?: QueryIntent;
   /** Max raw source excerpts to include. */
   chunkCount?: number;
-}
-
-/** A claim's position on the timeline: its stated validFrom, else when it was recorded. */
-function observationDate(o: ObservationRow): string {
-  return o.valid_from ?? o.created_at;
 }
 
 /** Fuse a vector ranking and a BM25 ranking of the same id-space into one. */
@@ -133,7 +128,7 @@ export async function buildContextPack(
     const observations = store.activeObservations(entity.id).slice(0, 25);
     // A timeline question wants chronological order, not confidence order.
     if (intent === "trace_timeline") {
-      observations.sort((a, b) => observationDate(a).localeCompare(observationDate(b)));
+      observations.sort((a, b) => effectiveDate(a).localeCompare(effectiveDate(b)));
     }
     const relationships = store.relationshipsFor(entity.id).slice(0, 25);
     const lines = [
@@ -146,7 +141,7 @@ export async function buildContextPack(
         // "semantic" fact above a fresh "working" capture.
         const tier = o.memory_tier !== "working" ? `, ${o.memory_tier}` : "";
         // Lead with the date when tracing a timeline.
-        const when = intent === "trace_timeline" ? `${observationDate(o).slice(0, 10)}: ` : "";
+        const when = intent === "trace_timeline" ? `${effectiveDate(o).slice(0, 10)}: ` : "";
         return `- [confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${when}${o.text}`;
       }),
       ...relationships.map((r) =>

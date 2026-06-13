@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createBashTool } from "bash-tool";
 import type { Embedder } from "../embedding/embedder.js";
-import { loadSchema } from "../knowledge/schema-doc.js";
+import { loadSchema, withSchema } from "../knowledge/schema-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import type { EntityRow, KnowledgeStore, ObservationRow, RelationshipView, WikiChange } from "../knowledge/store.js";
 
@@ -120,9 +120,7 @@ export class WikiWriter {
 
     // Wiki pages are portable and git-synced: private/secret claims stay in
     // memory but never reach the page (schema privacy rules).
-    const observations = this.store
-      .activeObservations(entityId)
-      .filter((o) => o.sensitivity === "normal");
+    const observations = this.store.visibleObservations(entityId);
     const relationships = this.store.relationshipsFor(entityId);
     const names = knownEntities ?? this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
 
@@ -141,7 +139,7 @@ export class WikiWriter {
 
     const schema = loadSchema(path.dirname(this.wikiDir));
     await this.llm.runAgent({
-      system: `${SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
+      system: `${withSchema(SYSTEM_PROMPT, schema)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
       tools,
       sandbox,
       prompt: [
@@ -252,7 +250,7 @@ export class WikiWriter {
       // so the visible wiki and git-synced artifact aren't empty — independent of
       // whether the retrieval index already has this entity.
       if (!diskBody) {
-        const observations = this.store.activeObservations(entity.id).filter((o) => o.sensitivity === "normal");
+        const observations = this.store.visibleObservations(entity.id);
         const body = synthesizeBody(entity, observations);
         if (body) {
           const dest = this.pagePath(entity);
@@ -287,7 +285,7 @@ export class WikiWriter {
       const current = file ? stripFrontmatter(file) : "";
       // Only touch synthetic pages — agent prose links entities with [[...]].
       if (current.includes("[[")) continue;
-      const observations = this.store.activeObservations(entity.id).filter((o) => o.sensitivity === "normal");
+      const observations = this.store.visibleObservations(entity.id);
       const body = synthesizeBody(entity, observations);
       if (body === current) continue;
       updates.push({ entity, body, count: observations.length, mean: meanOf(observations) });

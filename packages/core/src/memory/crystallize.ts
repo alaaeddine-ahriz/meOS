@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
-import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
+import { DEFAULT_SCHEMA_MD, withSchema } from "../knowledge/schema-doc.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
@@ -75,7 +75,7 @@ export async function crystallizeSession(deps: {
 
   const transcript = messages.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
   const distilled = await llm.completeStructured({
-    system: `${DIGEST_SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}`,
+    system: withSchema(DIGEST_SYSTEM_PROMPT, schema),
     cacheSystem: true,
     schema: sessionDigestSchema,
     schemaName: "session_digest",

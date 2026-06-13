@@ -22,7 +22,7 @@ export type { EntityType, ExtractedObservation, Extraction } from "./extract/sch
 export { containsPII, containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
-export { KnowledgeStore, slugify } from "./knowledge/store.js";
+export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
   ChunkWithVector,
   EntityRow,

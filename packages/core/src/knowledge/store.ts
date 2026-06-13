@@ -1,6 +1,7 @@
 import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
 import type { EntityType } from "../extract/schema.js";
+import { CONFIDENCE_CAP, REINFORCE_STEP } from "../memory/confidence.js";
 
 export interface EntityRow {
   id: number;
@@ -114,6 +115,11 @@ export interface SourceChangeRow {
   kind: "created" | "updated";
   entityName: string | null;
   entitySlug: string | null;
+}
+
+/** A claim's effective date: when it became true (validFrom), else when it was recorded. */
+export function effectiveDate(o: { valid_from: string | null; created_at: string }): string {
+  return o.valid_from ?? o.created_at;
 }
 
 export function slugify(name: string): string {
@@ -451,7 +457,7 @@ export class KnowledgeStore {
             .run(existing.id, sourceId).changes > 0;
         if (isNewSource) {
           this.db
-            .prepare("UPDATE relationships SET confidence = MIN(0.95, confidence + 0.15) WHERE id = ?")
+            .prepare(`UPDATE relationships SET confidence = MIN(${CONFIDENCE_CAP}, confidence + ${REINFORCE_STEP}) WHERE id = ?`)
             .run(existing.id);
         }
       }
@@ -594,6 +600,15 @@ export class KnowledgeStore {
          ORDER BY confidence DESC, last_confirmed_at DESC`,
       )
       .all(entityId) as ObservationRow[];
+  }
+
+  /**
+   * Active observations safe to put in a portable artifact — the wiki, exported
+   * briefs, lint. Excludes private/secret claims (the privacy boundary lives
+   * here, once, instead of a `sensitivity === "normal"` filter at every caller).
+   */
+  visibleObservations(entityId: number): ObservationRow[] {
+    return this.activeObservations(entityId).filter((o) => o.sensitivity === "normal");
   }
 
   activeObservationVectors(entityId: number): Array<{ id: number; vector: Float32Array }> {
@@ -954,12 +969,6 @@ export class KnowledgeStore {
     return messages.map((message) => ({ ...message, sources: byMessage.get(message.id) ?? [] }));
   }
 
-  /**
-   * A new document restating an existing fact corroborates it: confidence rises
-   * (capped) only when the source is genuinely new, so re-reading the same
-   * document never inflates it — confidence tracks *source count*, not mentions.
-   * Re-confirmation always refreshes recency so the fact resists decay.
-   */
   /** What the user typed in chat since a cutoff — raw material for crystallization. */
   recentUserMessages(sinceIso: string): Array<{ content: string; created_at: string }> {
     return this.db
@@ -970,13 +979,19 @@ export class KnowledgeStore {
       .all(sinceIso) as Array<{ content: string; created_at: string }>;
   }
 
+  /**
+   * A new document restating an existing fact corroborates it: confidence rises
+   * (capped) only when the source is genuinely new, so re-reading the same
+   * document never inflates it — confidence tracks *source count*, not mentions.
+   * Re-confirmation always refreshes recency so the fact resists decay.
+   */
   reinforceObservation(id: number, sourceId?: number): void {
     const distinctSource = sourceId === undefined ? true : this.recordObservationSource(id, sourceId);
     this.db
       .prepare(
         distinctSource
           ? `UPDATE observations
-             SET confidence = MIN(0.95, confidence + 0.15), last_confirmed_at = datetime('now')
+             SET confidence = MIN(${CONFIDENCE_CAP}, confidence + ${REINFORCE_STEP}), last_confirmed_at = datetime('now')
              WHERE id = ?`
           : "UPDATE observations SET last_confirmed_at = datetime('now') WHERE id = ?",
       )

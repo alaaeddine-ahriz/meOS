@@ -1,4 +1,4 @@
-import { DEFAULT_SCHEMA_MD, OBSERVATION_KINDS, RELATIONSHIP_VOCABULARY } from "../knowledge/schema-doc.js";
+import { DEFAULT_SCHEMA_MD, OBSERVATION_KINDS, RELATIONSHIP_VOCABULARY, withSchema } from "../knowledge/schema-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import { extractionSchema, type Extraction } from "./schema.js";
 
@@ -24,7 +24,7 @@ export async function extractKnowledge(
   schema: string = DEFAULT_SCHEMA_MD,
 ): Promise<Extraction> {
   return llm.completeStructured({
-    system: `${SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}`,
+    system: withSchema(SYSTEM_PROMPT, schema),
     cacheSystem: true,
     schema: extractionSchema,
     schemaName: "knowledge_extraction",
