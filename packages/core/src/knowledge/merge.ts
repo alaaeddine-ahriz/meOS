@@ -1,7 +1,8 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { cosineSimilarity } from "../embedding/vectors.js";
 import type { Extraction } from "../extract/schema.js";
-import type { KnowledgeStore } from "./store.js";
+import { normalizeRelationshipLabel } from "./schema-doc.js";
+import { slugify, type KnowledgeStore } from "./store.js";
 
 /** Observations at or above this similarity to an existing active one reinforce it instead of duplicating. */
 const REINFORCE_THRESHOLD = 0.9;
@@ -36,7 +37,10 @@ export async function mergeExtraction(
   const resolve = (name: string): number | undefined => {
     const key = name.trim().toLowerCase();
     if (entityIdByName.has(key)) return entityIdByName.get(key);
-    const existing = store.findEntityByName(name);
+    // Exact name / alias first, then a slug match so whitespace, casing, and
+    // accent variants of the same name fold into one entity instead of
+    // fragmenting the graph (conservative: only equal-after-normalisation names).
+    const existing = store.findEntityByName(name) ?? store.getEntityBySlug(slugify(name));
     if (existing) entityIdByName.set(key, existing.id);
     return existing?.id;
   };
@@ -65,7 +69,12 @@ export async function mergeExtraction(
     const fromId = resolve(relationship.from);
     const toId = resolve(relationship.to);
     if (fromId === undefined || toId === undefined || fromId === toId) continue;
-    const created = store.upsertRelationship(fromId, toId, relationship.label, sourceId);
+    const created = store.upsertRelationship(
+      fromId,
+      toId,
+      normalizeRelationshipLabel(relationship.label),
+      sourceId,
+    );
     affected.add(fromId);
     affected.add(toId);
     if (created) {
@@ -87,7 +96,7 @@ export async function mergeExtraction(
     const existing = store.activeObservationVectors(entityId);
     const match = existing.find((row) => cosineSimilarity(vector, row.vector) >= REINFORCE_THRESHOLD);
     if (match) {
-      store.reinforceObservation(match.id);
+      store.reinforceObservation(match.id, sourceId);
       reinforcedObservationIds.push(match.id);
     } else {
       newObservationIds.push(

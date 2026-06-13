@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 
@@ -35,6 +36,7 @@ export async function detectContradictions(
   store: KnowledgeStore,
   llm: LlmClient,
   newObservationIds: number[],
+  schema: string = DEFAULT_SCHEMA_MD,
 ): Promise<ContradictionSummary> {
   const summary: ContradictionSummary = { superseded: 0, contradictions: 0 };
   if (newObservationIds.length === 0) return summary;
@@ -55,7 +57,7 @@ export async function detectContradictions(
 
     const entity = store.getEntity(entityId)!;
     const judgement = await llm.completeStructured({
-      system: SYSTEM_PROMPT,
+      system: `${SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}`,
       cacheSystem: true,
       schema: judgementSchema,
       schemaName: "contradiction_judgement",

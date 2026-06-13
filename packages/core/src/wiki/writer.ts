@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createBashTool } from "bash-tool";
+import type { Embedder } from "../embedding/embedder.js";
+import { loadSchema } from "../knowledge/schema-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import type { EntityRow, KnowledgeStore, WikiChange } from "../knowledge/store.js";
 
@@ -40,6 +42,8 @@ export class WikiWriter {
     private readonly store: KnowledgeStore,
     private readonly llm: LlmClient,
     private readonly wikiDir: string,
+    /** When provided, page prose is embedded so chat can retrieve it semantically. */
+    private readonly embedder?: Embedder,
   ) {}
 
   pagePath(entity: EntityRow): string {
@@ -84,8 +88,9 @@ export class WikiWriter {
       uploadDirectory: { source: this.wikiDir, include: "**/*.md" },
     });
 
+    const schema = loadSchema(path.dirname(this.wikiDir));
     await this.llm.runAgent({
-      system: `${SYSTEM_PROMPT}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
+      system: `${SYSTEM_PROMPT}\n\n--- SCHEMA ---\n${schema}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
       tools,
       sandbox,
       prompt: [
@@ -133,6 +138,12 @@ export class WikiWriter {
       const file = this.pagePath(entity);
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, `${frontmatter}# ${entity.name}\n\n${body}\n`);
+      // Persist the compiled prose so chat retrieves it directly (and BM25 can
+      // index it); embed it when an embedder is available for semantic recall.
+      if (body) {
+        const [vector] = this.embedder ? await this.embedder.embed([body]) : [undefined];
+        this.store.upsertWikiPage(entity.id, body, vector);
+      }
     }
 
     if (summary) this.store.setEntitySummary(entity.id, summary);

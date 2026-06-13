@@ -60,6 +60,28 @@ export interface SourceRef {
   path: string | null;
 }
 
+/** An active observation with its embedding and owning-entity context, for retrieval. */
+export interface ObservationWithVector {
+  id: number;
+  entity_id: number;
+  entity_name: string;
+  entity_type: EntityType;
+  text: string;
+  confidence: number;
+  source_id: number | null;
+  vector: Float32Array;
+}
+
+/** A persisted wiki page body with its embedding and entity context, for retrieval. */
+export interface WikiPageWithVector {
+  entity_id: number;
+  entity_name: string;
+  entity_type: EntityType;
+  slug: string;
+  body: string;
+  vector: Float32Array;
+}
+
 /** A wiki page the writer created or rewrote in one regeneration pass. */
 export interface WikiChange {
   entityId: number;
@@ -400,7 +422,25 @@ export class KnowledgeStore {
         input.confidence ?? 0.5,
         input.embedding ? serializeVector(input.embedding) : null,
       );
-    return Number(result.lastInsertRowid);
+    const id = Number(result.lastInsertRowid);
+    if (input.sourceId !== undefined) this.recordObservationSource(id, input.sourceId);
+    return id;
+  }
+
+  /** Record a document as backing an observation; true when it is a new source. */
+  recordObservationSource(observationId: number, sourceId: number): boolean {
+    const result = this.db
+      .prepare("INSERT OR IGNORE INTO observation_sources (observation_id, source_id) VALUES (?, ?)")
+      .run(observationId, sourceId);
+    return result.changes > 0;
+  }
+
+  /** How many distinct documents corroborate an observation. */
+  observationSourceCount(observationId: number): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM observation_sources WHERE observation_id = ?")
+      .get(observationId) as { n: number };
+    return row.n;
   }
 
   activeObservations(entityId: number): ObservationRow[] {
@@ -635,14 +675,145 @@ export class KnowledgeStore {
     return messages.map((message) => ({ ...message, sources: byMessage.get(message.id) ?? [] }));
   }
 
-  reinforceObservation(id: number): void {
+  /**
+   * A new document restating an existing fact corroborates it: confidence rises
+   * (capped) only when the source is genuinely new, so re-reading the same
+   * document never inflates it — confidence tracks *source count*, not mentions.
+   * Re-confirmation always refreshes recency so the fact resists decay.
+   */
+  /** What the user typed in chat since a cutoff — raw material for crystallization. */
+  recentUserMessages(sinceIso: string): Array<{ content: string; created_at: string }> {
+    return this.db
+      .prepare(
+        `SELECT content, created_at FROM messages
+         WHERE role = 'user' AND created_at >= ? ORDER BY id`,
+      )
+      .all(sinceIso) as Array<{ content: string; created_at: string }>;
+  }
+
+  reinforceObservation(id: number, sourceId?: number): void {
+    const distinctSource = sourceId === undefined ? true : this.recordObservationSource(id, sourceId);
     this.db
       .prepare(
-        `UPDATE observations
-         SET confidence = MIN(0.95, confidence + 0.15), last_confirmed_at = datetime('now')
-         WHERE id = ?`,
+        distinctSource
+          ? `UPDATE observations
+             SET confidence = MIN(0.95, confidence + 0.15), last_confirmed_at = datetime('now')
+             WHERE id = ?`
+          : "UPDATE observations SET last_confirmed_at = datetime('now') WHERE id = ?",
       )
       .run(id);
+  }
+
+  // --- compiled wiki pages (retrievable prose) -------------------------
+
+  /** Persist the body the writer produced so chat can retrieve compiled prose. */
+  upsertWikiPage(entityId: number, body: string, embedding?: Float32Array): void {
+    this.db
+      .prepare(
+        `INSERT INTO wiki_pages (entity_id, body, embedding) VALUES (?, ?, ?)
+         ON CONFLICT(entity_id) DO UPDATE SET body = excluded.body,
+           embedding = excluded.embedding, updated_at = datetime('now')`,
+      )
+      .run(entityId, body, embedding ? serializeVector(embedding) : null);
+  }
+
+  /** Every entity's [[wiki-link]] mentions, for broken-reference detection. */
+  wikiPageBodies(): Array<{ entity_id: number; entity_name: string; slug: string; type: string; body: string }> {
+    return this.db
+      .prepare(
+        `SELECT w.entity_id, w.body, e.name AS entity_name, e.slug, e.type
+         FROM wiki_pages w JOIN entities e ON e.id = w.entity_id`,
+      )
+      .all() as Array<{ entity_id: number; entity_name: string; slug: string; type: string; body: string }>;
+  }
+
+  // --- hybrid retrieval -------------------------------------------------
+
+  /** All active observations carrying an embedding, with owning-entity context. */
+  allActiveObservationVectors(): ObservationWithVector[] {
+    const rows = this.db
+      .prepare(
+        `SELECT o.id, o.entity_id, o.text, o.confidence, o.source_id, o.embedding,
+                e.name AS entity_name, e.type AS entity_type
+         FROM observations o JOIN entities e ON e.id = o.entity_id
+         WHERE o.status = 'active' AND o.embedding IS NOT NULL`,
+      )
+      .all() as Array<{
+      id: number;
+      entity_id: number;
+      text: string;
+      confidence: number;
+      source_id: number | null;
+      embedding: Buffer;
+      entity_name: string;
+      entity_type: EntityType;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      entity_id: row.entity_id,
+      entity_name: row.entity_name,
+      entity_type: row.entity_type,
+      text: row.text,
+      confidence: row.confidence,
+      source_id: row.source_id,
+      vector: deserializeVector(row.embedding),
+    }));
+  }
+
+  /** All persisted wiki pages with embeddings, with owning-entity context. */
+  allWikiPageVectors(): WikiPageWithVector[] {
+    const rows = this.db
+      .prepare(
+        `SELECT w.entity_id, w.body, w.embedding, e.name AS entity_name, e.type AS entity_type, e.slug
+         FROM wiki_pages w JOIN entities e ON e.id = w.entity_id
+         WHERE w.embedding IS NOT NULL`,
+      )
+      .all() as Array<{
+      entity_id: number;
+      body: string;
+      embedding: Buffer;
+      entity_name: string;
+      entity_type: EntityType;
+      slug: string;
+    }>;
+    return rows.map((row) => ({
+      entity_id: row.entity_id,
+      entity_name: row.entity_name,
+      entity_type: row.entity_type,
+      slug: row.slug,
+      body: row.body,
+      vector: deserializeVector(row.embedding),
+    }));
+  }
+
+  /**
+   * BM25 keyword search over a full-text index. Returns rowids best-first.
+   * The query is tokenised to a safe OR of terms so arbitrary user text can
+   * never trip FTS5's query syntax.
+   */
+  private ftsSearch(table: string, query: string, limit: number): number[] {
+    const terms = query
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu)
+      ?.filter((t) => t.length > 1);
+    if (!terms || terms.length === 0) return [];
+    const match = terms.map((t) => `"${t}"`).join(" OR ");
+    const rows = this.db
+      .prepare(`SELECT rowid FROM ${table} WHERE ${table} MATCH ? ORDER BY rank LIMIT ?`)
+      .all(match, limit) as Array<{ rowid: number }>;
+    return rows.map((row) => row.rowid);
+  }
+
+  chunkFtsSearch(query: string, limit = 20): number[] {
+    return this.ftsSearch("chunks_fts", query, limit);
+  }
+
+  observationFtsSearch(query: string, limit = 20): number[] {
+    return this.ftsSearch("observations_fts", query, limit);
+  }
+
+  wikiFtsSearch(query: string, limit = 20): number[] {
+    return this.ftsSearch("wiki_fts", query, limit);
   }
 
   // --- app settings ----------------------------------------------------

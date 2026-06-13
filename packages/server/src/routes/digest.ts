@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { runConsolidation } from "@meos/core";
+import { loadSchema, runConsolidation } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
 
 export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -19,6 +19,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
           store: ctx.store,
           llm: ctx.llm,
           wiki: ctx.wiki,
+          embedder: ctx.embedder,
+          schema: loadSchema(ctx.config.dataDir),
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
         await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [

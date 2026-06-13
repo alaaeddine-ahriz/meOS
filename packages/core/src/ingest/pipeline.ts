@@ -1,6 +1,7 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { extractKnowledge } from "../extract/extractor.js";
 import { readImage } from "../extract/image.js";
+import { loadSchema } from "../knowledge/schema-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { LlmClient } from "../llm/types.js";
@@ -49,6 +50,8 @@ export class IngestionPipeline {
        * and the inbox item completes as soon as knowledge is merged.
        */
       scheduleWikiRefresh?: () => void;
+      /** Data dir to read the user's schema document from for extraction. */
+      dataDir?: string;
     },
   ) {}
 
@@ -110,7 +113,8 @@ export class IngestionPipeline {
       );
 
       store.updateInboxItem(inboxItemId, "extracting");
-      const extraction = await extractKnowledge(this.deps.llm, parsed);
+      const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
+      const extraction = await extractKnowledge(this.deps.llm, parsed, schema);
 
       store.updateInboxItem(inboxItemId, "merging");
       const { merge, postMergeNote } = await this.withMergeLock(async () => {

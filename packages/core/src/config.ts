@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { ensureSchemaDoc } from "./knowledge/schema-doc.js";
 
 export type LlmProvider = "anthropic" | "openai" | "google" | "ollama" | "stub";
 
@@ -136,4 +137,7 @@ export function ensureDataDirs(config: MeosConfig): void {
   for (const dir of ["", "wiki", "digests"]) {
     fs.mkdirSync(path.join(config.dataDir, dir), { recursive: true });
   }
+  // Seed the schema document (the user-editable conventions every LLM stage
+  // reads) if the user has none yet.
+  ensureSchemaDoc(config.dataDir);
 }

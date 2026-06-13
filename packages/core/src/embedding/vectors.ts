@@ -13,6 +13,22 @@ export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
   return dot;
 }
 
+/**
+ * Reciprocal rank fusion: merge several ranked id-lists (e.g. a vector ranking
+ * and a BM25 ranking) into one, scoring each id by Σ 1/(k + rank). Robust to
+ * the very different score scales of cosine similarity and BM25 because it uses
+ * only ordinal position. Returns ids best-first.
+ */
+export function reciprocalRankFusion(rankings: number[][], k = 60): number[] {
+  const scores = new Map<number, number>();
+  for (const ranking of rankings) {
+    ranking.forEach((id, index) => {
+      scores.set(id, (scores.get(id) ?? 0) + 1 / (k + index + 1));
+    });
+  }
+  return [...scores.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => id);
+}
+
 export function topK<T>(
   items: T[],
   query: Float32Array,

@@ -4,7 +4,13 @@ export { openDatabase } from "./db/database.js";
 export type { MeosDatabase } from "./db/database.js";
 export { createEmbedder, HashEmbedder, LocalEmbedder } from "./embedding/embedder.js";
 export type { Embedder } from "./embedding/embedder.js";
-export { cosineSimilarity, deserializeVector, serializeVector, topK } from "./embedding/vectors.js";
+export {
+  cosineSimilarity,
+  deserializeVector,
+  reciprocalRankFusion,
+  serializeVector,
+  topK,
+} from "./embedding/vectors.js";
 export * from "./llm/index.js";
 export { imageMediaType, parseDocument, SUPPORTED_EXTENSIONS } from "./ingest/parse.js";
 export type { ParsedDocument } from "./ingest/parse.js";
@@ -21,11 +27,21 @@ export type {
   EntityRow,
   InboxItemRow,
   ObservationRow,
+  ObservationWithVector,
   RelationshipView,
   SourceChangeRow,
   SourceRef,
   WikiChange,
+  WikiPageWithVector,
 } from "./knowledge/store.js";
+export {
+  DEFAULT_SCHEMA_MD,
+  ensureSchemaDoc,
+  loadSchema,
+  normalizeRelationshipLabel,
+  RELATIONSHIP_VOCABULARY,
+  SCHEMA_FILE,
+} from "./knowledge/schema-doc.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
 export { WikiWriter } from "./wiki/writer.js";

@@ -175,6 +175,64 @@ const migrations: string[] = [
   CREATE INDEX idx_wcc_commit ON wiki_commit_changes(commit_id);
   CREATE INDEX idx_wcc_source ON wiki_commit_changes(source_id);
   `,
+  // 7 — hybrid retrieval + provenance. Observations record every document that
+  // backs them (confidence is then a function of source count, not an ad-hoc
+  // bump); wiki prose is persisted so chat can retrieve the *compiled* knowledge
+  // rather than re-deriving from raw chunks; and FTS5 indexes give BM25 keyword
+  // ranking, fused with vector ranks via reciprocal rank fusion at query time.
+  `
+  CREATE TABLE observation_sources (
+    observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(observation_id, source_id)
+  );
+  CREATE INDEX idx_obs_sources_obs ON observation_sources(observation_id);
+  -- backfill the single source each observation already carried
+  INSERT OR IGNORE INTO observation_sources (observation_id, source_id)
+    SELECT id, source_id FROM observations WHERE source_id IS NOT NULL;
+
+  CREATE TABLE wiki_pages (
+    entity_id INTEGER PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    embedding BLOB,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE VIRTUAL TABLE chunks_fts USING fts5(text, content='chunks', content_rowid='id');
+  INSERT INTO chunks_fts(rowid, text) SELECT id, text FROM chunks;
+  CREATE TRIGGER chunks_ai AFTER INSERT ON chunks BEGIN
+    INSERT INTO chunks_fts(rowid, text) VALUES (new.id, new.text);
+  END;
+  CREATE TRIGGER chunks_ad AFTER DELETE ON chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  END;
+
+  CREATE VIRTUAL TABLE observations_fts USING fts5(text, content='observations', content_rowid='id');
+  INSERT INTO observations_fts(rowid, text) SELECT id, text FROM observations;
+  CREATE TRIGGER observations_ai AFTER INSERT ON observations BEGIN
+    INSERT INTO observations_fts(rowid, text) VALUES (new.id, new.text);
+  END;
+  CREATE TRIGGER observations_ad AFTER DELETE ON observations BEGIN
+    INSERT INTO observations_fts(observations_fts, rowid, text) VALUES ('delete', old.id, old.text);
+  END;
+  CREATE TRIGGER observations_au AFTER UPDATE OF text ON observations BEGIN
+    INSERT INTO observations_fts(observations_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    INSERT INTO observations_fts(rowid, text) VALUES (new.id, new.text);
+  END;
+
+  CREATE VIRTUAL TABLE wiki_fts USING fts5(body, content='wiki_pages', content_rowid='entity_id');
+  CREATE TRIGGER wiki_pages_ai AFTER INSERT ON wiki_pages BEGIN
+    INSERT INTO wiki_fts(rowid, body) VALUES (new.entity_id, new.body);
+  END;
+  CREATE TRIGGER wiki_pages_ad AFTER DELETE ON wiki_pages BEGIN
+    INSERT INTO wiki_fts(wiki_fts, rowid, body) VALUES ('delete', old.entity_id, old.body);
+  END;
+  CREATE TRIGGER wiki_pages_au AFTER UPDATE OF body ON wiki_pages BEGIN
+    INSERT INTO wiki_fts(wiki_fts, rowid, body) VALUES ('delete', old.entity_id, old.body);
+    INSERT INTO wiki_fts(rowid, body) VALUES (new.entity_id, new.body);
+  END;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

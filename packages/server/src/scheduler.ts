@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Cron } from "croner";
-import { runConsolidation } from "@meos/core";
+import { loadSchema, runConsolidation } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "./context.js";
 
 /** Nightly consolidation (§4.5) — queued so it never races with ingestion. */
@@ -12,6 +12,8 @@ export function startScheduler(ctx: AppContext): Cron {
           store: ctx.store,
           llm: ctx.llm,
           wiki: ctx.wiki,
+          embedder: ctx.embedder,
+          schema: loadSchema(ctx.config.dataDir),
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
         const { wikiChanges, ...summary } = report;

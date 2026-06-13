@@ -121,4 +121,24 @@ describe("memory maintenance", () => {
     const onDisk = fs.readFileSync(path.join(tmpDir, "digests", `${report.digestDate}.md`), "utf-8");
     expect(onDisk).toBe(digest.content);
   });
+
+  it("self-heals wiki pages whose [[links]] point at unknown entities", async () => {
+    const dana = store.createEntity({ type: "person", name: "Dana" });
+    store.clearWikiStale(dana.id); // start from a clean, non-stale page
+    // a persisted page linking an entity that does not exist
+    store.upsertWikiPage(dana.id, "Dana collaborates with [[Ghost Person]].");
+    expect(store.staleEntities()).toHaveLength(0);
+
+    const llm = new StubLlmClient({ onComplete: () => "Digest." });
+    const wiki = new WikiWriter(store, llm, path.join(tmpDir, "wiki"));
+
+    const report = await runConsolidation({
+      store,
+      llm,
+      wiki,
+      digestDir: path.join(tmpDir, "digests"),
+    });
+
+    expect(report.brokenLinksRepaired).toBe(1); // the broken page was flagged for repair
+  });
 });

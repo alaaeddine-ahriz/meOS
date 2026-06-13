@@ -9,6 +9,7 @@ import {
   JobQueue,
   KnowledgeStore,
   loadConfig,
+  loadSchema,
   openDatabase,
   overlayStoredLlmConfig,
   SwitchableLlmClient,
@@ -88,7 +89,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // Switchable so the Settings UI can change provider/model/key at runtime.
   const llm = new SwitchableLlmClient(createLlmClient(config));
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
-  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"));
+  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder);
 
   // Wiki regeneration runs decoupled from ingestion: stale flags accumulate in
   // the DB, and a single queued pass handles however many piled up — a batch
@@ -111,8 +112,14 @@ export function createContext(rootDir = findRootDir()): AppContext {
     embedder,
     wiki,
     scheduleWikiRefresh,
+    dataDir: config.dataDir,
     postMerge: async ({ merge }) => {
-      const result = await detectContradictions(store, llm, merge.newObservationIds);
+      const result = await detectContradictions(
+        store,
+        llm,
+        merge.newObservationIds,
+        loadSchema(config.dataDir),
+      );
       const notes: string[] = [];
       if (result.superseded > 0) notes.push(`${result.superseded} fact(s) superseded`);
       if (result.contradictions > 0) notes.push(`${result.contradictions} contradiction(s) flagged`);
