@@ -29,13 +29,50 @@ export const RELATIONSHIP_VOCABULARY = [
   "located in",
   "created",
   "owns",
+  "owned by",
   "uses",
   "depends on",
+  "decided by",
   "caused",
   "fixed",
-  "decided",
+  "blocks",
+  "supports",
+  "mentions",
+  "contradicts",
+  "supersedes",
   "related to",
 ] as const;
+
+/**
+ * Observation kinds — the *type* of claim, so retrieval and outputs can treat a
+ * decision differently from a passing fact or an open question.
+ */
+export const OBSERVATION_KINDS = [
+  "fact",
+  "decision",
+  "requirement",
+  "preference",
+  "task",
+  "event",
+  "risk",
+  "open_question",
+  "procedure",
+] as const;
+export type ObservationKind = (typeof OBSERVATION_KINDS)[number];
+
+/** Sensitivity tiers, least to most restricted. Governs what reaches the wiki. */
+export const SENSITIVITY_LEVELS = ["normal", "private", "secret"] as const;
+export type Sensitivity = (typeof SENSITIVITY_LEVELS)[number];
+
+/** Rank for comparing two sensitivity labels (higher = more restricted). */
+export function sensitivityRank(level: Sensitivity): number {
+  return SENSITIVITY_LEVELS.indexOf(level);
+}
+
+/** The stronger (more restricted) of two sensitivity labels. */
+export function strongerSensitivity(a: Sensitivity, b: Sensitivity): Sensitivity {
+  return sensitivityRank(a) >= sensitivityRank(b) ? a : b;
+}
 
 /** Collapse casing/whitespace so equivalent labels share one edge. */
 export function normalizeRelationshipLabel(label: string): string {
@@ -72,30 +109,71 @@ ${RELATIONSHIP_VOCABULARY.map((label) => `- ${label}`).join("\n")}
 
 "from" and "to" must be exact entity names. Labels read "from <label> to".
 
-## Observations
+## Observation kinds
 
-Atomic, self-contained facts about one entity, in third person, understandable
-without the source document. Include dates when the document states them. Every
-observation references one entity by its exact name. Never invent facts.
+Every observation is typed by what kind of claim it is:
 
-## Confidence & corroboration
+${OBSERVATION_KINDS.map((kind) => `- ${kind}`).join("\n")}
 
-A fact's confidence rises as independent sources corroborate it, and decays when
-it goes long unconfirmed. State well-supported facts plainly; hedge weak ones.
+Observations are atomic, self-contained claims about one entity, in third person,
+understandable without the source document. Include dates when the document
+states them. Every observation references one entity by its exact name. Quote the
+exact supporting sentence from the source ("sourceQuote") so the claim is
+traceable. Never invent facts.
 
-## Contradictions & supersession
+## Source types
 
-When a new fact updates an old one ("moved to Berlin" vs "lives in Paris"), the
-old one is **superseded** — retired, never silently kept. When two facts
-genuinely disagree and it is unclear which is right, record a **contradiction**
-for the user to resolve.
+- **file** — a watched or uploaded document (md, txt, pdf, docx, csv…).
+- **image** — an image read by the model (OCR + description).
+- **conversation** — the user's own statements in chat, crystallized back.
+- **session** — a distilled summary of a completed work thread.
 
-## Wiki pages
+## Confidence rules
+
+- A new claim starts at the extractor's stated confidence (source/claim quality).
+- Independent sources corroborating the same claim raise its confidence.
+- The same source restating a claim never raises it — confidence tracks distinct
+  source count, not repeat mentions.
+- Claims unconfirmed for a long time decay toward a floor.
+- State well-supported claims (>= 0.7) plainly; hedge weaker ones explicitly.
+
+## Supersession rules
+
+When a new claim updates an old one ("moved to Berlin" vs "lives in Paris"), the
+old one is **superseded** — retired, never silently kept. Prefer supersession to
+silent forgetting: keep the trail. A claim may carry validFrom/validUntil when
+the source dates it.
+
+## Contradiction handling
+
+When two claims genuinely disagree and it is unclear which is right, record a
+**contradiction** for the user to resolve. Suggest a resolution by comparing
+source recency, authority, and confidence — but a human makes the final call.
+
+## Privacy rules
+
+Classify every claim's sensitivity:
+
+- **normal** — fine to synthesise into the wiki.
+- **private** — personal/sensitive; kept in memory, kept *out* of wiki pages.
+- **secret** — credentials, API keys, tokens, passwords. The secret value is
+  redacted at ingest and never written to the wiki.
+
+Never write private or secret claims into wiki pages (they are portable and
+git-synced). Secrets are redacted from stored text.
+
+## Wiki writing rules
 
 One page per entity, written as clear factual prose by someone who has read every
 source. Use only recorded observations and relationships — never outside
 knowledge. Link related entities inline with [[Entity Name]] using exact names.
 Edit pages in place: keep prose that is still accurate, weave in new facts.
+
+## Quality criteria
+
+A good page is: grounded in cited sources, free of broken [[links]] and orphan
+status, free of duplicate or vague claims, explicit about low-confidence or stale
+claims, and connected to the rest of the graph.
 `;
 
 /** Read the user's schema document, falling back to the built-in default. */

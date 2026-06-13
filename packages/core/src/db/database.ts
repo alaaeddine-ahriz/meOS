@@ -233,6 +233,18 @@ const migrations: string[] = [
     INSERT INTO wiki_fts(rowid, body) VALUES (new.entity_id, new.body);
   END;
   `,
+  // 8 — richer claims: each observation gains a kind, the exact supporting quote
+  // and its char span in the source (provenance), validity window, and a
+  // sensitivity tier that keeps private/secret claims out of the wiki.
+  `
+  ALTER TABLE observations ADD COLUMN kind TEXT NOT NULL DEFAULT 'fact';
+  ALTER TABLE observations ADD COLUMN source_quote TEXT;
+  ALTER TABLE observations ADD COLUMN char_start INTEGER;
+  ALTER TABLE observations ADD COLUMN char_end INTEGER;
+  ALTER TABLE observations ADD COLUMN valid_from TEXT;
+  ALTER TABLE observations ADD COLUMN valid_until TEXT;
+  ALTER TABLE observations ADD COLUMN sensitivity TEXT NOT NULL DEFAULT 'normal';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

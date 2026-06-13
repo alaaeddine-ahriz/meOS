@@ -71,7 +71,11 @@ export class WikiWriter {
     const existing = this.readPage(entity);
     const beforeBody = existing ? stripFrontmatter(existing) : null;
 
-    const observations = this.store.activeObservations(entityId);
+    // Wiki pages are portable and git-synced: private/secret claims stay in
+    // memory but never reach the page (schema privacy rules).
+    const observations = this.store
+      .activeObservations(entityId)
+      .filter((o) => o.sensitivity === "normal");
     const relationships = this.store.relationshipsFor(entityId);
     const names = knownEntities ?? this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
 

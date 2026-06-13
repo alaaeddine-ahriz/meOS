@@ -22,6 +22,13 @@ export interface ObservationRow {
   confidence: number;
   status: "active" | "superseded" | "contradicted";
   superseded_by: number | null;
+  kind: string;
+  source_quote: string | null;
+  char_start: number | null;
+  char_end: number | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  sensitivity: "normal" | "private" | "secret";
   created_at: string;
   last_confirmed_at: string;
 }
@@ -134,6 +141,14 @@ export class KnowledgeStore {
       | { title: string }
       | undefined;
     return row?.title;
+  }
+
+  /** A source's full extracted text — used to locate a quote's char span. */
+  getSourceContent(id: number): string | undefined {
+    const row = this.db.prepare("SELECT content FROM sources WHERE id = ?").get(id) as
+      | { content: string | null }
+      | undefined;
+    return row?.content ?? undefined;
   }
 
   addChunks(sourceId: number, chunks: Array<{ text: string; embedding: Float32Array }>): void {
@@ -409,11 +424,20 @@ export class KnowledgeStore {
     sourceId?: number;
     embedding?: Float32Array;
     confidence?: number;
+    kind?: string;
+    sourceQuote?: string | null;
+    charStart?: number | null;
+    charEnd?: number | null;
+    validFrom?: string | null;
+    validUntil?: string | null;
+    sensitivity?: "normal" | "private" | "secret";
   }): number {
     const result = this.db
       .prepare(
-        `INSERT INTO observations (entity_id, text, source_id, confidence, embedding)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO observations
+           (entity_id, text, source_id, confidence, embedding, kind, source_quote,
+            char_start, char_end, valid_from, valid_until, sensitivity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.entityId,
@@ -421,6 +445,13 @@ export class KnowledgeStore {
         input.sourceId ?? null,
         input.confidence ?? 0.5,
         input.embedding ? serializeVector(input.embedding) : null,
+        input.kind ?? "fact",
+        input.sourceQuote ?? null,
+        input.charStart ?? null,
+        input.charEnd ?? null,
+        input.validFrom ?? null,
+        input.validUntil ?? null,
+        input.sensitivity ?? "normal",
       );
     const id = Number(result.lastInsertRowid);
     if (input.sourceId !== undefined) this.recordObservationSource(id, input.sourceId);
@@ -447,6 +478,7 @@ export class KnowledgeStore {
     return this.db
       .prepare(
         `SELECT id, entity_id, text, source_id, tier, confidence, status, superseded_by,
+                kind, source_quote, char_start, char_end, valid_from, valid_until, sensitivity,
                 created_at, last_confirmed_at
          FROM observations WHERE entity_id = ? AND status = 'active'
          ORDER BY confidence DESC, last_confirmed_at DESC`,
@@ -467,6 +499,7 @@ export class KnowledgeStore {
     return this.db
       .prepare(
         `SELECT id, entity_id, text, source_id, tier, confidence, status, superseded_by,
+                kind, source_quote, char_start, char_end, valid_from, valid_until, sensitivity,
                 created_at, last_confirmed_at
          FROM observations WHERE id = ?`,
       )

@@ -17,8 +17,9 @@ export type { ParsedDocument } from "./ingest/parse.js";
 export { chunkText } from "./ingest/chunk.js";
 export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
-export { entityTypeSchema, extractionSchema } from "./extract/schema.js";
-export type { EntityType, Extraction } from "./extract/schema.js";
+export { entityTypeSchema, extractionSchema, observationKindSchema, sensitivitySchema } from "./extract/schema.js";
+export type { EntityType, ExtractedObservation, Extraction } from "./extract/schema.js";
+export { containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
 export { KnowledgeStore, slugify } from "./knowledge/store.js";
@@ -39,9 +40,14 @@ export {
   ensureSchemaDoc,
   loadSchema,
   normalizeRelationshipLabel,
+  OBSERVATION_KINDS,
   RELATIONSHIP_VOCABULARY,
   SCHEMA_FILE,
+  SENSITIVITY_LEVELS,
+  sensitivityRank,
+  strongerSensitivity,
 } from "./knowledge/schema-doc.js";
+export type { ObservationKind, Sensitivity } from "./knowledge/schema-doc.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
 export { WikiWriter } from "./wiki/writer.js";

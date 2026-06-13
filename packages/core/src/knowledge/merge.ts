@@ -1,11 +1,21 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { cosineSimilarity } from "../embedding/vectors.js";
 import type { Extraction } from "../extract/schema.js";
-import { normalizeRelationshipLabel } from "./schema-doc.js";
+import { detectSensitivity, redactSecrets } from "../memory/privacy.js";
+import { normalizeRelationshipLabel, strongerSensitivity } from "./schema-doc.js";
 import { slugify, type KnowledgeStore } from "./store.js";
 
 /** Observations at or above this similarity to an existing active one reinforce it instead of duplicating. */
 const REINFORCE_THRESHOLD = 0.9;
+
+/** Char span of a quote within its source text, or null when it can't be located. */
+function locateQuote(sourceText: string | undefined, quote: string | null): { start: number; end: number } | null {
+  if (!sourceText || !quote) return null;
+  const trimmed = quote.trim();
+  if (!trimmed) return null;
+  const start = sourceText.indexOf(trimmed);
+  return start === -1 ? null : { start, end: start + trimmed.length };
+}
 
 export interface MergeResult {
   affectedEntityIds: number[];
@@ -25,6 +35,8 @@ export async function mergeExtraction(
   embedder: Embedder,
   extraction: Extraction,
   sourceId: number,
+  /** The source's full text, used to locate each quote's char span (provenance). */
+  sourceText?: string,
 ): Promise<MergeResult> {
   const entityIdByName = new Map<string, number>();
   const affected = new Set<number>();
@@ -86,10 +98,13 @@ export async function mergeExtraction(
   const newObservationIds: number[] = [];
   const reinforcedObservationIds: number[] = [];
   const resolvable = extraction.observations.filter((o) => resolve(o.entity) !== undefined);
-  const vectors = await embedder.embed(resolvable.map((o) => o.text));
+  // Redact credentials before anything touches storage or the embedder.
+  const texts = resolvable.map((o) => redactSecrets(o.claim));
+  const vectors = await embedder.embed(texts);
 
   for (let i = 0; i < resolvable.length; i++) {
     const observation = resolvable[i]!;
+    const text = texts[i]!;
     const vector = vectors[i]!;
     const entityId = resolve(observation.entity)!;
 
@@ -99,8 +114,23 @@ export async function mergeExtraction(
       store.reinforceObservation(match.id, sourceId);
       reinforcedObservationIds.push(match.id);
     } else {
+      const span = locateQuote(sourceText, observation.sourceQuote);
       newObservationIds.push(
-        store.insertObservation({ entityId, text: observation.text, sourceId, embedding: vector }),
+        store.insertObservation({
+          entityId,
+          text,
+          sourceId,
+          embedding: vector,
+          confidence: Math.min(0.9, Math.max(0.1, observation.confidence)),
+          kind: observation.kind,
+          sourceQuote: observation.sourceQuote ? redactSecrets(observation.sourceQuote) : null,
+          charStart: span?.start ?? null,
+          charEnd: span?.end ?? null,
+          validFrom: observation.validFrom,
+          validUntil: observation.validUntil,
+          // Honour the extractor's label, but a detected credential always wins.
+          sensitivity: strongerSensitivity(observation.sensitivity, detectSensitivity(observation.claim)),
+        }),
       );
       changed.add(entityId);
     }

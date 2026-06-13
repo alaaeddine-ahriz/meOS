@@ -77,7 +77,7 @@ async function crystallizeChat(deps: {
   if (extraction.entities.length === 0 && extraction.observations.length === 0) return 0;
 
   const sourceId = store.createSource({ type: "conversation", title, content: text });
-  const merge = await mergeExtraction(store, embedder, extraction, sourceId);
+  const merge = await mergeExtraction(store, embedder, extraction, sourceId, text);
   for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
   await detectContradictions(store, llm, merge.newObservationIds, schema);
   return merge.newObservationIds.length;

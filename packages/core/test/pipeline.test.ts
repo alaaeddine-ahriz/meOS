@@ -26,8 +26,26 @@ const sampleExtraction = {
   ],
   relationships: [{ from: "Ada Lovelace", to: "Analytical Engine", label: "works on" }],
   observations: [
-    { entity: "Ada Lovelace", text: "Ada Lovelace wrote the first published algorithm." },
-    { entity: "Analytical Engine", text: "The Analytical Engine uses punched cards for input." },
+    {
+      entity: "Ada Lovelace",
+      claim: "Ada Lovelace wrote the first published algorithm.",
+      kind: "fact",
+      sourceQuote: "Ada Lovelace wrote the first published algorithm.",
+      validFrom: null,
+      validUntil: null,
+      confidence: 0.5,
+      sensitivity: "normal",
+    },
+    {
+      entity: "Analytical Engine",
+      claim: "The Analytical Engine uses punched cards for input.",
+      kind: "fact",
+      sourceQuote: null,
+      validFrom: null,
+      validUntil: null,
+      confidence: 0.5,
+      sensitivity: "normal",
+    },
   ],
 };
 
