@@ -22,19 +22,24 @@ node packages/server/dist/main.js     # serves API + UI on :4321
 
 ### Desktop app (Tauri)
 
+Prerequisites: the [Rust toolchain](https://rustup.rs) and a one-time
+`pnpm build` (the native shell launches the built server bundle).
+
 ```sh
-pnpm desktop          # dev: starts server + web + native window
+pnpm install
+pnpm build            # builds @meos/core, the server bundle, and the web UI
+pnpm desktop          # dev: native window + server + UI
 pnpm desktop:build    # bundles MeOS.app (packages/desktop/src-tauri/target/release/bundle)
 ```
 
-Requires the [Rust toolchain](https://rustup.rs). The native shell owns the
-server's lifecycle: on launch it health-checks `127.0.0.1:4321` and, if nothing
-is listening, spawns `node packages/server/dist/main.js` (built by
-`pnpm build`) and tears it down on quit — even if the shell is killed, the
-server notices the orphaning and exits on its own. A dev server you started
-yourself is detected and left untouched. The LLM provider and API key are
-configured in Settings, so no environment is needed. Overrides: `MEOS_PORT`,
-`MEOS_SERVER_ENTRY`, `MEOS_ROOT`.
+The native shell owns the server's lifecycle: on launch it health-checks
+`127.0.0.1:4321` and, if nothing is listening, spawns
+`node packages/server/dist/main.js` (built by `pnpm build`) and tears it down on
+quit — even if the shell is killed, the server notices the orphaning and exits
+on its own. A dev server you started yourself (`pnpm dev`) is detected and left
+untouched, so you get hot reload while the window points at it. The LLM provider
+and API key are configured in Settings, so no environment is needed. Overrides:
+`MEOS_PORT`, `MEOS_SERVER_ENTRY`, `MEOS_ROOT`.
 
 ## Using it
 
@@ -65,8 +70,9 @@ Everything lives in `data/` in portable formats: wiki pages and digests are plai
 ```
 packages/
 ├── core/    domain logic, no HTTP — ingestion pipeline, knowledge store,
-│            extraction, wiki writer, memory maintenance, LLM + embedding
-│            abstractions (Anthropic / OpenAI / Google / Ollama / test stub)
+│            extraction, agentic wiki writer, memory maintenance, LLM (Vercel
+│            AI SDK: Anthropic / OpenAI / Google / Ollama / test stub) +
+│            on-device embeddings
 ├── server/  Fastify API, background job queue, watch folder, cron scheduler
 ├── web/     React + Vite UI (chat, wiki, inbox, digest) — shadcn/ui + ai-elements
 └── desktop/ Tauri 2 shell: native window + server lifecycle (Rust)
@@ -74,13 +80,16 @@ packages/
 
 The ingestion pipeline: parse (images are read by the LLM: OCR + description) → chunk + embed (locally) → structured LLM extraction → entity resolution & merge (near-duplicate facts reinforce confidence instead of duplicating) → contradiction check (supersede or flag, never silently keep). Several documents move through this concurrently (merges are serialized), and wiki regeneration runs decoupled in the background — a batch of files triggers one coalesced regen pass, a few pages at a time in parallel, instead of one pass per file.
 
+Wiki pages are maintained agentically: each regeneration gives the model a sandboxed copy of the wiki (via `bash-tool`) with `bash`/`readFile`/`writeFile` tools, so it greps sibling pages for exact `[[wiki-link]]` names and **edits the existing page in place** — merging new facts into prose that's still accurate rather than rewriting every page from scratch. The deterministic frontmatter (confidence, counts, timestamps) stays owned by code.
+
 Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind the `LlmClient` interface).
 
 ## Dependencies, deliberately
 
 | Dependency | Why |
 |---|---|
-| `@anthropic-ai/sdk` | Default cloud LLM provider (OpenAI / Gemini / Ollama are plain `fetch` — no extra SDKs) |
+| `ai` (Vercel AI SDK) + `@ai-sdk/anthropic` / `@ai-sdk/openai` / `@ai-sdk/google` / `ollama-ai-provider-v2` | One client, every provider — unified completion / structured-output / streaming / tool-use behind a single `LlmClient` |
+| `bash-tool` + `just-bash` | In-memory sandbox + bash/file tools that let the wiki writer search and edit pages agentically |
 | `@huggingface/transformers` | On-device embeddings — privacy + offline by construction |
 | `better-sqlite3` | Synchronous, in-process, standard-format storage |
 | `fastify` + `@fastify/multipart` + `@fastify/static` | HTTP API, uploads, serving the built UI |

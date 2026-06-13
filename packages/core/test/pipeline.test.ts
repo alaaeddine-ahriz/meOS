@@ -35,13 +35,18 @@ function makeStub() {
   return new StubLlmClient({
     onStructured: (request) => {
       if (request.schemaName === "knowledge_extraction") return sampleExtraction;
-      if (request.schemaName === "wiki_page") {
-        return {
-          summary: "A generated one-line summary.",
-          body: "A page about this entity, related to [[Ada Lovelace]].",
-        };
-      }
       throw new Error(`Unexpected structured request: ${request.schemaName}`);
+    },
+    // The wiki writer now runs an agent over a sandbox; mimic a model that edits
+    // the target page and writes the directory summary, then read both back.
+    onAgent: async (request) => {
+      const relPath = request.prompt.match(/target file is "([^"]+)"/)?.[1];
+      if (!relPath) throw new Error("agent prompt did not name a target file");
+      await request.sandbox.writeFiles([
+        { path: relPath, content: "A page about this entity, related to [[Ada Lovelace]]." },
+        { path: "SUMMARY.txt", content: "A generated one-line summary." },
+      ]);
+      return "done";
     },
   });
 }

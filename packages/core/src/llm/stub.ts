@@ -1,8 +1,16 @@
-import type { CompletionRequest, LlmClient, StructuredRequest } from "./types.js";
+import type {
+  AgentRequest,
+  AgentResult,
+  CompletionRequest,
+  LlmClient,
+  StructuredRequest,
+} from "./types.js";
 
 export interface StubHandlers {
   onComplete?: (request: CompletionRequest) => string;
   onStructured?: (request: StructuredRequest<unknown>) => unknown;
+  /** Drives an agent run; typically writes deterministic files to request.sandbox. */
+  onAgent?: (request: AgentRequest) => Promise<string> | string;
 }
 
 /**
@@ -11,7 +19,10 @@ export interface StubHandlers {
  * against the request schema so tests fail loudly on shape mismatches.
  */
 export class StubLlmClient implements LlmClient {
-  readonly requests: Array<{ kind: "complete" | "structured" | "stream"; request: CompletionRequest }> = [];
+  readonly requests: Array<
+    | { kind: "complete" | "structured" | "stream"; request: CompletionRequest }
+    | { kind: "agent"; request: AgentRequest }
+  > = [];
 
   constructor(private readonly handlers: StubHandlers = {}) {}
 
@@ -35,5 +46,11 @@ export class StubLlmClient implements LlmClient {
     for (const word of text.split(/(?<=\s)/)) {
       yield word;
     }
+  }
+
+  async runAgent(request: AgentRequest): Promise<AgentResult> {
+    this.requests.push({ kind: "agent", request });
+    const text = (await this.handlers.onAgent?.(request)) ?? "stub agent";
+    return { text, steps: 1 };
   }
 }

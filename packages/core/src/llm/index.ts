@@ -1,8 +1,9 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createOllama } from "ollama-ai-provider-v2";
 import type { MeosConfig } from "../config.js";
-import { AnthropicClient } from "./anthropic.js";
-import { GoogleClient } from "./google.js";
-import { OllamaClient } from "./ollama.js";
-import { OpenAiClient } from "./openai.js";
+import { AiSdkClient } from "./ai-sdk.js";
 import { StubLlmClient } from "./stub.js";
 import type { LlmClient } from "./types.js";
 
@@ -13,27 +14,50 @@ export const PROVIDER_MODELS: Record<"anthropic" | "openai" | "google", string[]
   google: ["gemini-3-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
 };
 
+/**
+ * Build the right AI SDK provider/model from config and wrap it once in the
+ * common client. Provider factories read their API key lazily (env at call
+ * time when none is passed), so the server still boots keyless and the user
+ * can paste a key in Settings.
+ */
 export function createLlmClient(config: MeosConfig): LlmClient {
-  switch (config.llm.provider) {
-    case "anthropic":
-      return new AnthropicClient(config.llm.anthropic);
-    case "openai":
-      return new OpenAiClient(config.llm.openai);
-    case "google":
-      return new GoogleClient(config.llm.google);
-    case "ollama":
-      return new OllamaClient(config.llm.ollama);
+  const { llm } = config;
+  switch (llm.provider) {
+    case "anthropic": {
+      const provider = createAnthropic({ apiKey: llm.anthropic.apiKey });
+      return new AiSdkClient(
+        provider(llm.anthropic.model),
+        provider(llm.anthropic.extractionModel),
+      );
+    }
+    case "openai": {
+      const provider = createOpenAI({ apiKey: llm.openai.apiKey });
+      return new AiSdkClient(provider(llm.openai.model));
+    }
+    case "google": {
+      const provider = createGoogleGenerativeAI({ apiKey: llm.google.apiKey });
+      return new AiSdkClient(provider(llm.google.model));
+    }
+    case "ollama": {
+      const provider = createOllama({ baseURL: `${llm.ollama.baseUrl}/api` });
+      return new AiSdkClient(provider(llm.ollama.model));
+    }
     case "stub":
       return new StubLlmClient();
   }
 }
 
-export { AnthropicClient } from "./anthropic.js";
-export { GoogleClient } from "./google.js";
-export { OllamaClient } from "./ollama.js";
-export { OpenAiClient } from "./openai.js";
+export { AiSdkClient } from "./ai-sdk.js";
 export { StubLlmClient } from "./stub.js";
 export { SwitchableLlmClient } from "./switchable.js";
 export type { StubHandlers } from "./stub.js";
 export { contentToText } from "./types.js";
-export type { ChatMessage, CompletionRequest, ContentPart, LlmClient, StructuredRequest } from "./types.js";
+export type {
+  AgentRequest,
+  AgentResult,
+  ChatMessage,
+  CompletionRequest,
+  ContentPart,
+  LlmClient,
+  StructuredRequest,
+} from "./types.js";
