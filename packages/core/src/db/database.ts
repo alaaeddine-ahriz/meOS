@@ -146,6 +146,35 @@ const migrations: string[] = [
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+  // 6 — wiki change tracking: which document made each page stale (pending
+  // bridge from merge to regeneration), and the git commits each regeneration
+  // pass produced, attributed per source + file so a batched commit can still
+  // be sliced back to a single document's diff.
+  `
+  CREATE TABLE wiki_stale_sources (
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    UNIQUE(entity_id, source_id)
+  );
+
+  CREATE TABLE wiki_commits (
+    id INTEGER PRIMARY KEY,
+    hash TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE wiki_commit_changes (
+    id INTEGER PRIMARY KEY,
+    commit_id INTEGER NOT NULL REFERENCES wiki_commits(id) ON DELETE CASCADE,
+    entity_id INTEGER REFERENCES entities(id) ON DELETE SET NULL,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+    file_path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('created','updated'))
+  );
+  CREATE INDEX idx_wcc_commit ON wiki_commit_changes(commit_id);
+  CREATE INDEX idx_wcc_source ON wiki_commit_changes(source_id);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

@@ -40,4 +40,52 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     queuePending: ctx.queue.pending,
     items: ctx.store.listInbox(),
   }));
+
+  // What a single document created/changed in the wiki: its commits, each
+  // scoped (via path filtering) to just this document's pages, with the diff.
+  app.get<{ Params: { id: string } }>("/api/sources/:id/diff", async (request, reply) => {
+    const id = Number(request.params.id);
+    const source = Number.isInteger(id) ? ctx.store.getSource(id) : undefined;
+    if (!source) {
+      return reply.code(404).send({ error: "No such document" });
+    }
+
+    // Group this source's recorded file changes by the commit they landed in,
+    // preserving newest-first order from the store query.
+    const rows = ctx.store.sourceChanges(id);
+    const byCommit = new Map<
+      string,
+      { hash: string; subject: string; committedAt: string; files: typeof rows }
+    >();
+    for (const row of rows) {
+      const entry = byCommit.get(row.hash) ?? {
+        hash: row.hash,
+        subject: row.subject,
+        committedAt: row.committedAt,
+        files: [] as typeof rows,
+      };
+      entry.files.push(row);
+      byCommit.set(row.hash, entry);
+    }
+
+    const commits = [];
+    for (const entry of byCommit.values()) {
+      const paths = entry.files.map((f) => f.filePath);
+      const detail = await ctx.git.show(entry.hash, paths).catch(() => null);
+      commits.push({
+        hash: entry.hash,
+        subject: entry.subject,
+        committedAt: entry.committedAt,
+        files: entry.files.map((f) => ({
+          path: f.filePath,
+          kind: f.kind,
+          entityName: f.entityName,
+          entitySlug: f.entitySlug,
+        })),
+        patch: detail?.patch ?? "",
+      });
+    }
+
+    return { source, commits };
+  });
 }

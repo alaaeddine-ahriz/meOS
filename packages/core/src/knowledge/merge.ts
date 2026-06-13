@@ -8,6 +8,8 @@ const REINFORCE_THRESHOLD = 0.9;
 
 export interface MergeResult {
   affectedEntityIds: number[];
+  /** Entities whose page content actually changed and were marked wiki-stale. */
+  staleEntityIds: number[];
   newObservationIds: number[];
   reinforcedObservationIds: number[];
 }
@@ -100,6 +102,7 @@ export async function mergeExtraction(
 
   return {
     affectedEntityIds: [...affected],
+    staleEntityIds: [...changed],
     newObservationIds,
     reinforcedObservationIds,
   };

@@ -6,6 +6,15 @@ import { buildServer } from "./server.js";
 const ctx = createContext();
 const app = await buildServer(ctx);
 repairSourcePaths(ctx.store);
+// Version the knowledge base from the start so every wiki change is committed
+// and diffable; adding a remote to push to stays the user's choice (Settings).
+if (!ctx.git.isInitialized()) {
+  try {
+    await ctx.git.init();
+  } catch (error) {
+    console.error("[git] auto-init failed:", error instanceof Error ? error.message : error);
+  }
+}
 ctx.watcher.start();
 const scheduler = startScheduler(ctx);
 

@@ -22,7 +22,9 @@ export type {
   InboxItemRow,
   ObservationRow,
   RelationshipView,
+  SourceChangeRow,
   SourceRef,
+  WikiChange,
 } from "./knowledge/store.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";

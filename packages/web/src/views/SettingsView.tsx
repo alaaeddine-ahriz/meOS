@@ -1,6 +1,7 @@
-import { Check, Cloud, FolderPlus, GitBranch, Laptop, Moon, RefreshCw, Sun, X } from "lucide-react";
+import { Check, ChevronRight, Cloud, FolderPlus, GitBranch, History, Laptop, Moon, RefreshCw, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { DiffView } from "@/components/DiffView";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,7 +13,7 @@ import {
 import { isTauri } from "@/lib/platform";
 import { setTheme, storedTheme, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { api, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
+import { api, type GitCommit, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
 
 const THEMES: Array<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
   { value: "light", label: "Light", icon: Sun },
@@ -437,10 +438,77 @@ function GitSyncSection() {
               </span>
             )}
           </div>
+
+          <GitHistory refreshKey={status.lastCommit ?? ""} />
         </div>
       )}
 
       {error && <p className="mt-3 text-sm text-ember">⚠ {error}</p>}
     </section>
+  );
+}
+
+/** The commit "tree": recent commits, each expandable to its diff. */
+function GitHistory({ refreshKey }: { refreshKey: string }) {
+  const [commits, setCommits] = useState<GitCommit[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [patch, setPatch] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    api.getGitLog(30).then((r) => setCommits(r.commits)).catch(() => setCommits([]));
+  }, [refreshKey]);
+
+  const toggle = async (hash: string) => {
+    if (open === hash) {
+      setOpen(null);
+      return;
+    }
+    setOpen(hash);
+    if (!patch[hash]) {
+      const detail = await api.getGitCommit(hash).catch(() => null);
+      if (detail) setPatch((prev) => ({ ...prev, [hash]: detail.patch }));
+    }
+  };
+
+  if (!commits || commits.length === 0) return null;
+
+  return (
+    <div className="mt-2 border-t border-line pt-4">
+      <h4 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+        <History className="size-3.5" /> history
+      </h4>
+      <ul className="mt-3 divide-y divide-line">
+        {commits.map((commit) => (
+          <li key={commit.hash}>
+            <button
+              onClick={() => void toggle(commit.hash)}
+              className="group flex w-full items-baseline gap-3 py-2 text-left"
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3 shrink-0 translate-y-0.5 text-dim transition-transform",
+                  open === commit.hash && "rotate-90",
+                )}
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm text-paper">{commit.subject}</span>
+                <span className="font-mono text-[11px] text-dim">
+                  {commit.hash} · {commit.relativeDate} · {commit.files} file{commit.files === 1 ? "" : "s"}
+                </span>
+              </span>
+            </button>
+            {open === commit.hash && (
+              <div className="pb-3 pl-6">
+                {patch[commit.hash] ? (
+                  <DiffView patch={patch[commit.hash]!} />
+                ) : (
+                  <p className="text-sm text-dim">Loading diff…</p>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

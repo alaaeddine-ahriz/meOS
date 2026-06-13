@@ -115,6 +115,9 @@ export class IngestionPipeline {
       store.updateInboxItem(inboxItemId, "merging");
       const { merge, postMergeNote } = await this.withMergeLock(async () => {
         const merge = await mergeExtraction(store, embedder, extraction, sourceId);
+        // Credit this document for the pages it made stale; consumed when the
+        // wiki regenerates and the resulting commit is attributed back to it.
+        for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
         const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
         return { merge, postMergeNote };
       });

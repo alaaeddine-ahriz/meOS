@@ -1,7 +1,7 @@
 import path from "node:path";
 import { Cron } from "croner";
 import { runConsolidation } from "@meos/core";
-import type { AppContext } from "./context.js";
+import { commitWikiChanges, type AppContext } from "./context.js";
 
 /** Nightly consolidation (§4.5) — queued so it never races with ingestion. */
 export function startScheduler(ctx: AppContext): Cron {
@@ -14,7 +14,13 @@ export function startScheduler(ctx: AppContext): Cron {
           wiki: ctx.wiki,
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
-        console.log("[scheduler] nightly consolidation:", report);
+        const { wikiChanges, ...summary } = report;
+        console.log("[scheduler] nightly consolidation:", summary);
+
+        // Commit the night's regenerated pages + digest locally with a message.
+        await commitWikiChanges(ctx, wikiChanges, "Nightly consolidation", [
+          `digests/${report.digestDate}.md`,
+        ]);
 
         // Push the night's wiki/digest changes to the remote when the user
         // opted in. Failures (e.g. auth, offline) are logged, never fatal.

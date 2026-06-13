@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import { runConsolidation } from "@meos/core";
-import type { AppContext } from "../context.js";
+import { commitWikiChanges, type AppContext } from "../context.js";
 
 export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/api/digest/latest", async (_request, reply) => {
@@ -21,7 +21,11 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
           wiki: ctx.wiki,
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
-        app.log.info({ report }, "consolidation finished");
+        await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
+          `digests/${report.digestDate}.md`,
+        ]);
+        const { wikiChanges, ...summary } = report;
+        app.log.info({ report: summary }, "consolidation finished");
       },
       { exclusive: true },
     );

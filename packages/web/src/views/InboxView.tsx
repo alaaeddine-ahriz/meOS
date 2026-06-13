@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -58,21 +59,46 @@ export function InboxView() {
           <ul className="divide-y divide-line">
             {items.map((item) => {
               const muted = item.status === "unsupported";
+              // A processed document links to the diff of what it changed.
+              const linkable = item.status === "done" && item.source_id != null;
+              const dot = (
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full",
+                    DOT_COLORS[item.status] ?? "bg-dim",
+                    ACTIVE_STATUSES.has(item.status) && "working-dot",
+                  )}
+                  title={item.status}
+                />
+              );
+              const body = (
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-paper">{item.title}</p>
+                  {item.detail && <p className="mt-0.5 truncate text-[13px] text-dim">{item.detail}</p>}
+                </div>
+              );
+              const time = (
+                <span className="ml-auto shrink-0 font-mono text-[11px] text-dim">{timeOf(item)}</span>
+              );
               return (
-                <li key={item.id} className={cn("flex items-baseline gap-3 py-3", muted && "opacity-50")}>
-                  <span
-                    className={cn(
-                      "h-1.5 w-1.5 shrink-0 translate-y-[-1px] rounded-full",
-                      DOT_COLORS[item.status] ?? "bg-dim",
-                      ACTIVE_STATUSES.has(item.status) && "working-dot",
-                    )}
-                    title={item.status}
-                  />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-paper">{item.title}</p>
-                    {item.detail && <p className="mt-0.5 truncate text-[13px] text-dim">{item.detail}</p>}
-                  </div>
-                  <span className="ml-auto shrink-0 font-mono text-[11px] text-dim">{timeOf(item)}</span>
+                <li key={item.id} className={cn(muted && "opacity-50")}>
+                  {linkable ? (
+                    <Link
+                      to={`/changes/${item.source_id}`}
+                      className="group -mx-2 flex items-baseline gap-3 rounded-md px-2 py-3 transition-colors hover:bg-desk"
+                    >
+                      {dot}
+                      {body}
+                      <ChevronRight className="ml-auto size-4 shrink-0 self-center text-dim opacity-0 transition-opacity group-hover:opacity-100" />
+                      {time}
+                    </Link>
+                  ) : (
+                    <div className="flex items-baseline gap-3 py-3">
+                      {dot}
+                      {body}
+                      {time}
+                    </div>
+                  )}
                 </li>
               );
             })}

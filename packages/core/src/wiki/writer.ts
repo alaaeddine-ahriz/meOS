@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { createBashTool } from "bash-tool";
 import type { LlmClient } from "../llm/types.js";
-import type { EntityRow, KnowledgeStore } from "../knowledge/store.js";
+import type { EntityRow, KnowledgeStore, WikiChange } from "../knowledge/store.js";
 
 const SYSTEM_PROMPT = `You are the wiki maintainer of MeOS, a personal second brain.
 You maintain wiki pages that summarise everything the system knows about an entity.
@@ -58,9 +58,14 @@ export class WikiWriter {
    * rewriting from scratch. `knownEntities` is the list of names available for
    * [[wiki-links]]; pass it in to reuse one query across a batch.
    */
-  async regenerate(entityId: number, knownEntities?: string[]): Promise<void> {
+  async regenerate(entityId: number, knownEntities?: string[]): Promise<WikiChange | null> {
     const entity = this.store.getEntity(entityId);
-    if (!entity) return;
+    if (!entity) return null;
+
+    // The body the page held before this pass — for created/updated detection
+    // and so the caller can attribute the resulting commit to a document.
+    const existing = this.readPage(entity);
+    const beforeBody = existing ? stripFrontmatter(existing) : null;
 
     const observations = this.store.activeObservations(entityId);
     const relationships = this.store.relationshipsFor(entityId);
@@ -119,26 +124,48 @@ export class WikiWriter {
       "",
     ].join("\n");
 
-    const file = this.pagePath(entity);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, `${frontmatter}# ${entity.name}\n\n${body}\n`);
+    // Only touch the file when the prose actually changed: a no-op rewrite
+    // would churn the frontmatter timestamp, dirty git, and surface an empty
+    // diff. A page with no prior file is always a real "created" change.
+    const created = beforeBody === null;
+    const changed = created || beforeBody !== body;
+    if (changed) {
+      const file = this.pagePath(entity);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `${frontmatter}# ${entity.name}\n\n${body}\n`);
+    }
 
     if (summary) this.store.setEntitySummary(entity.id, summary);
+
+    // Credit the documents that made this page stale before clearing them.
+    const sourceIds = this.store.pendingStaleSources(entity.id);
+    this.store.clearStaleSources(entity.id);
     this.store.clearWikiStale(entity.id);
+
+    if (!changed) return null;
+    return {
+      entityId: entity.id,
+      name: entity.name,
+      type: entity.type,
+      slug: entity.slug,
+      filePath: path.posix.join("wiki", entity.type, `${entity.slug}.md`),
+      kind: created ? "created" : "updated",
+      sourceIds,
+    };
   }
 
   /**
    * Regenerate every page flagged stale, a few at a time in parallel (each
    * page is an independent agent run). Loops until no stale pages remain, so
-   * entities marked stale mid-pass are picked up too. Returns the number
-   * regenerated.
+   * entities marked stale mid-pass are picked up too. Returns the pages that
+   * actually changed (created or rewritten), so the caller can commit and
+   * attribute them.
    */
-  async regenerateStale(concurrency = 6): Promise<number> {
-    let total = 0;
+  async regenerateStale(concurrency = 6): Promise<WikiChange[]> {
+    const changes: WikiChange[] = [];
     while (true) {
       const stale = this.store.staleEntities();
-      if (stale.length === 0) return total;
-      total += stale.length;
+      if (stale.length === 0) return changes;
       // Computed once per pass and shared across workers: the roster barely
       // changes between pages.
       const knownEntities = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
@@ -146,7 +173,8 @@ export class WikiWriter {
       const workers = Array.from({ length: Math.min(concurrency, stale.length) }, async () => {
         while (next < stale.length) {
           const entity = stale[next++]!;
-          await this.regenerate(entity.id, knownEntities);
+          const change = await this.regenerate(entity.id, knownEntities);
+          if (change) changes.push(change);
         }
       });
       await Promise.all(workers);

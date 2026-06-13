@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @meos/server --filter @meos/web dev",
+    "dev": "pnpm --filter @meos/core build && pnpm --parallel --filter @meos/core --filter @meos/server --filter @meos/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",

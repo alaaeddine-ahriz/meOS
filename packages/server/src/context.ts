@@ -17,7 +17,9 @@ import {
   type LlmConfig,
   type MeosConfig,
   type MeosDatabase,
+  type WikiChange,
 } from "@meos/core";
+import { buildCommitMessage } from "./commit-message.js";
 import { GitSync } from "./git.js";
 import { FolderWatcher } from "./watcher.js";
 
@@ -36,6 +38,32 @@ export interface AppContext {
   queue: JobQueue;
   watcher: FolderWatcher;
   git: GitSync;
+}
+
+/**
+ * Commit a regeneration pass's wiki changes locally with a comprehensive
+ * message, then record the commit so each document can be sliced back to its
+ * own diff. Local-only — nothing is pushed until the user syncs to a remote.
+ * Failures are logged, never fatal to ingestion.
+ */
+export async function commitWikiChanges(
+  deps: Pick<AppContext, "git" | "store">,
+  changes: WikiChange[],
+  label?: string,
+  extraPaths: string[] = [],
+): Promise<void> {
+  if (changes.length === 0 && extraPaths.length === 0) return;
+  try {
+    const { subject, message } = buildCommitMessage(changes, deps.store, label);
+    // Scope the commit to exactly the changed pages (+ any digest) so the
+    // commit's contents match its message and each document slices cleanly.
+    const paths = [...new Set([...changes.map((c) => c.filePath), ...extraPaths])];
+    if (!(await deps.git.commitPaths(paths, message))) return;
+    const hash = await deps.git.headHash();
+    if (hash) deps.store.recordWikiCommit(hash, subject, changes);
+  } catch (error) {
+    console.error("[git] failed to commit wiki changes:", error instanceof Error ? error.message : error);
+  }
 }
 
 export function findRootDir(start = process.cwd()): string {
@@ -72,7 +100,8 @@ export function createContext(rootDir = findRootDir()): AppContext {
     refreshQueued = true;
     wikiQueue.push(async () => {
       refreshQueued = false;
-      await wiki.regenerateStale();
+      const changes = await wiki.regenerateStale();
+      await commitWikiChanges({ git, store }, changes);
     });
   };
 

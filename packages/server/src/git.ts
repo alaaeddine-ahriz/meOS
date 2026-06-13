@@ -19,6 +19,22 @@ export interface GitStatus {
   lastCommit: string | null;
 }
 
+export interface GitCommit {
+  hash: string;
+  subject: string;
+  body: string;
+  relativeDate: string;
+  files: number;
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  subject: string;
+  body: string;
+  /** Unified diff (`git show` patch), possibly scoped to a subset of paths. */
+  patch: string;
+}
+
 /**
  * Versions the human-readable knowledge — the generated wiki pages and daily
  * digests — as a git repository rooted at the data directory. The SQLite store
@@ -124,6 +140,84 @@ export class GitSync {
     if (!staged) return false;
     const msg = message ?? `Sync ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
     await this.run(["-c", "user.name=MeOS", "-c", "user.email=meos@localhost", "commit", "-m", msg]);
+    return true;
+  }
+
+  /** Short hash of the current HEAD commit, or null when there are no commits. */
+  async headHash(): Promise<string | null> {
+    return this.tryRun(["rev-parse", "--short", "HEAD"]);
+  }
+
+  /**
+   * Recent commits touching the tracked markdown, newest first. Each carries its
+   * subject, body, relative date, and the number of files it changed — enough to
+   * render the history "tree" without a second round-trip per row.
+   */
+  async log(limit = 50): Promise<GitCommit[]> {
+    if (!this.isInitialized()) return [];
+    // A unit-separator-delimited record per commit, records split on NUL.
+    const FIELD = "\x1f";
+    const format = ["%h", "%s", "%b", "%cr"].join(FIELD);
+    const raw = await this.tryRun(["log", `--max-count=${limit}`, `--format=${format}%x00`]);
+    if (!raw) return [];
+    const commits: GitCommit[] = [];
+    for (const record of raw.split("\0")) {
+      const trimmed = record.replace(/^\s+/, "");
+      if (!trimmed) continue;
+      const [hash, subject, body, relativeDate] = trimmed.split(FIELD);
+      const stat = await this.tryRun(["show", "--name-only", "--format=", hash!]);
+      const files = stat ? stat.split("\n").filter(Boolean).length : 0;
+      commits.push({
+        hash: hash!,
+        subject: subject ?? "",
+        body: (body ?? "").trim(),
+        relativeDate: relativeDate ?? "",
+        files,
+      });
+    }
+    return commits;
+  }
+
+  /** A commit's message and unified diff, optionally scoped to specific paths. */
+  async show(hash: string, paths?: string[]): Promise<GitCommitDetail> {
+    const FIELD = "\x1f";
+    const meta = await this.run(["show", "--no-patch", `--format=%h${FIELD}%s${FIELD}%b`, hash]);
+    const [shortHash, subject, body] = meta.split(FIELD);
+    const args = ["show", "--patch", "--format=", hash];
+    if (paths && paths.length > 0) args.push("--", ...paths);
+    const patch = await this.run(args);
+    return {
+      hash: shortHash ?? hash,
+      subject: subject ?? "",
+      body: (body ?? "").trim(),
+      patch,
+    };
+  }
+
+  /**
+   * Commit only the given paths (relative to the data dir), leaving any other
+   * working-tree changes untouched. Used for per-pass wiki commits so each
+   * commit contains exactly what its message describes. Returns false when none
+   * of the paths had changes. The trailing pathspec on `commit` ensures no
+   * unrelated staged change is swept in.
+   */
+  async commitPaths(paths: string[], message: string): Promise<boolean> {
+    if (!this.isInitialized()) await this.init();
+    if (paths.length === 0) return false;
+    await this.run(["add", "--", ...paths]);
+    const changed = await this.tryRun(["status", "--porcelain", "--", ...paths]);
+    if (!changed) return false;
+    await this.run([
+      "-c",
+      "user.name=MeOS",
+      "-c",
+      "user.email=meos@localhost",
+      "commit",
+      "-m",
+      message,
+      "--",
+      ...paths,
+    ]);
     return true;
   }
 

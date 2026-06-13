@@ -47,6 +47,8 @@ export interface WikiGraph {
 
 export interface InboxItem {
   id: number;
+  /** The ingested document, once parsing has created one. Null while queued. */
+  source_id: number | null;
   title: string;
   status: string;
   detail: string | null;
@@ -96,6 +98,40 @@ export interface GitStatus {
   behind: number | null;
   lastCommit: string | null;
   autoSync: boolean;
+}
+
+export interface GitCommit {
+  hash: string;
+  subject: string;
+  body: string;
+  relativeDate: string;
+  files: number;
+}
+
+export interface GitCommitDetail {
+  hash: string;
+  subject: string;
+  body: string;
+  patch: string;
+}
+
+/** One wiki page touched within a document's commit. */
+export interface DiffFile {
+  path: string;
+  kind: "created" | "updated";
+  entityName: string | null;
+  entitySlug: string | null;
+}
+
+export interface SourceDiff {
+  source: SourceRef;
+  commits: Array<{
+    hash: string;
+    subject: string;
+    committedAt: string;
+    files: DiffFile[];
+    patch: string;
+  }>;
 }
 
 export type ChatEvent =
@@ -166,6 +202,9 @@ export const api = {
       body: JSON.stringify({ enabled }),
     }),
   gitSync: () => json<GitStatus>("/api/settings/git/sync", { method: "POST" }),
+  getGitLog: (limit = 50) => json<{ commits: GitCommit[] }>(`/api/settings/git/log?limit=${limit}`),
+  getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
+  getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
 };
 
 export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {

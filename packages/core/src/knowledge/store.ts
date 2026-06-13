@@ -60,6 +60,30 @@ export interface SourceRef {
   path: string | null;
 }
 
+/** A wiki page the writer created or rewrote in one regeneration pass. */
+export interface WikiChange {
+  entityId: number;
+  name: string;
+  type: string;
+  slug: string;
+  /** Path relative to the data dir (git repo root), e.g. wiki/person/ada.md. */
+  filePath: string;
+  kind: "created" | "updated";
+  /** Documents that made this page stale and so caused this change. */
+  sourceIds: number[];
+}
+
+/** One file changed in a recorded wiki commit, attributed to a source document. */
+export interface SourceChangeRow {
+  hash: string;
+  subject: string;
+  committedAt: string;
+  filePath: string;
+  kind: "created" | "updated";
+  entityName: string | null;
+  entitySlug: string | null;
+}
+
 export function slugify(name: string): string {
   return (
     name
@@ -255,6 +279,66 @@ export class KnowledgeStore {
     this.db
       .prepare("UPDATE entities SET wiki_stale = 0, updated_at = datetime('now') WHERE id = ?")
       .run(id);
+  }
+
+  // --- wiki change tracking --------------------------------------------
+
+  /** Note that `sourceId` is responsible for `entityId`'s page being stale. */
+  recordStaleSource(entityId: number, sourceId: number): void {
+    this.db
+      .prepare("INSERT OR IGNORE INTO wiki_stale_sources (entity_id, source_id) VALUES (?, ?)")
+      .run(entityId, sourceId);
+  }
+
+  /** Documents waiting to be credited with this entity's next regeneration. */
+  pendingStaleSources(entityId: number): number[] {
+    return (
+      this.db
+        .prepare("SELECT source_id FROM wiki_stale_sources WHERE entity_id = ?")
+        .all(entityId) as Array<{ source_id: number }>
+    ).map((row) => row.source_id);
+  }
+
+  clearStaleSources(entityId: number): void {
+    this.db.prepare("DELETE FROM wiki_stale_sources WHERE entity_id = ?").run(entityId);
+  }
+
+  /**
+   * Persist a regeneration pass's git commit and the per-file/source attribution
+   * behind it, so a document can later be sliced back to just its own diff.
+   */
+  recordWikiCommit(hash: string, subject: string, changes: WikiChange[]): void {
+    const insertCommit = this.db.prepare("INSERT INTO wiki_commits (hash, subject) VALUES (?, ?)");
+    const insertChange = this.db.prepare(
+      `INSERT INTO wiki_commit_changes (commit_id, entity_id, source_id, file_path, kind)
+       VALUES (?, ?, ?, ?, ?)`,
+    );
+    const tx = this.db.transaction(() => {
+      const commitId = Number(insertCommit.run(hash, subject).lastInsertRowid);
+      for (const change of changes) {
+        const sources = change.sourceIds.length > 0 ? change.sourceIds : [null];
+        for (const sourceId of sources) {
+          insertChange.run(commitId, change.entityId, sourceId, change.filePath, change.kind);
+        }
+      }
+    });
+    tx();
+  }
+
+  /** Every recorded wiki change a document caused, newest commit first. */
+  sourceChanges(sourceId: number): SourceChangeRow[] {
+    return this.db
+      .prepare(
+        `SELECT wc.hash, wc.subject, wc.created_at AS committedAt,
+                cc.file_path AS filePath, cc.kind,
+                e.name AS entityName, e.slug AS entitySlug
+         FROM wiki_commit_changes cc
+         JOIN wiki_commits wc ON wc.id = cc.commit_id
+         LEFT JOIN entities e ON e.id = cc.entity_id
+         WHERE cc.source_id = ?
+         ORDER BY wc.id DESC, cc.file_path`,
+      )
+      .all(sourceId) as SourceChangeRow[];
   }
 
   // --- relationships ---

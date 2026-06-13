@@ -6,6 +6,7 @@ import { CaptureDialog } from "./components/CaptureDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
+import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
 import { DigestView } from "./views/DigestView.js";
 import { GraphView } from "./views/GraphView.js";
@@ -131,6 +132,7 @@ export function App() {
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/graph" element={<GraphView />} />
           <Route path="/inbox" element={<InboxView />} />
+          <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/digest" element={<DigestView />} />
           <Route path="/settings" element={<SettingsView />} />
         </Routes>

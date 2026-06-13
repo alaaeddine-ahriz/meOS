@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { KnowledgeStore } from "../knowledge/store.js";
+import type { KnowledgeStore, WikiChange } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
 import type { WikiWriter } from "../wiki/writer.js";
 
@@ -17,6 +17,8 @@ export interface ConsolidationReport {
   decayed: number;
   promoted: number;
   staleRegenerated: number;
+  /** Pages created/rewritten this pass, for the caller to commit and attribute. */
+  wikiChanges: WikiChange[];
   orphanCount: number;
   digestDate: string;
 }
@@ -40,7 +42,8 @@ export async function runConsolidation(deps: {
 
   const decayed = store.decayStaleConfidence();
   const promoted = store.promoteFacts();
-  const staleRegenerated = await wiki.regenerateStale();
+  const wikiChanges = await wiki.regenerateStale();
+  const staleRegenerated = wikiChanges.length;
 
   const sources = store.recentSources(since);
   const observations = store.recentObservations(since);
@@ -89,5 +92,5 @@ export async function runConsolidation(deps: {
   fs.mkdirSync(digestDir, { recursive: true });
   fs.writeFileSync(path.join(digestDir, `${digestDate}.md`), content);
 
-  return { decayed, promoted, staleRegenerated, orphanCount: orphans.length, digestDate };
+  return { decayed, promoted, staleRegenerated, wikiChanges, orphanCount: orphans.length, digestDate };
 }
