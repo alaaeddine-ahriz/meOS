@@ -1,6 +1,6 @@
 export { defaultConfig, ensureDataDirs, LLM_PROVIDERS, loadConfig, overlayStoredLlmConfig } from "./config.js";
 export type { LlmConfig, LlmProvider, MeosConfig } from "./config.js";
-export { openDatabase } from "./db/database.js";
+export { openDatabase, resetDatabase } from "./db/database.js";
 export type { MeosDatabase } from "./db/database.js";
 export { createEmbedder, HashEmbedder, LocalEmbedder } from "./embedding/embedder.js";
 export type { Embedder } from "./embedding/embedder.js";

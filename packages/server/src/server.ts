@@ -25,6 +25,10 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
       "http://localhost:5173",
       "http://127.0.0.1:5173",
     ],
+    // Without this the preflight only advertises GET/HEAD/POST, so the desktop
+    // shell's cross-origin PUT/DELETE calls (save settings, remove a folder)
+    // are blocked by the webview and surface as a "Load failed" fetch error.
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   });
   await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
 

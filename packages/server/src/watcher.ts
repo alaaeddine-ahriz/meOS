@@ -62,6 +62,17 @@ export class FolderWatcher {
     this.watcher.unwatch(folderPath);
   }
 
+  /**
+   * Detach and re-attach every watched folder so chokidar re-emits "add" for
+   * all existing files. Paired with a cleared ingest ledger (e.g. after a
+   * reset), this re-absorbs the folders from scratch without a restart.
+   */
+  rescan(): void {
+    const folders = this.deps.store.listWatchedFolders().map((folder) => folder.path);
+    for (const folder of folders) this.watcher.unwatch(folder);
+    for (const folder of folders) this.watcher.add(folder);
+  }
+
   close(): Promise<void> {
     return this.watcher.close();
   }

@@ -40,6 +40,41 @@ describe("duplicate detection", () => {
     s.upsertRelationship(dana.id, orion.id, "knows");
     expect(findDuplicateEntities(s)).toHaveLength(0);
   });
+
+  it("does not propose merging co-participants with unrelated names", () => {
+    // Two distinct orgs that both partner with the same client, and two distinct
+    // people that both work on the same project — co-participation, not identity.
+    const s = store();
+    const cgi = s.createEntity({ type: "organisation", name: "CGI" });
+    const enedis = s.createEntity({ type: "organisation", name: "Enedis" });
+    const client = s.createEntity({ type: "organisation", name: "Some Client" });
+    s.upsertRelationship(cgi.id, client.id, "partners with");
+    s.upsertRelationship(enedis.id, client.id, "partners with");
+
+    const tanguy = s.createEntity({ type: "person", name: "Tanguy Meigner" });
+    const apdil = s.createEntity({ type: "person", name: "Apdil Aydinalp" });
+    const project = s.createEntity({ type: "project", name: "Collecte" });
+    s.upsertRelationship(tanguy.id, project.id, "works on");
+    s.upsertRelationship(apdil.id, project.id, "works on");
+
+    expect(findDuplicateEntities(s)).toHaveLength(0);
+  });
+
+  it("still flags a same-named org variant (CGI / CGI Inc.)", () => {
+    const s = store();
+    const cgi = s.createEntity({ type: "organisation", name: "CGI" });
+    const cgiInc = s.createEntity({ type: "organisation", name: "CGI Inc." });
+    const [proposal] = findDuplicateEntities(s);
+    expect(proposal).toBeDefined();
+    expect(new Set([proposal!.aId, proposal!.bId])).toEqual(new Set([cgi.id, cgiInc.id]));
+  });
+
+  it("does not flag a single common token in otherwise-different names", () => {
+    const s = store();
+    s.createEntity({ type: "project", name: "Data Migration" });
+    s.createEntity({ type: "project", name: "Data Pipeline" });
+    expect(findDuplicateEntities(s)).toHaveLength(0);
+  });
 });
 
 describe("mergeEntities", () => {

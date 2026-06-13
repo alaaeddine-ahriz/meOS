@@ -206,6 +206,7 @@ export const api = {
     }),
   removeFolder: (id: number) =>
     json<{ removed: boolean }>(`/api/settings/folders/${id}`, { method: "DELETE" }),
+  resetEverything: () => json<{ ok: boolean }>("/api/settings/reset", { method: "POST" }),
   getLlmSettings: () => json<LlmSettings>("/api/settings/llm"),
   updateLlmSettings: (update: { provider: LlmProvider; model?: string; apiKey?: string; baseUrl?: string }) =>
     json<LlmSettings>("/api/settings/llm", {

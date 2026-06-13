@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   Check,
   ChevronRight,
   Cloud,
@@ -13,12 +14,21 @@ import {
   RefreshCw,
   Sparkles,
   Sun,
+  Trash2,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -75,6 +85,7 @@ const TABS = [
   { id: "intelligence", label: "Intelligence", icon: Sparkles },
   { id: "folders", label: "Folders", icon: FolderOpen },
   { id: "sync", label: "Sync", icon: GitBranch },
+  { id: "reset", label: "Reset", icon: Trash2 },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -158,6 +169,7 @@ export function SettingsView() {
         {tab === "intelligence" && <IntelligenceSection />}
         {tab === "folders" && <FoldersSection />}
         {tab === "sync" && <GitSyncSection />}
+        {tab === "reset" && <ResetSection />}
       </div>
     </Page>
   );
@@ -390,7 +402,12 @@ function FoldersSection() {
   };
 
   const remove = async (id: number) => {
-    await api.removeFolder(id).catch(() => {});
+    setError(null);
+    try {
+      await api.removeFolder(id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
     refresh();
   };
 
@@ -404,12 +421,14 @@ function FoldersSection() {
       <ul className="divide-y divide-line border-y border-line">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
-            <span className="truncate font-mono text-[13px] text-paper">{folder.path}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-paper" title={folder.path}>
+              {folder.path}
+            </span>
             <Button
               variant="ghost"
               size="icon-sm"
               onClick={() => void remove(folder.id)}
-              className="ml-auto text-dim opacity-0 transition-opacity hover:bg-transparent hover:text-ember group-hover:opacity-100"
+              className="shrink-0 text-dim transition-colors hover:bg-transparent hover:text-ember"
               aria-label={`Stop watching ${folder.path}`}
             >
               <X className="size-3.5" />
@@ -647,5 +666,112 @@ function GitHistory({ refreshKey }: { refreshKey: string }) {
         ))}
       </ul>
     </div>
+  );
+}
+
+/** Start over: a guarded, irreversible wipe of everything MeOS has learned. */
+function ResetSection() {
+  const [confirming, setConfirming] = useState(false);
+  const [phrase, setPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const close = () => {
+    if (busy) return;
+    setConfirming(false);
+    setPhrase("");
+    setError(null);
+  };
+
+  const reset = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api.resetEverything();
+      // The wipe touches every view's data; the cleanest way to reflect a blank
+      // slate everywhere is a full reload.
+      window.location.reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="rise flex flex-col gap-4">
+      <PanelIntro>
+        Start over. This erases everything MeOS has learned — entities, observations, conversations,
+        digests, the generated wiki, and its entire Git history — and re-initializes the repository.
+        Your watched folders and model settings are kept, so MeOS re-reads them from scratch.
+      </PanelIntro>
+
+      <div className="flex flex-col gap-3 rounded-md border border-ember/40 bg-ember/[0.04] p-4">
+        <div className="flex items-start gap-2.5">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-ember" />
+          <div className="flex flex-col gap-1">
+            <span className="text-sm text-paper">This cannot be undone</span>
+            <span className="text-sm text-dim">
+              Your original files on disk are never touched — but everything MeOS derived from them is
+              permanently deleted.
+            </span>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => setConfirming(true)}
+          className="self-start border-ember/50 bg-transparent text-ember hover:border-ember hover:bg-ember/10 hover:text-ember"
+        >
+          <Trash2 className="size-4" />
+          Reset everything…
+        </Button>
+      </div>
+
+      <Dialog open={confirming} onOpenChange={(open) => (open ? setConfirming(true) : close())}>
+        <DialogContent className="border-line">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-serif text-xl font-medium text-paper">
+              <AlertTriangle className="size-5 text-ember" />
+              Reset everything?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-dim">
+              All knowledge, the wiki, digests, and Git history will be permanently deleted. Type{" "}
+              <span className="font-mono text-faded">reset</span> to confirm.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Input
+            value={phrase}
+            onChange={(event) => setPhrase(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && phrase.trim() === "reset" && !busy) void reset();
+            }}
+            placeholder="reset"
+            autoFocus
+            autoComplete="off"
+            className={inputClass}
+          />
+          {error && <p className="text-sm text-ember">⚠ {error}</p>}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={close}
+              disabled={busy}
+              className={actionButtonClass}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => void reset()}
+              disabled={busy || phrase.trim() !== "reset"}
+              className="border-ember/50 bg-transparent text-ember hover:border-ember hover:bg-ember/10 hover:text-ember"
+            >
+              {busy ? "Resetting…" : "Reset everything"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

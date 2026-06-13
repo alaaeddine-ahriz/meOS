@@ -3,7 +3,9 @@ import path from "node:path";
 import type { FastifyInstance } from "fastify";
 import {
   createLlmClient,
+  ensureDataDirs,
   PROVIDER_MODELS,
+  resetDatabase,
   type LlmProvider,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
@@ -115,5 +117,32 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
     }
     ctx.watcher.removeFolder(removedPath);
     return { removed: true };
+  });
+
+  // Start over: erase everything MeOS has learned. Wipes the knowledge base,
+  // the human-readable wiki and digests on disk, and the git history. LLM
+  // settings and the watched-folder list are kept, so ingestion resumes from
+  // a clean slate. Irreversible — the UI gates it behind a typed confirmation.
+  app.post("/api/settings/reset", async (_request, reply) => {
+    try {
+      resetDatabase(ctx.db, { keepSettings: true, keepFolders: true });
+
+      // Drop the generated markdown, then re-seed the empty dirs + schema doc.
+      for (const dir of ["wiki", "digests"]) {
+        fs.rmSync(path.join(ctx.config.dataDir, dir), { recursive: true, force: true });
+      }
+      ensureDataDirs(ctx.config);
+
+      // Fresh git history rooted at the now-empty tree.
+      await ctx.git.reset();
+
+      // The ingest ledger was cleared with the rest of the DB; re-absorb the
+      // watched folders from scratch.
+      ctx.watcher.rescan();
+
+      return { ok: true };
+    } catch (error) {
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 }

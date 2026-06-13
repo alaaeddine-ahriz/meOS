@@ -6,10 +6,16 @@ import type { KnowledgeStore } from "./store.js";
  * only *proposes* merges — a human applies them via store.mergeEntities. The
  * signals are deterministic:
  *
- *   structural — two same-type entities playing the identical role in the graph
- *                (e.g. both "founded → StudIA") are very likely the same thing.
  *   nominal    — overlapping names/aliases (shared token, shared long prefix,
- *                or one name contained in the other).
+ *                or one name contained in the other). This is the *necessary*
+ *                signal: identity is fundamentally about being the same named
+ *                thing.
+ *   structural — two same-type entities playing the identical role in the graph
+ *                (e.g. both "founded → StudIA"). This only ever *corroborates* a
+ *                nominal match; it is never sufficient on its own, because
+ *                co-participation (two coworkers on one project, two vendors of
+ *                one client) is structurally indistinguishable from identity and
+ *                would otherwise propose merging clearly distinct entities.
  */
 
 export interface DuplicateProposal {
@@ -33,24 +39,35 @@ function tokens(name: string): string[] {
     .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
 }
 
-/** Names overlap: a shared token, a shared 4+ char prefix, or containment. */
-function nominalOverlap(a: string, b: string): boolean {
+/** Two tokens match on equality or a shared 4+ char prefix ("cgi"/"cgis"). */
+function tokensMatch(x: string, y: string): boolean {
+  if (x === y) return true;
+  return Math.min(x.length, y.length) >= 4 && (x.startsWith(y) || y.startsWith(x));
+}
+
+/**
+ * How strongly two names point at the same thing, on a 0..1 scale. Exact or
+ * containment matches score near 1; otherwise it is the Jaccard overlap of the
+ * significant tokens. That grading matters: "CGI" vs "CGI Inc." overlap fully
+ * (the lone token is shared) and score high, while "Data Migration" vs "Data
+ * Pipeline" share only the common token "data" and score low — so a single
+ * shared word in otherwise-different names is not mistaken for identity.
+ */
+function nominalSimilarity(a: string, b: string): number {
   const an = a.toLowerCase().trim();
   const bn = b.toLowerCase().trim();
-  if (an === bn) return true;
-  if (an.length >= 5 && bn.includes(an)) return true;
-  if (bn.length >= 5 && an.includes(bn)) return true;
+  if (an === bn) return 1;
+  if (an.length >= 5 && bn.includes(an)) return 0.9;
+  if (bn.length >= 5 && an.includes(bn)) return 0.9;
   const ta = tokens(a);
   const tb = tokens(b);
+  if (ta.length === 0 || tb.length === 0) return 0;
+  let shared = 0;
   for (const x of ta) {
-    for (const y of tb) {
-      if (x === y) return true;
-      const short = x.length < y.length ? x : y;
-      const long = x.length < y.length ? y : x;
-      if (short.length >= 4 && long.startsWith(short)) return true;
-    }
+    if (tb.some((y) => tokensMatch(x, y))) shared++;
   }
-  return false;
+  const union = ta.length + tb.length - shared;
+  return union > 0 ? shared / union : 0;
 }
 
 /** A set of "role keys" — the structural footprint of an entity in the graph. */
@@ -65,9 +82,10 @@ function roleKeys(store: KnowledgeStore, entityId: number): Set<string> {
 
 /**
  * Propose likely-duplicate entity pairs, strongest first. Conservative: a pair
- * is only proposed when it shares the same type AND has either a structural
- * match (an identical graph role) or a nominal one (overlapping names) — and
- * structural matches that are *also* nominal score highest.
+ * is only proposed when it shares the same type AND its names overlap. A strong
+ * name match (near-identical) stands on its own; a weak one (a single shared
+ * token) is proposed only when a shared graph role corroborates it. Structural
+ * overlap never proposes a merge by itself — see the module header.
  */
 export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[] {
   const entities = store.listEntities();
@@ -97,16 +115,26 @@ export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[
         let score = 0;
 
         const shared = [...roles(a.id)].filter((k) => roles(b.id).has(k));
+        const nominal = nominalSimilarity(a.name, b.name);
+
+        // Name overlap is necessary. A strong name match carries the proposal on
+        // its own; a weak one needs a shared graph role to corroborate it.
+        if (nominal >= 0.6) {
+          score += 0.4 + 0.4 * nominal;
+          reasons.push("near-identical names");
+        } else if (nominal > 0 && shared.length > 0) {
+          score += 0.3 + 0.2 * nominal;
+          reasons.push("overlapping names");
+        } else {
+          continue;
+        }
         if (shared.length > 0) {
-          score += 0.6 + Math.min(0.2, 0.1 * (shared.length - 1));
+          score += Math.min(0.3, 0.15 * shared.length);
           reasons.push(`share ${shared.length} identical relationship${shared.length > 1 ? "s" : ""}`);
         }
-        if (nominalOverlap(a.name, b.name)) {
-          score += 0.4;
-          reasons.push("overlapping names");
-        }
 
-        if (reasons.length === 0 || score < 0.4) continue;
+        score = Math.min(1, score);
+        if (score < 0.5) continue;
         const suggestedWinnerId = established(a.id) >= established(b.id) ? a.id : b.id;
         proposals.push({
           aId: a.id,
@@ -115,7 +143,7 @@ export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[
           bName: b.name,
           type: a.type,
           reasons,
-          score: Math.min(1, score),
+          score,
           suggestedWinnerId,
         });
       }

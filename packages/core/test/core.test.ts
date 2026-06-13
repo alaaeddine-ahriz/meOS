@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { openDatabase } from "../src/db/database.js";
+import { openDatabase, resetDatabase } from "../src/db/database.js";
 import { HashEmbedder } from "../src/embedding/embedder.js";
 import { cosineSimilarity, deserializeVector, serializeVector } from "../src/embedding/vectors.js";
 import { KnowledgeStore } from "../src/knowledge/store.js";
@@ -20,6 +20,33 @@ describe("database", () => {
     expect(tables).toContain("ingested_files");
     // all migrations applied; exact count changes as the schema grows
     expect(db.pragma("user_version", { simple: true })).toBeGreaterThanOrEqual(3);
+    db.close();
+  });
+
+  it("resetDatabase wipes knowledge, keeps config, and stays queryable", () => {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+
+    const entity = store.createEntity({ type: "person", name: "Ada Lovelace" });
+    db.prepare("INSERT INTO observations (entity_id, text) VALUES (?, ?)").run(entity.id, "writes programs");
+    store.setSetting("llm", { provider: "anthropic" });
+    store.addWatchedFolder("/tmp/notes");
+    store.recordIngestedFile("/tmp/notes/a.md", 1, 1);
+
+    resetDatabase(db, { keepSettings: true, keepFolders: true });
+
+    // Knowledge is gone, and the FTS index it fed was cleared with it.
+    expect(store.listEntities()).toHaveLength(0);
+    expect(db.prepare("SELECT count(*) AS n FROM observations").get()).toMatchObject({ n: 0 });
+    expect(db.prepare("SELECT count(*) AS n FROM observations_fts").get()).toMatchObject({ n: 0 });
+    // The ledger is cleared so watched folders re-ingest from scratch...
+    expect(db.prepare("SELECT count(*) AS n FROM ingested_files").get()).toMatchObject({ n: 0 });
+    // ...but the preserved config survives.
+    expect(store.getSetting("llm")).toMatchObject({ provider: "anthropic" });
+    expect(store.listWatchedFolders().map((f) => f.path)).toEqual(["/tmp/notes"]);
+
+    // Ids restart from 1 after the wipe, proving the sequence reset.
+    expect(store.createEntity({ type: "project", name: "Analytical Engine" }).id).toBe(1);
     db.close();
   });
 });

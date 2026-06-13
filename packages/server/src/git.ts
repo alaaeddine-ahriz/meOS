@@ -125,6 +125,24 @@ export class GitSync {
     return this.status();
   }
 
+  /**
+   * Throw away the entire version history and start over with a fresh repo and
+   * a single initial commit. The working tree is left untouched — the caller
+   * deletes any regenerated artifacts first, so the new commit captures whatever
+   * remains. A configured "origin" remote is preserved (the local history is
+   * fresh, so the next push to an existing remote may need a force).
+   */
+  async reset(): Promise<GitStatus> {
+    let remote: string | null = null;
+    if (this.isInitialized()) {
+      remote = await this.tryRun(["remote", "get-url", "origin"]);
+      fs.rmSync(this.gitDir, { recursive: true, force: true });
+    }
+    await this.init();
+    if (remote) await this.setRemote(remote);
+    return this.status();
+  }
+
   /** Point "origin" at a remote URL (adds or replaces it). */
   async setRemote(url: string): Promise<void> {
     if (!this.isInitialized()) await this.init();

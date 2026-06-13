@@ -307,3 +307,52 @@ export function openDatabase(file: string): MeosDatabase {
   }
   return db;
 }
+
+/**
+ * Wipe the knowledge base back to an empty schema, in place on the live
+ * connection — no file swap, so handles already held by the store/pipeline stay
+ * valid. Every data table is emptied and its autoincrement counter reset; the
+ * schema, triggers, and FTS5 indexes are left intact (the delete triggers keep
+ * the FTS shadow tables in sync as rows go). Callers can preserve the
+ * configuration that a "start from scratch" shouldn't throw away:
+ *
+ *   - keepSettings — the `settings` table (LLM provider, API keys, git prefs)
+ *   - keepFolders  — the `watched_folders` list, so ingestion can resume
+ */
+export function resetDatabase(
+  db: MeosDatabase,
+  opts: { keepSettings?: boolean; keepFolders?: boolean } = {},
+): void {
+  const keep = new Set<string>();
+  if (opts.keepSettings) keep.add("settings");
+  if (opts.keepFolders) keep.add("watched_folders");
+
+  // Real data tables only: skip SQLite internals and the FTS5 virtual + shadow
+  // tables (those are maintained by triggers on the base tables, not directly).
+  const tables = (
+    db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' " +
+          "AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '%_fts%'",
+      )
+      .all() as Array<{ name: string }>
+  )
+    .map((row) => row.name)
+    .filter((name) => !keep.has(name));
+
+  // foreign_keys can't be toggled inside a transaction, so flip it off first;
+  // with it off the tables can be cleared in any order.
+  db.pragma("foreign_keys = OFF");
+  const wipe = db.transaction(() => {
+    for (const table of tables) db.exec(`DELETE FROM "${table}"`);
+    const hasSequence = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").get();
+    if (hasSequence) {
+      const clearSeq = db.prepare("DELETE FROM sqlite_sequence WHERE name = ?");
+      for (const table of tables) clearSeq.run(table);
+    }
+  });
+  wipe();
+  db.pragma("foreign_keys = ON");
+  // Reclaim the freed pages so the on-disk file actually shrinks.
+  db.exec("VACUUM");
+}
