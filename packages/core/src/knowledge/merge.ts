@@ -25,6 +25,11 @@ export async function mergeExtraction(
 ): Promise<MergeResult> {
   const entityIdByName = new Map<string, number>();
   const affected = new Set<number>();
+  // Entities whose wiki page would actually read differently after this merge.
+  // A page is only worth regenerating (an LLM call) when its content changes —
+  // re-mentioning a known entity or merely reinforcing an existing observation
+  // does not, so those are deliberately excluded.
+  const changed = new Set<number>();
 
   const resolve = (name: string): number | undefined => {
     const key = name.trim().toLowerCase();
@@ -43,6 +48,7 @@ export async function mergeExtraction(
         summary: candidate.summary || undefined,
       });
       id = entity.id;
+      changed.add(id);
     }
     entityIdByName.set(candidate.name.trim().toLowerCase(), id);
     for (const alias of candidate.aliases) {
@@ -57,9 +63,13 @@ export async function mergeExtraction(
     const fromId = resolve(relationship.from);
     const toId = resolve(relationship.to);
     if (fromId === undefined || toId === undefined || fromId === toId) continue;
-    store.upsertRelationship(fromId, toId, relationship.label, sourceId);
+    const created = store.upsertRelationship(fromId, toId, relationship.label, sourceId);
     affected.add(fromId);
     affected.add(toId);
+    if (created) {
+      changed.add(fromId);
+      changed.add(toId);
+    }
   }
 
   const newObservationIds: number[] = [];
@@ -81,11 +91,12 @@ export async function mergeExtraction(
       newObservationIds.push(
         store.insertObservation({ entityId, text: observation.text, sourceId, embedding: vector }),
       );
+      changed.add(entityId);
     }
     affected.add(entityId);
   }
 
-  for (const id of affected) store.markWikiStale(id);
+  for (const id of changed) store.markWikiStale(id);
 
   return {
     affectedEntityIds: [...affected],

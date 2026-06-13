@@ -18,6 +18,7 @@ import {
   type MeosConfig,
   type MeosDatabase,
 } from "@meos/core";
+import { GitSync } from "./git.js";
 import { FolderWatcher } from "./watcher.js";
 
 /** How many documents may move through parse/embed/extract at once. */
@@ -34,6 +35,7 @@ export interface AppContext {
   pipeline: IngestionPipeline;
   queue: JobQueue;
   watcher: FolderWatcher;
+  git: GitSync;
 }
 
 export function findRootDir(start = process.cwd()): string {
@@ -90,6 +92,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
   });
   const queue = new JobQueue(INGEST_CONCURRENCY);
   const watcher = new FolderWatcher({ store, pipeline, queue });
+  const git = new GitSync(config.dataDir);
 
-  return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher };
+  return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher, git };
 }

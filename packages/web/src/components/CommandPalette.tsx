@@ -14,6 +14,7 @@ import { api, type Conversation, type EntitySummary } from "../api.js";
 const VIEWS = [
   { label: "Chat", to: "/" },
   { label: "Wiki", to: "/wiki" },
+  { label: "Graph", to: "/graph" },
   { label: "Inbox", to: "/inbox" },
   { label: "Digest", to: "/digest" },
   { label: "Settings", to: "/settings" },

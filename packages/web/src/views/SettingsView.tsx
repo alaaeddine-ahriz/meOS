@@ -1,4 +1,4 @@
-import { Check, FolderPlus, Laptop, Moon, Sun, X } from "lucide-react";
+import { Check, Cloud, FolderPlus, GitBranch, Laptop, Moon, RefreshCw, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import {
 import { isTauri } from "@/lib/platform";
 import { setTheme, storedTheme, type ThemePreference } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { api, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
+import { api, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
 
 const THEMES: Array<{ value: ThemePreference; label: string; icon: typeof Sun }> = [
   { value: "light", label: "Light", icon: Sun },
@@ -311,7 +311,136 @@ export function SettingsView() {
             reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left alone
           </p>
         </section>
+
+        <GitSyncSection />
       </div>
     </div>
+  );
+}
+
+function GitSyncSection() {
+  const [status, setStatus] = useState<GitStatus | null>(null);
+  const [remote, setRemote] = useState("");
+  const [busy, setBusy] = useState<null | "init" | "remote" | "sync">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [synced, setSynced] = useState(false);
+
+  const apply = (next: GitStatus) => {
+    setStatus(next);
+    setRemote(next.remote ?? "");
+  };
+
+  useEffect(() => {
+    api.getGitStatus().then(apply).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  const wrap = (key: "init" | "remote" | "sync", run: () => Promise<GitStatus>) => async () => {
+    setBusy(key);
+    setError(null);
+    setSynced(false);
+    try {
+      apply(await run());
+      if (key === "sync") setSynced(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggleAuto = async () => {
+    if (!status) return;
+    const next = !status.autoSync;
+    setStatus({ ...status, autoSync: next });
+    await api.setGitAutoSync(next).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  };
+
+  return (
+    <section className="rise rise-3 mt-10">
+      <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">sync</h3>
+      <p className="mt-2 text-sm text-faded">
+        Version your wiki and digests as a Git repository — a portable, human-readable backup you can
+        push to GitHub. The database itself stays local; only the markdown is synced.
+      </p>
+
+      {!status && !error && <p className="mt-4 text-sm text-dim">Loading…</p>}
+
+      {status && !status.initialized && (
+        <Button
+          variant="outline"
+          onClick={wrap("init", api.initGit)}
+          disabled={busy === "init"}
+          className="mt-4 border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+        >
+          <GitBranch className="size-4" />
+          {busy === "init" ? "Setting up…" : "Enable Git sync"}
+        </Button>
+      )}
+
+      {status?.initialized && (
+        <div className="mt-4 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[12px] text-faded">
+            <span className="flex items-center gap-1.5 text-paper">
+              <GitBranch className="size-3.5 text-dim" />
+              {status.branch ?? "main"}
+            </span>
+            {status.dirty > 0 && <span className="text-lamp">{status.dirty} uncommitted</span>}
+            {status.ahead ? <span>↑{status.ahead}</span> : null}
+            {status.behind ? <span>↓{status.behind}</span> : null}
+            {status.dirty === 0 && !status.ahead && !status.behind && (
+              <span className="text-moss">up to date</span>
+            )}
+          </div>
+          {status.lastCommit && <p className="font-mono text-[11px] text-dim">{status.lastCommit}</p>}
+
+          <div className="flex items-center gap-3">
+            <Input
+              value={remote}
+              onChange={(event) => setRemote(event.target.value)}
+              placeholder="git@github.com:you/second-brain.git"
+              className="border-line bg-transparent font-mono text-[13px] text-paper placeholder:text-dim focus-visible:border-lamp-dim focus-visible:ring-0"
+            />
+            <Button
+              variant="outline"
+              onClick={wrap("remote", () => api.setGitRemote(remote.trim()))}
+              disabled={busy === "remote" || !remote.trim() || remote.trim() === (status.remote ?? "")}
+              className="shrink-0 border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+            >
+              {busy === "remote" ? "Saving…" : "Save remote"}
+            </Button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              onClick={wrap("sync", () => api.gitSync())}
+              disabled={busy === "sync"}
+              className="shrink-0 border-line bg-transparent text-faded hover:border-lamp-dim hover:bg-transparent hover:text-paper"
+            >
+              <RefreshCw className={cn("size-4", busy === "sync" && "animate-spin")} />
+              {busy === "sync" ? "Syncing…" : "Sync now"}
+            </Button>
+            <button
+              onClick={() => void toggleAuto()}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+                status.autoSync ? "text-paper" : "text-dim hover:text-faded",
+              )}
+            >
+              <Cloud className={cn("size-4", status.autoSync ? "text-lamp" : "text-dim")} />
+              Auto-sync nightly
+              {status.autoSync && <Check className="size-3.5 text-moss" />}
+            </button>
+            {synced && (
+              <span className="flex items-center gap-1.5 text-sm text-moss">
+                <Check className="size-3.5" /> synced
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {error && <p className="mt-3 text-sm text-ember">⚠ {error}</p>}
+    </section>
   );
 }

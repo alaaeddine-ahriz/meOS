@@ -13,6 +13,20 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     })),
   }));
 
+  app.get("/api/wiki/graph", async () => ({
+    nodes: ctx.store.listEntities().map((entity) => ({
+      id: entity.id,
+      type: entity.type,
+      name: entity.name,
+      slug: entity.slug,
+    })),
+    links: ctx.store.allRelationships().map((r) => ({
+      from: r.from_entity,
+      to: r.to_entity,
+      label: r.label,
+    })),
+  }));
+
   app.get<{ Params: { slug: string } }>("/api/wiki/:slug", async (request, reply) => {
     const entity = ctx.store.getEntityBySlug(request.params.slug);
     if (!entity) {

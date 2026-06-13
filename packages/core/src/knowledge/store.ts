@@ -259,13 +259,27 @@ export class KnowledgeStore {
 
   // --- relationships ---
 
-  upsertRelationship(fromEntity: number, toEntity: number, label: string, sourceId?: number): void {
-    this.db
+  /** Returns true when a new relationship was created (false if it already existed). */
+  upsertRelationship(fromEntity: number, toEntity: number, label: string, sourceId?: number): boolean {
+    const result = this.db
       .prepare(
         `INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)
          ON CONFLICT(from_entity, to_entity, label) DO NOTHING`,
       )
       .run(fromEntity, toEntity, label, sourceId ?? null);
+    return result.changes > 0;
+  }
+
+  allRelationships(): RelationshipView[] {
+    return this.db
+      .prepare(
+        `SELECT r.id, r.label, r.from_entity, r.to_entity,
+                ef.name AS from_name, et.name AS to_name
+         FROM relationships r
+         JOIN entities ef ON ef.id = r.from_entity
+         JOIN entities et ON et.id = r.to_entity`,
+      )
+      .all() as RelationshipView[];
   }
 
   relationshipsFor(entityId: number): RelationshipView[] {

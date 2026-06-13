@@ -46,7 +46,10 @@ export async function parseDocument(filename: string, buffer: Buffer): Promise<P
 
   if (ext === ".pdf") {
     const { extractText, getDocumentProxy } = await import("unpdf");
-    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    // verbosity 0 = errors only: silences PDF.js's harmless per-font hinting
+    // noise ("Warning: TT: undefined function") that otherwise floods the log
+    // for any PDF whose TrueType fonts reference undefined instructions.
+    const pdf = await getDocumentProxy(new Uint8Array(buffer), { verbosity: 0 });
     const { text } = await extractText(pdf, { mergePages: true });
     return { title, text };
   }

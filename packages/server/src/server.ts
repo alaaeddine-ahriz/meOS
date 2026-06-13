@@ -8,6 +8,7 @@ import fastifyStatic from "@fastify/static";
 import type { AppContext } from "./context.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerDigestRoutes } from "./routes/digest.js";
+import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
@@ -33,6 +34,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerChatRoutes(app, ctx);
   registerDigestRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
+  registerGitRoutes(app, ctx);
 
   // In production the built web app is served from this same process; in dev
   // the Vite server proxies /api here instead and this block is skipped.

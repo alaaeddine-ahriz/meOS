@@ -8,6 +8,7 @@ import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
 import { ChatView } from "./views/ChatView.js";
 import { DigestView } from "./views/DigestView.js";
+import { GraphView } from "./views/GraphView.js";
 import { InboxView } from "./views/InboxView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { WikiPageView } from "./views/WikiPage.js";
@@ -16,8 +17,9 @@ import { WikiView } from "./views/WikiView.js";
 const NAV = [
   { to: "/", label: "Chat", key: "1" },
   { to: "/wiki", label: "Wiki", key: "2" },
-  { to: "/inbox", label: "Inbox", key: "3" },
-  { to: "/digest", label: "Digest", key: "4" },
+  { to: "/graph", label: "Graph", key: "3" },
+  { to: "/inbox", label: "Inbox", key: "4" },
+  { to: "/digest", label: "Digest", key: "5" },
 ];
 
 export function App() {
@@ -127,6 +129,7 @@ export function App() {
           <Route path="/" element={<ChatView />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
+          <Route path="/graph" element={<GraphView />} />
           <Route path="/inbox" element={<InboxView />} />
           <Route path="/digest" element={<DigestView />} />
           <Route path="/settings" element={<SettingsView />} />

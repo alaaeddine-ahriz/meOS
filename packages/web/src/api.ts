@@ -27,6 +27,24 @@ export interface WikiPage {
   }>;
 }
 
+export interface GraphNode {
+  id: number;
+  type: string;
+  name: string;
+  slug: string;
+}
+
+export interface GraphLink {
+  from: number;
+  to: number;
+  label: string;
+}
+
+export interface WikiGraph {
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
 export interface InboxItem {
   id: number;
   title: string;
@@ -69,6 +87,17 @@ export interface LlmSettings {
   };
 }
 
+export interface GitStatus {
+  initialized: boolean;
+  branch: string | null;
+  remote: string | null;
+  dirty: number;
+  ahead: number | null;
+  behind: number | null;
+  lastCommit: string | null;
+  autoSync: boolean;
+}
+
 export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
@@ -94,6 +123,7 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   listEntities: () => json<{ entities: EntitySummary[] }>("/api/wiki"),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
+  getGraph: () => json<WikiGraph>("/api/wiki/graph"),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),
   ingestText: (text: string) =>
     json<{ inboxItemId: number }>("/api/ingest/text", {
@@ -121,6 +151,21 @@ export const api = {
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   getLatestDigest: () => json<{ date: string; content: string }>("/api/digest/latest"),
   runConsolidation: () => json<{ started: boolean }>("/api/jobs/consolidate", { method: "POST" }),
+  getGitStatus: () => json<GitStatus>("/api/settings/git"),
+  initGit: () => json<GitStatus>("/api/settings/git/init", { method: "POST" }),
+  setGitRemote: (url: string) =>
+    json<GitStatus>("/api/settings/git/remote", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url }),
+    }),
+  setGitAutoSync: (enabled: boolean) =>
+    json<{ autoSync: boolean }>("/api/settings/git/auto", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    }),
+  gitSync: () => json<GitStatus>("/api/settings/git/sync", { method: "POST" }),
 };
 
 export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {
