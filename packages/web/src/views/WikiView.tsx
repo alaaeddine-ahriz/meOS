@@ -1,15 +1,26 @@
+import { List, Waypoints } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Page, PageHeader } from "@/components/Page";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
 import { clearWikiTrail } from "@/lib/wiki-trail";
 import { api, type EntitySummary } from "../api.js";
+import { GraphView } from "./GraphView.js";
 
 export function WikiView() {
+  const [params, setParams] = useSearchParams();
+  const graph = params.get("view") === "graph";
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState<string | null>(null);
+
+  const setGraph = (next: boolean) => {
+    const params2 = new URLSearchParams(params);
+    if (next) params2.set("view", "graph");
+    else params2.delete("view");
+    setParams(params2, { replace: true });
+  };
 
   useEffect(() => {
     // arriving at the index starts a fresh breadcrumb path
@@ -34,11 +45,25 @@ export function WikiView() {
 
   const visible = filter ? groups.filter((g) => g.type === filter) : groups;
 
+  // Graph is the same knowledge, drawn as a force-directed map. It needs the
+  // full-bleed canvas, so swap the whole surface and float the toggle over it.
+  if (graph) {
+    return (
+      <div className="relative h-full">
+        <div className="absolute right-10 top-10 z-10">
+          <ViewToggle graph onChange={setGraph} />
+        </div>
+        <GraphView />
+      </div>
+    );
+  }
+
   return (
     <Page>
       <PageHeader
         title="Wiki"
         description={`${entities.length} pages, written and maintained by the system — never by you.`}
+        actions={<ViewToggle graph={false} onChange={setGraph} />}
       />
 
       {groups.length > 1 && (
@@ -101,5 +126,26 @@ export function WikiView() {
           </section>
         ))}
     </Page>
+  );
+}
+
+/** A small List ⇄ Graph switch — two renderings of the same wiki. */
+function ViewToggle({ graph, onChange }: { graph: boolean; onChange: (graph: boolean) => void }) {
+  const pill = (active: boolean) =>
+    cn(
+      "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors",
+      active ? "bg-card text-paper" : "text-faded hover:text-paper",
+    );
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-full border border-line p-0.5">
+      <button onClick={() => onChange(false)} className={pill(!graph)}>
+        <List className="size-3.5" />
+        List
+      </button>
+      <button onClick={() => onChange(true)} className={pill(graph)}>
+        <Waypoints className="size-3.5" />
+        Graph
+      </button>
+    </div>
   );
 }

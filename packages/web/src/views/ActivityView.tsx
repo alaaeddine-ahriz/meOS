@@ -1,5 +1,5 @@
 import { ChevronRight, FilePenLine, FileText, Search, Sparkles, Terminal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Page, PageHeader } from "@/components/Page";
 import {
@@ -14,28 +14,48 @@ import {
   api,
   streamActivity,
   type ActivityEvent,
+  type InboxItem,
   type LlmSettings,
   type WikiRun,
   type WikiRunEventKind,
 } from "../api.js";
+import { epochOf, formatTime } from "../lib/datetime.js";
+import { useInbox } from "../lib/inbox-context.js";
 
 /** One rendered step of a transcript. Reasoning/text accrete deltas; tools are discrete. */
 type Segment =
   | { kind: "reasoning" | "text"; text: string }
   | { kind: "tool-call" | "tool-result"; toolName: string; payload: string };
 
-const DOT_COLORS: Record<WikiRun["status"], string> = {
+/**
+ * The feed interleaves two kinds of moment in one timeline: a document landing
+ * (a "doc") and the maintainer rewriting a page in response (a "run"). Both are
+ * sorted together by when they happened.
+ */
+type FeedItem =
+  | { kind: "run"; run: WikiRun }
+  | { kind: "doc"; item: InboxItem };
+
+/** When a feed entry happened, from whichever record it wraps. */
+function feedTime(entry: FeedItem): number {
+  return epochOf(entry.kind === "run" ? entry.run.created_at : entry.item.created_at);
+}
+
+const RUN_DOTS: Record<WikiRun["status"], string> = {
   running: "bg-lamp working-dot",
   done: "bg-moss",
   failed: "bg-ember",
 };
 
-function timeOf(iso: string): string {
-  // Persisted SQLite timestamps are UTC without a zone ("2026-06-14 11:45:01");
-  // live run timestamps are already full ISO ("…T…Z"). Normalise both.
-  const normalized = iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`;
-  return new Date(normalized).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
+const DOC_DOTS: Record<string, string> = {
+  queued: "bg-dim",
+  parsing: "bg-lamp working-dot",
+  extracting: "bg-lamp working-dot",
+  merging: "bg-lamp working-dot",
+  done: "bg-moss",
+  failed: "bg-ember",
+  unsupported: "bg-dim",
+};
 
 /** Append a streamed chunk to a transcript: merge consecutive reasoning/text, push tools. */
 function appendChunk(
@@ -54,8 +74,9 @@ function appendChunk(
   return [...segments, { kind, toolName: toolName ?? "tool", payload }];
 }
 
-export function ActivityView() {
+export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [runs, setRuns] = useState<WikiRun[]>([]);
+  const { items: docs } = useInbox();
   const [transcripts, setTranscripts] = useState<ReadonlyMap<number, Segment[]>>(new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // Runs whose transcript we've already streamed live or fetched, so expanding
@@ -68,7 +89,7 @@ export function ActivityView() {
     api.getLlmSettings().then((s) => setMaintainer(s.maintainer)).catch(() => {});
   }, []);
 
-  // Subscribe to the live feed: new runs appear at the top and animate as the
+  // Subscribe to the live feed: new runs appear in place and animate as the
   // agent reasons, calls tools, and writes pages.
   useEffect(() => {
     const controller = new AbortController();
@@ -143,17 +164,23 @@ export function ActivityView() {
     }
   };
 
+  // One timeline: documents arriving and the pages they prompt, newest first.
+  // Memoised so transcript-only re-renders during a live run don't re-sort.
+  const feed = useMemo<FeedItem[]>(
+    () =>
+      [
+        ...runs.map<FeedItem>((run) => ({ kind: "run", run })),
+        ...docs.map<FeedItem>((item) => ({ kind: "doc", item })),
+      ].sort((a, b) => feedTime(b) - feedTime(a)),
+    [runs, docs],
+  );
+
   // Prompt for a reasoning model when none is configured — tool calls still
   // stream, but the agent's thinking won't without a reasoning-capable model.
   const needsReasoningModel = maintainer !== null && !maintainer.reasoning;
 
-  return (
-    <Page>
-      <PageHeader
-        title="Activity"
-        description="Watch the wiki maintainer think, search, and edit pages as new documents land."
-      />
-
+  const content = (
+    <>
       {needsReasoningModel && (
         <div className="rise mt-6 rounded-lg border border-lamp-dim/40 bg-lamp/5 px-4 py-3 text-sm text-faded">
           <p className="flex items-center gap-2 text-paper">
@@ -174,23 +201,76 @@ export function ActivityView() {
 
       <section className="rise rise-1 mt-8">
         <ul className="flex flex-col gap-3">
-          {runs.map((run) => (
-            <RunCard
-              key={run.id}
-              run={run}
-              open={expanded.has(run.id)}
-              segments={transcripts.get(run.id)}
-              onToggle={() => void toggle(run)}
-            />
-          ))}
-          {runs.length === 0 && (
+          {feed.map((entry) =>
+            entry.kind === "run" ? (
+              <RunCard
+                key={`run-${entry.run.id}`}
+                run={entry.run}
+                open={expanded.has(entry.run.id)}
+                segments={transcripts.get(entry.run.id)}
+                onToggle={() => void toggle(entry.run)}
+              />
+            ) : (
+              <DocCard key={`doc-${entry.item.id}`} item={entry.item} />
+            ),
+          )}
+          {feed.length === 0 && (
             <li className="py-6 text-sm text-dim">
-              Nothing yet. As MeOS ingests documents, each page it rewrites shows up here — live.
+              Nothing yet. Add{" "}
+              <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>{" "}
+              and MeOS starts reading — each document and the pages it rewrites show up here, live.
             </li>
           )}
         </ul>
       </section>
+    </>
+  );
+
+  if (embedded) return content;
+  return (
+    <Page>
+      <PageHeader
+        title="Activity"
+        description="Documents landing and the wiki maintainer rewriting pages in response — one live timeline."
+      />
+      {content}
     </Page>
+  );
+}
+
+/** A document moving through the pipeline: a static row, linking to its diff once done. */
+function DocCard({ item }: { item: InboxItem }) {
+  const linkable = item.status === "done" && item.source_id != null;
+  const inner = (
+    <>
+      <span
+        className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOC_DOTS[item.status] ?? "bg-dim")}
+        title={item.status}
+      />
+      <FileText className="size-4 shrink-0 text-dim" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm text-paper">{item.title}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-dim">
+          {item.detail ?? item.status}
+        </span>
+      </span>
+      <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(item.created_at)}</span>
+    </>
+  );
+  return (
+    <li className={cn("overflow-hidden rounded-xl border border-line bg-desk", item.status === "unsupported" && "opacity-50")}>
+      {linkable ? (
+        <Link
+          to={`/changes/${item.source_id}`}
+          className="group flex items-center gap-3 px-4 py-3 transition-colors hover:bg-card/40"
+        >
+          {inner}
+          <ChevronRight className="size-4 shrink-0 text-dim opacity-0 transition-opacity group-hover:opacity-100" />
+        </Link>
+      ) : (
+        <div className="flex items-center gap-3 px-4 py-3">{inner}</div>
+      )}
+    </li>
   );
 }
 
@@ -213,7 +293,7 @@ function RunCard({
         onClick={onToggle}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-card/40"
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", DOT_COLORS[run.status])} title={run.status} />
+        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", RUN_DOTS[run.status])} title={run.status} />
         <Icon className="size-4 shrink-0 text-lamp" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-paper">{run.name}</span>
@@ -223,7 +303,7 @@ function RunCard({
             {run.status === "failed" && " · failed"}
           </span>
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-dim">{timeOf(run.created_at)}</span>
+        <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(run.created_at)}</span>
         <ChevronRight className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")} />
       </button>
 

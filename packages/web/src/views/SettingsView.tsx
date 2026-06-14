@@ -38,16 +38,22 @@ import { ProfileSection } from "./ProfileSection";
 import {
   type Density,
   type FontPreset,
+  type Motion,
   type Palette,
   setDensity,
   setFont,
+  setMotion,
   setPalette,
   setTheme,
+  setWidth,
   storedDensity,
   storedFont,
+  storedMotion,
   storedPalette,
   storedTheme,
+  storedWidth,
   type ThemePreference,
+  type Width,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { api, type GitCommit, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
@@ -76,6 +82,16 @@ const DENSITIES: Array<{ value: Density; label: string }> = [
   { value: "compact", label: "Compact" },
 ];
 
+const WIDTHS: Array<{ value: Width; label: string }> = [
+  { value: "readable", label: "Readable" },
+  { value: "full", label: "Full width" },
+];
+
+const MOTIONS: Array<{ value: Motion; label: string }> = [
+  { value: "full", label: "On" },
+  { value: "reduced", label: "Off" },
+];
+
 /** One selectable Settings section. */
 type SettingsItem = {
   id: TabId;
@@ -96,7 +112,7 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
     heading: "Workspace",
     items: [
       { id: "profile", label: "Profile", icon: UserCircle, blurb: "Who you are, in MeOS's own words." },
-      { id: "appearance", label: "Appearance", icon: PaletteIcon, blurb: "Mode, palette, typeface and density." },
+      { id: "appearance", label: "Appearance", icon: PaletteIcon, blurb: "Mode, palette, typeface, width and motion." },
       {
         id: "intelligence",
         label: "Intelligence",
@@ -260,6 +276,8 @@ function AppearanceSection() {
   const [palette, setPaletteState] = useState<Palette>(storedPalette());
   const [font, setFontState] = useState<FontPreset>(storedFont());
   const [density, setDensityState] = useState<Density>(storedDensity());
+  const [width, setWidthState] = useState<Width>(storedWidth());
+  const [motion, setMotionState] = useState<Motion>(storedMotion());
 
   const chooseTheme = (preference: ThemePreference) => {
     setTheme(preference);
@@ -277,6 +295,14 @@ function AppearanceSection() {
     setDensity(next);
     setDensityState(next);
   };
+  const chooseWidth = (next: Width) => {
+    setWidth(next);
+    setWidthState(next);
+  };
+  const chooseMotion = (next: Motion) => {
+    setMotion(next);
+    setMotionState(next);
+  };
 
   return (
     <section className="rise flex flex-col gap-4">
@@ -284,6 +310,8 @@ function AppearanceSection() {
       <Segmented label="Palette" value={palette} options={PALETTES} onChange={choosePalette} />
       <Segmented label="Typeface" value={font} options={FONTS} onChange={chooseFont} />
       <Segmented label="Density" value={density} options={DENSITIES} onChange={chooseDensity} />
+      <Segmented label="Width" value={width} options={WIDTHS} onChange={chooseWidth} />
+      <Segmented label="Animation" value={motion} options={MOTIONS} onChange={chooseMotion} />
     </section>
   );
 }

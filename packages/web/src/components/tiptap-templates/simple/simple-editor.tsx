@@ -1,12 +1,14 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { EditorContent, EditorContext, useEditor } from "@tiptap/react"
+import { BubbleMenu } from "@tiptap/react/menus"
 
 // --- Tiptap Core Extensions ---
 import { StarterKit } from "@tiptap/starter-kit"
 import { Image } from "@tiptap/extension-image"
 import { TaskItem, TaskList } from "@tiptap/extension-list"
+import { TableKit } from "@tiptap/extension-table"
 import { TextAlign } from "@tiptap/extension-text-align"
 import { Typography } from "@tiptap/extension-typography"
 import { Highlight } from "@tiptap/extension-highlight"
@@ -24,10 +26,9 @@ import {
   type FollowTarget,
   type LinkTarget,
 } from "@/lib/tiptap/mention"
+import { SlashCommand } from "@/lib/tiptap/slash"
 
 // --- UI Primitives ---
-import { Button } from "@/components/tiptap-ui-primitive/button"
-import { Spacer } from "@/components/tiptap-ui-primitive/spacer"
 import {
   Toolbar,
   ToolbarGroup,
@@ -45,132 +46,11 @@ import "@/components/tiptap-node/heading-node/heading-node.scss"
 import "@/components/tiptap-node/paragraph-node/paragraph-node.scss"
 
 // --- Tiptap UI ---
-import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu"
-import { ListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu"
-import { BlockquoteButton } from "@/components/tiptap-ui/blockquote-button"
-import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button"
-import {
-  ColorHighlightPopover,
-  ColorHighlightPopoverContent,
-  ColorHighlightPopoverButton,
-} from "@/components/tiptap-ui/color-highlight-popover"
-import {
-  LinkPopover,
-  LinkContent,
-  LinkButton,
-} from "@/components/tiptap-ui/link-popover"
+import { LinkPopover } from "@/components/tiptap-ui/link-popover"
 import { MarkButton } from "@/components/tiptap-ui/mark-button"
-import { TextAlignButton } from "@/components/tiptap-ui/text-align-button"
-import { UndoRedoButton } from "@/components/tiptap-ui/undo-redo-button"
-
-// --- Icons ---
-import { ArrowLeftIcon } from "@/components/tiptap-icons/arrow-left-icon"
-import { HighlighterIcon } from "@/components/tiptap-icons/highlighter-icon"
-import { LinkIcon } from "@/components/tiptap-icons/link-icon"
-
-// --- Hooks ---
-import { useIsBreakpoint } from "@/hooks/use-is-breakpoint"
-import { useWindowSize } from "@/hooks/use-window-size"
-import { useCursorVisibility } from "@/hooks/use-cursor-visibility"
 
 // --- Styles ---
 import "@/components/tiptap-templates/simple/simple-editor.scss"
-
-const MainToolbarContent = ({
-  onHighlighterClick,
-  onLinkClick,
-  isMobile,
-}: {
-  onHighlighterClick: () => void
-  onLinkClick: () => void
-  isMobile: boolean
-}) => {
-  return (
-    <>
-      <Spacer />
-
-      <ToolbarGroup>
-        <UndoRedoButton action="undo" />
-        <UndoRedoButton action="redo" />
-      </ToolbarGroup>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup>
-        <HeadingDropdownMenu modal={false} levels={[1, 2, 3, 4]} />
-        <ListDropdownMenu
-          modal={false}
-          types={["bulletList", "orderedList", "taskList"]}
-        />
-        <BlockquoteButton />
-        <CodeBlockButton />
-      </ToolbarGroup>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup>
-        <MarkButton type="bold" />
-        <MarkButton type="italic" />
-        <MarkButton type="strike" />
-        <MarkButton type="code" />
-        <MarkButton type="underline" />
-        {!isMobile ? (
-          <ColorHighlightPopover />
-        ) : (
-          <ColorHighlightPopoverButton onClick={onHighlighterClick} />
-        )}
-        {!isMobile ? <LinkPopover /> : <LinkButton onClick={onLinkClick} />}
-      </ToolbarGroup>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup>
-        <MarkButton type="superscript" />
-        <MarkButton type="subscript" />
-      </ToolbarGroup>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup>
-        <TextAlignButton align="left" />
-        <TextAlignButton align="center" />
-        <TextAlignButton align="right" />
-        <TextAlignButton align="justify" />
-      </ToolbarGroup>
-
-      <Spacer />
-    </>
-  )
-}
-
-const MobileToolbarContent = ({
-  type,
-  onBack,
-}: {
-  type: "highlighter" | "link"
-  onBack: () => void
-}) => (
-  <>
-    <ToolbarGroup>
-      <Button variant="ghost" onClick={onBack}>
-        <ArrowLeftIcon className="tiptap-button-icon" />
-        {type === "highlighter" ? (
-          <HighlighterIcon className="tiptap-button-icon" />
-        ) : (
-          <LinkIcon className="tiptap-button-icon" />
-        )}
-      </Button>
-    </ToolbarGroup>
-
-    <ToolbarSeparator />
-
-    {type === "highlighter" ? (
-      <ColorHighlightPopoverContent />
-    ) : (
-      <LinkContent />
-    )}
-  </>
-)
 
 export interface SimpleEditorProps {
   /** Initial markdown. The component is keyed on the note path, so this is read once. */
@@ -183,12 +63,6 @@ export interface SimpleEditorProps {
 }
 
 export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEditorProps) {
-  const isMobile = useIsBreakpoint()
-  const { height } = useWindowSize()
-  const [mobileView, setMobileView] = useState<"main" | "highlighter" | "link">(
-    "main"
-  )
-  const toolbarRef = useRef<HTMLDivElement>(null)
   // Parsing the initial markdown can emit a normalising transaction while the
   // editor is still being created; ignore updates until mounted so we never
   // setState mid-render (or autosave an untouched note).
@@ -223,14 +97,21 @@ export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEd
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TaskList,
       TaskItem.configure({ nested: true }),
+      TableKit.configure({ table: { resizable: true } }),
       Highlight.configure({ multicolor: true }),
       Image,
       Typography,
       Superscript,
       Subscript,
       Selection,
-      Placeholder.configure({ placeholder: "Write… type @ to mention a note or wiki page" }),
-      Markdown.configure({ html: false, transformPastedText: true }),
+      Placeholder.configure({
+        placeholder: "Write… type / for blocks, @ to mention a note or wiki page",
+      }),
+      // HTML mode so nodes/marks without Markdown syntax — tables and the
+      // bubble-menu's underline/sub/superscript — round-trip as `<table>`,
+      // `<u>`, `<sub>`, `<sup>` instead of being dropped on save.
+      Markdown.configure({ html: true, transformPastedText: true }),
+      SlashCommand,
       VaultMention.configure({
         HTMLAttributes: { class: "mention-chip" },
         suggestion: mentionSuggestion((query) => suggestRef.current(query)),
@@ -257,43 +138,39 @@ export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEd
     ready.current = true
   }, [])
 
-  const rect = useCursorVisibility({
-    editor,
-    overlayHeight: toolbarRef.current?.getBoundingClientRect().height ?? 0,
-  })
-
-  useEffect(() => {
-    if (!isMobile && mobileView !== "main") {
-      setMobileView("main")
-    }
-  }, [isMobile, mobileView])
-
   return (
     <div className="simple-editor-wrapper">
       <EditorContext.Provider value={{ editor }}>
-        <Toolbar
-          ref={toolbarRef}
-          style={{
-            ...(isMobile
-              ? {
-                  bottom: `calc(100% - ${height - rect.y}px)`,
-                }
-              : {}),
-          }}
-        >
-          {mobileView === "main" ? (
-            <MainToolbarContent
-              onHighlighterClick={() => setMobileView("highlighter")}
-              onLinkClick={() => setMobileView("link")}
-              isMobile={isMobile}
-            />
-          ) : (
-            <MobileToolbarContent
-              type={mobileView === "highlighter" ? "highlighter" : "link"}
-              onBack={() => setMobileView("main")}
-            />
-          )}
-        </Toolbar>
+        {editor && (
+          <BubbleMenu
+            editor={editor}
+            className="bubble-menu"
+            options={{ placement: "top", offset: 8 }}
+          >
+            <Toolbar variant="floating">
+              <ToolbarGroup>
+                <MarkButton type="bold" />
+                <MarkButton type="italic" />
+                <MarkButton type="underline" />
+                <MarkButton type="strike" />
+              </ToolbarGroup>
+
+              <ToolbarSeparator />
+
+              <ToolbarGroup>
+                <MarkButton type="code" />
+                <LinkPopover />
+              </ToolbarGroup>
+
+              <ToolbarSeparator />
+
+              <ToolbarGroup>
+                <MarkButton type="subscript" />
+                <MarkButton type="superscript" />
+              </ToolbarGroup>
+            </Toolbar>
+          </BubbleMenu>
+        )}
 
         <EditorContent
           editor={editor}

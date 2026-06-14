@@ -1,5 +1,6 @@
 import { Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { CountBadge } from "@/components/HubTabs";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,10 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 import { api, type Contradiction, type DuplicateProposal, type ResolutionAction } from "../api.js";
 
-type Tab = "linked" | "conflicts";
+/** Which "apply all" flow the confirm dialog is for — duplicate merges or conflict resolutions. */
+type AutoKind = "linked" | "conflicts";
 
 const ACTION_LABEL: Record<ResolutionAction, string> = {
   supersede_a: "Keep the first",
@@ -29,16 +30,15 @@ function suggestedWinner(action: ResolutionAction | undefined): "a" | "b" | null
   return null;
 }
 
-export function ContradictionsView() {
+export function ContradictionsView({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<Contradiction[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateProposal[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("conflicts");
-  // Which tab's auto-apply the user is being asked to confirm, and whether a
-  // confirmed run is in flight. Auto mode never acts without this confirmation.
-  const [confirmAuto, setConfirmAuto] = useState<Tab | null>(null);
+  // Which "apply all" the user is being asked to confirm, and whether a confirmed
+  // run is in flight. Auto mode never acts without this confirmation.
+  const [confirmAuto, setConfirmAuto] = useState<AutoKind | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
 
   const load = () =>
@@ -155,24 +155,11 @@ export function ContradictionsView() {
     }
   };
 
-  return (
-    <Page>
-      <PageHeader
-        title="Conflicts"
-        description="Where your knowledge disagrees with itself — entities that look like the same thing, and claims that can't both be true. You decide each one."
-      />
-
-      <nav className="rise mt-8 flex flex-wrap gap-1 border-b border-line">
-        <TabButton active={tab === "linked"} onClick={() => setTab("linked")} count={duplicates.length}>
-          Linked
-        </TabButton>
-        <TabButton active={tab === "conflicts"} onClick={() => setTab("conflicts")} count={items.length}>
-          Conflicts
-        </TabButton>
-      </nav>
-
-      {tab === "linked" && (
-        <div className="rise rise-1 mt-8 flex flex-col gap-2 pb-16">
+  const body = (
+    <>
+      <section className="rise mt-8">
+        <SectionHeading title="Possible duplicates" count={duplicates.length} />
+        <div className="mt-4 flex flex-col gap-2">
           {duplicates.length > 0 && (
             <AutoBar
               label={`Merge all ${duplicates.length} using the suggested winner`}
@@ -221,10 +208,11 @@ export function ContradictionsView() {
             })
           )}
         </div>
-      )}
+      </section>
 
-      {tab === "conflicts" && (
-      <div className="rise rise-1 mt-8 flex flex-col gap-4 pb-16">
+      <section className="rise rise-1 mt-10">
+        <SectionHeading title="Conflicting claims" count={items.length} />
+        <div className="mt-4 flex flex-col gap-4 pb-16">
         {autoResolvable.length > 0 && (
           <AutoBar
             label={`Resolve ${autoResolvable.length} of ${items.length} using the suggestion`}
@@ -277,8 +265,8 @@ export function ContradictionsView() {
             );
           })
         )}
-      </div>
-      )}
+        </div>
+      </section>
 
       <Dialog open={confirmAuto !== null} onOpenChange={(open) => !open && !autoRunning && setConfirmAuto(null)}>
         <DialogContent showCloseButton={!autoRunning}>
@@ -343,11 +331,32 @@ export function ContradictionsView() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+
+  if (embedded) return body;
+  return (
+    <Page>
+      <PageHeader
+        title="Conflicts"
+        description="Where your knowledge disagrees with itself — entities that look like the same thing, and claims that can't both be true. You decide each one."
+      />
+      {body}
     </Page>
   );
 }
 
-/** A subtle row offering to apply every suggestion in the current tab at once. */
+/** A small section label with a count badge, separating the two kinds of review. */
+function SectionHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <h2 className="flex items-center gap-2 text-sm font-medium text-paper">
+      {title}
+      <CountBadge count={count} />
+    </h2>
+  );
+}
+
+/** A subtle row offering to apply every suggestion in a section at once. */
 function AutoBar({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
   return (
     <div className="mb-2 flex items-center justify-between rounded-lg border border-dashed border-line bg-card/20 px-3 py-2">
@@ -363,34 +372,6 @@ function AutoBar({ label, disabled, onClick }: { label: string; disabled: boolea
         Auto
       </Button>
     </div>
-  );
-}
-
-function TabButton({
-  children,
-  active,
-  count,
-  onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={cn(
-        "relative -mb-px flex items-center gap-2 px-3 py-2.5 text-sm transition-colors",
-        active ? "text-paper" : "text-faded hover:text-paper",
-      )}
-    >
-      {children}
-      {count > 0 && (
-        <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
-      )}
-      {active && <span className="absolute inset-x-0 -bottom-px h-px bg-lamp" />}
-    </button>
   );
 }
 

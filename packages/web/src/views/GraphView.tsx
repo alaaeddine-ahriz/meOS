@@ -97,7 +97,12 @@ function tick(sim: Sim): void {
   sim.alpha *= 0.995;
 }
 
-export function GraphView() {
+/**
+ * The knowledge graph. With no props it maps the whole wiki; pass `focusSlug`
+ * to draw only one page and its direct connections (an ego graph). `embedded`
+ * drops the floating title so it can sit inside another surface.
+ */
+export function GraphView({ focusSlug, embedded = false }: { focusSlug?: string; embedded?: boolean } = {}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const simRef = useRef<Sim>({ nodes: [], links: [], alpha: 0 });
@@ -110,10 +115,24 @@ export function GraphView() {
 
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
     api
       .getGraph()
       .then((graph) => {
         if (cancelled) return;
+        // In focus mode keep only the page and its 1-hop neighbours, then the
+        // edges induced among that set — "this page and its connections".
+        let allowed: Set<number> | null = null;
+        if (focusSlug) {
+          const focus = graph.nodes.find((n) => n.slug === focusSlug);
+          allowed = new Set(focus ? [focus.id] : []);
+          if (focus) {
+            for (const link of graph.links) {
+              if (link.from === focus.id) allowed.add(link.to);
+              if (link.to === focus.id) allowed.add(link.from);
+            }
+          }
+        }
         const nodes = new Map<number, SimNode>();
         const degree = new Map<number, number>();
         for (const link of graph.links) {
@@ -121,6 +140,7 @@ export function GraphView() {
           degree.set(link.to, (degree.get(link.to) ?? 0) + 1);
         }
         graph.nodes.forEach((node, index) => {
+          if (allowed && !allowed.has(node.id)) return;
           // golden-angle spiral keeps initial positions spread out
           const angle = index * 2.39996;
           const r = 24 * Math.sqrt(index + 1);
@@ -176,7 +196,7 @@ export function GraphView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [focusSlug]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -375,21 +395,35 @@ export function GraphView() {
     };
   }, [navigate]);
 
+  // In focus mode the focus page itself is one of the nodes, so connections = nodes − 1.
+  const connectionCount = focusSlug ? Math.max(0, counts.nodes - 1) : counts.links;
+  const emptyFocus = focusSlug != null && loaded && connectionCount === 0;
+
   return (
     <div ref={containerRef} className="relative h-full overflow-hidden">
       <canvas ref={canvasRef} className="h-full w-full" style={{ cursor: "grab" }} />
 
-      <header className="rise pointer-events-none absolute left-10 top-10">
-        <h2 className="font-serif text-2xl text-paper">Graph</h2>
-        <p className="mt-1 text-sm text-dim">
-          {counts.nodes} pages · {counts.links} connections. Click a node to open its page.
-        </p>
-      </header>
+      {!embedded && (
+        <header className="rise pointer-events-none absolute left-10 top-10">
+          <h2 className="font-serif text-2xl text-paper">{focusSlug ? "Connections" : "Graph"}</h2>
+          <p className="mt-1 text-sm text-dim">
+            {focusSlug
+              ? `${connectionCount} connected ${connectionCount === 1 ? "page" : "pages"}. Click a node to open it.`
+              : `${counts.nodes} pages · ${counts.links} connections. Click a node to open its page.`}
+          </p>
+        </header>
+      )}
 
-      {loaded && counts.nodes === 0 && (
+      {loaded && !focusSlug && counts.nodes === 0 && (
         <p className="pointer-events-auto absolute left-10 top-32 text-sm text-faded">
           Nothing to map yet. Add watched folders in{" "}
           <Link className="text-lamp" to="/settings">Settings</Link> and the graph will grow on its own.
+        </p>
+      )}
+
+      {emptyFocus && (
+        <p className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-dim">
+          No connections yet.
         </p>
       )}
 

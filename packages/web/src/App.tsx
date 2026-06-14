@@ -1,18 +1,14 @@
-import { Activity, GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, NotebookPen, Search, Settings, Waypoints } from "lucide-react";
+import { Activity, Library, type LucideIcon, MessageSquare, NotebookPen, Search, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
-import { api } from "./api.js";
 import { CommandPalette } from "./components/CommandPalette.js";
+import { useInbox } from "./lib/inbox-context.js";
 import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
+import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
-import { ContradictionsView } from "./views/ContradictionsView.js";
-import { DigestView } from "./views/DigestView.js";
-import { GraphView } from "./views/GraphView.js";
-import { ActivityView } from "./views/ActivityView.js";
-import { InboxView } from "./views/InboxView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { VaultView } from "./views/VaultView.js";
 import { WikiPageView } from "./views/WikiPage.js";
@@ -22,16 +18,12 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/notes", label: "Notes", key: "2", icon: NotebookPen },
   { to: "/wiki", label: "Wiki", key: "3", icon: Library },
-  { to: "/graph", label: "Graph", key: "4", icon: Waypoints },
-  { to: "/inbox", label: "Inbox", key: "5", icon: Inbox },
-  { to: "/activity", label: "Activity", key: "6", icon: Activity },
-  { to: "/digest", label: "Digest", key: "7", icon: Newspaper },
-  { to: "/contradictions", label: "Conflicts", key: "8", icon: GitCompareArrows },
+  { to: "/activity", label: "Activity", key: "4", icon: Activity },
 ];
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [queuePending, setQueuePending] = useState(0);
+  const { queuePending } = useInbox();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -52,13 +44,6 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate]);
-
-  useEffect(() => {
-    const poll = () => api.getInbox().then((r) => setQueuePending(r.queuePending)).catch(() => {});
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <div className="flex h-full">
@@ -82,7 +67,7 @@ export function App() {
             >
               <item.icon className="size-4 shrink-0 opacity-70" />
               <span>{item.label}</span>
-              {item.to === "/inbox" && queuePending > 0 && (
+              {item.to === "/activity" && queuePending > 0 && (
                 <span
                   className="working-dot inline-block h-1.5 w-1.5 rounded-full bg-lamp"
                   title={`absorbing ${queuePending} item${queuePending > 1 ? "s" : ""}`}
@@ -126,13 +111,14 @@ export function App() {
           <Route path="/notes" element={<VaultView />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
-          <Route path="/graph" element={<GraphView />} />
-          <Route path="/inbox" element={<InboxView />} />
-          <Route path="/activity" element={<ActivityView />} />
+          <Route path="/activity" element={<ActivityHub />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
-          <Route path="/digest" element={<DigestView />} />
-          <Route path="/contradictions" element={<ContradictionsView />} />
           <Route path="/settings" element={<SettingsView />} />
+          {/* Old standalone routes now live inside their consolidated surface. */}
+          <Route path="/graph" element={<Navigate to="/wiki?view=graph" replace />} />
+          <Route path="/inbox" element={<Navigate to="/activity?tab=feed" replace />} />
+          <Route path="/digest" element={<Navigate to="/activity?tab=digest" replace />} />
+          <Route path="/contradictions" element={<Navigate to="/activity?tab=review" replace />} />
         </Routes>
       </main>
 
