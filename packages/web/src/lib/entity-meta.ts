@@ -26,3 +26,9 @@ export const ENTITY_TYPES: Record<string, EntityTypeMeta> = {
   place: { icon: MapPin, singular: "place", plural: "places", color: "#4f8a7b" },
   decision: { icon: Signpost, singular: "decision", plural: "decisions", color: "#b1583f" },
 };
+
+/** Mid-tone hue for an entity type, falling back to a neutral for unknown types. */
+export const FALLBACK_COLOR = "#8f8779";
+export function typeColor(type: string): string {
+  return ENTITY_TYPES[type]?.color ?? FALLBACK_COLOR;
+}

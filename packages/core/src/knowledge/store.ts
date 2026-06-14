@@ -122,6 +122,15 @@ export interface WikiPageWithVector {
   vector: Float32Array;
 }
 
+/** A compiled wiki page body joined with its entity's display fields. */
+export interface WikiPageBody {
+  entity_id: number;
+  entity_name: string;
+  slug: string;
+  type: string;
+  body: string;
+}
+
 /** A wiki page the writer created or rewrote in one regeneration pass. */
 export interface WikiChange {
   entityId: number;
@@ -1253,13 +1262,24 @@ export class KnowledgeStore {
   }
 
   /** Every entity's [[wiki-link]] mentions, for broken-reference detection. */
-  wikiPageBodies(): Array<{ entity_id: number; entity_name: string; slug: string; type: string; body: string }> {
+  wikiPageBodies(): WikiPageBody[] {
     return this.db
       .prepare(
         `SELECT w.entity_id, w.body, e.name AS entity_name, e.slug, e.type
          FROM wiki_pages w JOIN entities e ON e.id = w.entity_id`,
       )
-      .all() as Array<{ entity_id: number; entity_name: string; slug: string; type: string; body: string }>;
+      .all() as WikiPageBody[];
+  }
+
+  /** One entity's compiled wiki page body, if it has one. */
+  wikiPageBody(entityId: number): WikiPageBody | undefined {
+    return this.db
+      .prepare(
+        `SELECT w.entity_id, w.body, e.name AS entity_name, e.slug, e.type
+         FROM wiki_pages w JOIN entities e ON e.id = w.entity_id
+         WHERE w.entity_id = ?`,
+      )
+      .get(entityId) as WikiPageBody | undefined;
   }
 
   /** Persist a page's lint score (0..1). */

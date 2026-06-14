@@ -1,14 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ENTITY_TYPES, ENTITY_TYPE_ORDER } from "@/lib/entity-meta";
+import { ENTITY_TYPES, ENTITY_TYPE_ORDER, typeColor } from "@/lib/entity-meta";
 import { ForceGraph } from "../components/ForceGraph.js";
 import { api, type GraphLink, type GraphNode } from "../api.js";
-
-const FALLBACK_COLOR = "#8f8779";
-
-function typeColor(type: string): string {
-  return ENTITY_TYPES[type]?.color ?? FALLBACK_COLOR;
-}
 
 /**
  * The knowledge graph. With no props it maps the whole wiki; pass `focusSlug`

@@ -60,7 +60,7 @@ import {
 } from "@/components/ui/command";
 import { InputGroupAddon } from "@/components/ui/input-group";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
-import { resolveWikiLinks } from "@/lib/wikilinks";
+import { resolveWikiLinks, wikiSlugFromHref } from "@/lib/wikilinks";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
@@ -143,8 +143,9 @@ function settleTool(parts: AgentPart[], toolCallId: string | undefined, toolName
   const next = [...parts];
   for (let i = next.length - 1; i >= 0; i--) {
     const part = next[i]!;
-    const matches = toolCallId ? part.kind === "tool" && part.toolCallId === toolCallId : part.kind === "tool" && part.toolName === toolName;
-    if (part.kind === "tool" && matches && part.output === undefined) {
+    if (part.kind !== "tool" || part.output !== undefined) continue;
+    const matches = toolCallId ? part.toolCallId === toolCallId : part.toolName === toolName;
+    if (matches) {
       next[i] = { ...part, output, state: "output-available" };
       return next;
     }
@@ -229,7 +230,7 @@ export function ChatView() {
               className="cursor-pointer font-medium text-lamp underline-offset-2 hover:underline"
               onClick={(event) => {
                 event.preventDefault();
-                setWikiPanelSlug(url.slice("/wiki/".length));
+                setWikiPanelSlug(wikiSlugFromHref(url));
               }}
             >
               {children}
