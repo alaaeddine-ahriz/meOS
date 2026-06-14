@@ -5,3 +5,5 @@ data/
 .DS_Store
 .env
 .playwright-mcp/
+
+.claude/worktrees/
