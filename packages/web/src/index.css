@@ -1,3 +1,6 @@
+@import './styles/_variables.scss';
+@import './styles/_keyframe-animations.scss';
+
 @import "@fontsource-variable/newsreader";
 @import "@fontsource-variable/ibm-plex-sans";
 @import "@fontsource/ibm-plex-mono";
@@ -359,4 +362,81 @@ body::after {
   border: none;
   border-top: 1px solid var(--line);
   margin: 1.5em 0;
+}
+
+/* --- Note editor (Tiptap) --------------------------------------------- */
+/* Placeholder shown on the first empty line (tiptap-placeholder). */
+.tiptap.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--dim);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+/* @mention chips — atomic pills the user can click to navigate. */
+.tiptap.ProseMirror .mention-chip {
+  display: inline-block;
+  padding: 0.05em 0.4em;
+  margin: 0 0.05em;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--lamp) 16%, transparent);
+  color: var(--lamp);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.tiptap.ProseMirror .mention-chip:hover {
+  background: color-mix(in srgb, var(--lamp) 28%, transparent);
+}
+.tiptap.ProseMirror .mention-chip.ProseMirror-selectednode {
+  outline: 2px solid var(--lamp-dim);
+}
+
+/* The @ autocomplete popup. */
+.mention-menu {
+  position: absolute;
+  z-index: 60;
+  min-width: 12rem;
+  max-width: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  padding: 0.25rem;
+}
+.mention-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--faded);
+  text-align: left;
+}
+.mention-menu-item:hover,
+.mention-menu-item.is-active {
+  background: var(--desk);
+  color: var(--paper);
+}
+.mention-menu-kind {
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.mention-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mention-menu-empty {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.8rem;
+  color: var(--dim);
 }

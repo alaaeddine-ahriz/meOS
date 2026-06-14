@@ -13,6 +13,7 @@ import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerProfileRoutes } from "./routes/profile.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerVaultRoutes } from "./routes/vault.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
 export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
@@ -37,6 +38,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
 
   registerIngestRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
+  registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerDigestRoutes(app, ctx);
   registerOutputRoutes(app, ctx);

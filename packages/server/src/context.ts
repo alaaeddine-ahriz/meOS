@@ -16,6 +16,7 @@ import {
   openDatabase,
   overlayStoredLlmConfig,
   SwitchableLlmClient,
+  Vault,
   WikiWriter,
   type Embedder,
   type LlmConfig,
@@ -38,6 +39,7 @@ export interface AppContext {
   llm: SwitchableLlmClient;
   embedder: Embedder;
   wiki: WikiWriter;
+  vault: Vault;
   pipeline: IngestionPipeline;
   queue: JobQueue;
   watcher: FolderWatcher;
@@ -94,6 +96,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const llm = new SwitchableLlmClient(createLlmClient(config));
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder);
+  // The user's hand-authored note vault (Obsidian-style), distinct from the
+  // system-compiled wiki — free-form markdown that cross-links via [[links]].
+  const vault = new Vault(path.join(config.dataDir, "vault"));
   // The automation bus: core stages emit lifecycle events, the server subscribes.
   const events = new MeosEvents();
   events.on("onContradiction", ({ entityId }) => {
@@ -168,5 +173,5 @@ export function createContext(rootDir = findRootDir()): AppContext {
     });
   });
 
-  return { rootDir, config, db, store, llm, embedder, wiki, pipeline, queue, watcher, git, events };
+  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events };
 }

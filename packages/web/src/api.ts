@@ -31,6 +31,18 @@ export interface WikiPage {
   }>;
 }
 
+/** A note in the user's hand-authored vault. */
+export interface NoteMeta {
+  path: string;
+  title: string;
+  updatedAt: string;
+}
+
+export interface NoteContents extends NoteMeta {
+  markdown: string;
+  backlinks: NoteMeta[];
+}
+
 export interface GraphNode {
   id: number;
   type: string;
@@ -284,6 +296,30 @@ export const api = {
     if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
     return { models: data.models ?? [], source: data.source ?? "curated", error: data.error };
   },
+  // --- vault (the user's hand-written notes) ---
+  listNotes: () => json<{ notes: NoteMeta[] }>("/api/vault"),
+  getNote: (path: string) => json<NoteContents>(`/api/vault/note?path=${encodeURIComponent(path)}`),
+  createNote: (path: string) =>
+    json<NoteMeta>("/api/vault/note", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path }),
+    }),
+  saveNote: (path: string, markdown: string) =>
+    json<NoteMeta>("/api/vault/note", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path, markdown }),
+    }),
+  deleteNote: (path: string) =>
+    json<{ deleted: boolean }>(`/api/vault/note?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+  renameNote: (from: string, to: string) =>
+    json<NoteMeta>("/api/vault/note/rename", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ from, to }),
+    }),
+
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
   getMessages: (id: number) => json<{ messages: Message[] }>(`/api/conversations/${id}/messages`),
   getLatestDigest: () => json<{ date: string; content: string }>("/api/digest/latest"),

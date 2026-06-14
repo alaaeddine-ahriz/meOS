@@ -148,7 +148,7 @@ export function overlayStoredLlmConfig(config: MeosConfig, stored: Partial<LlmCo
 }
 
 export function ensureDataDirs(config: MeosConfig): void {
-  for (const dir of ["", "wiki", "digests"]) {
+  for (const dir of ["", "wiki", "digests", "vault"]) {
     fs.mkdirSync(path.join(config.dataDir, dir), { recursive: true });
   }
   // Seed the schema document (the user-editable conventions every LLM stage

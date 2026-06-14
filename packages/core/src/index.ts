@@ -72,6 +72,8 @@ export type { ProfileProposal } from "./profile/profile-assistant.js";
 export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
+export { Vault } from "./vault/vault.js";
+export type { NoteContents, NoteMeta } from "./vault/vault.js";
 export { lintPage } from "./wiki/wiki-lint.js";
 export type { IssueSeverity, LintIssue, PageLintResult } from "./wiki/wiki-lint.js";
 export { healWiki } from "./wiki/self-healing.js";
