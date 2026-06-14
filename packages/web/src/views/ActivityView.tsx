@@ -36,9 +36,36 @@ type FeedItem =
   | { kind: "run"; run: WikiRun }
   | { kind: "doc"; item: InboxItem };
 
-/** When a feed entry happened, from whichever record it wraps. */
+/**
+ * When a feed entry last had activity. For a document that's its updated_at, so
+ * a file that changed and was re-read rises back to the top of the timeline
+ * rather than staying frozen at its first-seen time.
+ */
 function feedTime(entry: FeedItem): number {
-  return epochOf(entry.kind === "run" ? entry.run.created_at : entry.item.created_at);
+  return epochOf(entry.kind === "run" ? entry.run.created_at : entry.item.updated_at);
+}
+
+/** Plain-language word for what happened to a document, shown beside its name. */
+function docLabel(item: InboxItem): string {
+  switch (item.status) {
+    case "queued":
+      return "queued";
+    case "parsing":
+      return "reading";
+    case "extracting":
+      return "extracting";
+    case "merging":
+      return "merging";
+    case "done":
+      // A revision past the first means the file changed and was re-read.
+      return item.revision > 1 ? "updated" : "ingested";
+    case "failed":
+      return "failed";
+    case "unsupported":
+      return "skipped";
+    default:
+      return item.status;
+  }
 }
 
 const RUN_DOTS: Record<WikiRun["status"], string> = {
@@ -251,10 +278,11 @@ function DocCard({ item }: { item: InboxItem }) {
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm text-paper">{item.title}</span>
         <span className="font-mono text-[11px] uppercase tracking-wider text-dim">
-          {item.detail ?? item.status}
+          {docLabel(item)}
+          {item.detail ? ` · ${item.detail}` : ""}
         </span>
       </span>
-      <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(item.created_at)}</span>
+      <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(item.updated_at)}</span>
     </>
   );
   return (

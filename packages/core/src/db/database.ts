@@ -327,6 +327,23 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_wiki_run_events_run ON wiki_run_events(run_id, seq);
   `,
+  // 15 — make the Inbox feed file-centric: a watched file gets one row, keyed
+  // by its path, that is reset in place each time the file changes (revision++)
+  // instead of appending a fresh duplicate event. Uploads keep path NULL.
+  `
+  ALTER TABLE inbox_items ADD COLUMN path TEXT;
+  ALTER TABLE inbox_items ADD COLUMN revision INTEGER NOT NULL DEFAULT 1;
+  CREATE INDEX idx_inbox_items_path ON inbox_items(path);
+  `,
+  // 16 — content hash on the ingest ledger. mtime+size stays the cheap
+  // pre-filter; the hash (computed from the buffer we already read to ingest)
+  // confirms whether the bytes actually changed, so a metadata-only touch
+  // (cloud re-download, backup restore, `touch`) no longer triggers a needless
+  // re-ingest. Indexed so a moved/renamed file can later be recognised by content.
+  `
+  ALTER TABLE ingested_files ADD COLUMN content_hash TEXT;
+  CREATE INDEX idx_ingested_files_hash ON ingested_files(content_hash);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

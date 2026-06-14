@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -40,7 +41,13 @@ export class FolderWatcher {
     this.watcher = chokidar.watch([], {
       ignoreInitial: false,
       awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
-      ignored: (filePath) => path.basename(filePath).startsWith("."),
+      ignored: (filePath) => {
+        const base = path.basename(filePath);
+        // Dotfiles, and Office/LibreOffice owner-lock files ("~$report.docx",
+        // ".~lock.report.odt#") — transient siblings of open documents that
+        // only ever fail to parse and flood the feed.
+        return base.startsWith(".") || base.startsWith("~$") || base.startsWith(".~lock.");
+      },
     });
     this.watcher.on("add", (filePath) => this.consider(filePath));
     this.watcher.on("change", (filePath) => this.consider(filePath));
@@ -86,16 +93,20 @@ export class FolderWatcher {
     } catch {
       return; // gone between event and stat
     }
+    // Cheap stat-only gate: files whose (path + mtime + size) we've already
+    // absorbed never get past here, so a startup sweep of thousands of files
+    // costs no reads. A pass only means "maybe changed" — the hash decides.
     if (!this.deps.store.fileNeedsIngest(filePath, stat.mtimeMs, stat.size)) return;
 
     const filename = path.basename(filePath);
-    const inboxItemId = this.deps.store.createInboxItem(filename);
-    this.deps.queue.push(async () => {
+    const { store, pipeline, queue } = this.deps;
+    queue.push(async () => {
       // Never read synchronously here: one file with stuck I/O would wedge
       // the whole event loop, taking the API down with it.
       if (await isDatalessPlaceholder(filePath)) {
-        this.deps.store.updateInboxItem(
-          inboxItemId,
+        const { id } = store.upsertInboxItemForFile(filePath, filename);
+        store.updateInboxItem(
+          id,
           "failed",
           "Online-only cloud placeholder — download the file locally and it will be retried",
         );
@@ -105,21 +116,31 @@ export class FolderWatcher {
       try {
         buffer = await fs.promises.readFile(filePath);
       } catch (error) {
-        this.deps.store.updateInboxItem(
-          inboxItemId,
-          "failed",
-          error instanceof Error ? error.message : String(error),
-        );
+        const { id } = store.upsertInboxItemForFile(filePath, filename);
+        store.updateInboxItem(id, "failed", error instanceof Error ? error.message : String(error));
         return;
       }
-      const outcome = await this.deps.pipeline.ingest(
+
+      // mtime/size moved but the bytes are identical (re-download, restore,
+      // `touch`): refresh the ledger so we stop re-checking it, and skip the
+      // LLM — no feed row, because nothing new actually arrived.
+      const contentHash = createHash("sha256").update(buffer).digest("hex");
+      if (store.fileContentUnchanged(filePath, contentHash)) {
+        store.recordIngestedFile(filePath, stat.mtimeMs, stat.size, contentHash);
+        return;
+      }
+
+      // A genuine new file or edit — only now does it become a feed event, so a
+      // cosmetic touch never flashes a spurious "updated" row.
+      const { id: inboxItemId } = store.upsertInboxItemForFile(filePath, filename);
+      const outcome = await pipeline.ingest(
         { kind: "file", filename, buffer, origin: "watch", path: filePath },
         inboxItemId,
       );
       // A failure (e.g. LLM outage) stays off the ledger so the file is
       // retried on the next server start instead of being skipped forever.
       if (outcome.status !== "failed") {
-        this.deps.store.recordIngestedFile(filePath, stat.mtimeMs, stat.size);
+        store.recordIngestedFile(filePath, stat.mtimeMs, stat.size, contentHash);
       }
     });
   }

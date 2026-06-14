@@ -52,6 +52,10 @@ export interface InboxItemRow {
   title: string;
   status: string;
   detail: string | null;
+  /** Absolute path for watched files; null for uploads and pasted text. */
+  path: string | null;
+  /** How many times this file has been ingested; > 1 means it changed and was re-read. */
+  revision: number;
   created_at: string;
   updated_at: string;
 }
@@ -269,6 +273,34 @@ export class KnowledgeStore {
     return Number(result.lastInsertRowid);
   }
 
+  /**
+   * One feed row per watched file, keyed by path. The first time a file is
+   * seen it inserts a row; every later change resets that same row to 'queued'
+   * (clearing the stale detail) and bumps its revision, so the file moves up
+   * the feed instead of spawning a duplicate. `isUpdate` lets callers and the
+   * UI distinguish "newly ingested" from "changed and re-read".
+   */
+  upsertInboxItemForFile(filePath: string, title: string): { id: number; isUpdate: boolean } {
+    const existing = this.db
+      .prepare("SELECT id FROM inbox_items WHERE path = ?")
+      .get(filePath) as { id: number } | undefined;
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE inbox_items
+           SET title = ?, status = 'queued', detail = NULL, revision = revision + 1,
+               updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(title, existing.id);
+      return { id: existing.id, isUpdate: true };
+    }
+    const result = this.db
+      .prepare("INSERT INTO inbox_items (title, path) VALUES (?, ?)")
+      .run(title, filePath);
+    return { id: Number(result.lastInsertRowid), isUpdate: false };
+  }
+
   updateInboxItem(id: number, status: string, detail?: string, sourceId?: number): void {
     this.db
       .prepare(
@@ -281,8 +313,9 @@ export class KnowledgeStore {
   }
 
   listInbox(limit = 100): InboxItemRow[] {
+    // Most recently touched first, so a file that just changed rises to the top.
     return this.db
-      .prepare("SELECT * FROM inbox_items ORDER BY id DESC LIMIT ?")
+      .prepare("SELECT * FROM inbox_items ORDER BY updated_at DESC, id DESC LIMIT ?")
       .all(limit) as InboxItemRow[];
   }
 
@@ -1308,7 +1341,11 @@ export class KnowledgeStore {
     return row.path;
   }
 
-  /** True unless this exact file version (path + mtime + size) was absorbed before. */
+  /**
+   * Cheap pre-filter: true unless this exact (path + mtime + size) was absorbed
+   * before. Stat-only, so unchanged files cost no I/O. A "true" here only means
+   * "maybe changed" — the content hash confirms whether the bytes truly differ.
+   */
   fileNeedsIngest(filePath: string, mtimeMs: number, size: number): boolean {
     const row = this.db
       .prepare("SELECT mtime_ms, size FROM ingested_files WHERE path = ?")
@@ -1316,13 +1353,26 @@ export class KnowledgeStore {
     return !row || row.mtime_ms !== Math.floor(mtimeMs) || row.size !== size;
   }
 
-  recordIngestedFile(filePath: string, mtimeMs: number, size: number): void {
+  /**
+   * True when we've already absorbed exactly these bytes for this path — i.e.
+   * the mtime/size shifted but the content hash matches, so the change was
+   * cosmetic (re-download, restore, touch) and there's nothing new to ingest.
+   * False for a first sighting or a legacy row with no recorded hash.
+   */
+  fileContentUnchanged(filePath: string, contentHash: string): boolean {
+    const row = this.db
+      .prepare("SELECT content_hash FROM ingested_files WHERE path = ?")
+      .get(filePath) as { content_hash: string | null } | undefined;
+    return row?.content_hash != null && row.content_hash === contentHash;
+  }
+
+  recordIngestedFile(filePath: string, mtimeMs: number, size: number, contentHash?: string): void {
     this.db
       .prepare(
-        `INSERT INTO ingested_files (path, mtime_ms, size) VALUES (?, ?, ?)
+        `INSERT INTO ingested_files (path, mtime_ms, size, content_hash) VALUES (?, ?, ?, ?)
          ON CONFLICT(path) DO UPDATE SET mtime_ms = excluded.mtime_ms, size = excluded.size,
-           ingested_at = datetime('now')`,
+           content_hash = excluded.content_hash, ingested_at = datetime('now')`,
       )
-      .run(filePath, Math.floor(mtimeMs), size);
+      .run(filePath, Math.floor(mtimeMs), size, contentHash ?? null);
   }
 }

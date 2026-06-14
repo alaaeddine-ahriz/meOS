@@ -68,6 +68,10 @@ export interface InboxItem {
   title: string;
   status: string;
   detail: string | null;
+  /** Absolute path for watched files; null for uploads and pasted text. */
+  path: string | null;
+  /** How many times this file has been ingested; > 1 means it changed and was re-read. */
+  revision: number;
   created_at: string;
   updated_at: string;
 }
