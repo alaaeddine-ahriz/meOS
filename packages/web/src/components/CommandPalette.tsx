@@ -17,8 +17,7 @@ const VIEWS = [
   { label: "Wiki", to: "/wiki" },
   { label: "Graph", to: "/wiki?view=graph" },
   { label: "Activity", to: "/activity" },
-  { label: "Inbox", to: "/activity?tab=inbox" },
-  { label: "Conflicts", to: "/activity?tab=conflicts" },
+  { label: "Review", to: "/activity?tab=review" },
   { label: "Digest", to: "/activity?tab=digest" },
   { label: "Settings", to: "/settings" },
 ];

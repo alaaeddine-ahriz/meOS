@@ -123,9 +123,9 @@ export function App() {
           <Route path="/settings" element={<SettingsView />} />
           {/* Old standalone routes now live inside their consolidated surface. */}
           <Route path="/graph" element={<Navigate to="/wiki?view=graph" replace />} />
-          <Route path="/inbox" element={<Navigate to="/activity?tab=inbox" replace />} />
+          <Route path="/inbox" element={<Navigate to="/activity?tab=feed" replace />} />
           <Route path="/digest" element={<Navigate to="/activity?tab=digest" replace />} />
-          <Route path="/contradictions" element={<Navigate to="/activity?tab=conflicts" replace />} />
+          <Route path="/contradictions" element={<Navigate to="/activity?tab=review" replace />} />
         </Routes>
       </main>
 

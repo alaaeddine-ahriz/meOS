@@ -6,38 +6,37 @@ import { api } from "../api.js";
 import { ActivityView } from "./ActivityView.js";
 import { ContradictionsView } from "./ContradictionsView.js";
 import { DigestView } from "./DigestView.js";
-import { InboxView } from "./InboxView.js";
 
-type HubTabId = "inbox" | "runs" | "conflicts" | "digest";
-const TAB_IDS: HubTabId[] = ["inbox", "runs", "conflicts", "digest"];
+type HubTabId = "feed" | "review" | "digest";
+const TAB_IDS: HubTabId[] = ["feed", "review", "digest"];
+
+// Older deep-links used per-section tabs (inbox/runs/conflicts); fold them into the new ones.
+const TAB_ALIASES: Record<string, HubTabId> = {
+  inbox: "feed",
+  runs: "feed",
+  conflicts: "review",
+};
 
 /**
- * The agent-oversight hub: everything about what's coming in and what the
- * maintainer is doing, gathered behind one nav slot. Each section is the
- * existing view rendered embedded (no header of its own) under the shared shell.
+ * The agent-oversight hub, in three slots: a live Feed of documents landing and
+ * the pages the maintainer rewrites in response, a Review queue of duplicates
+ * and conflicting claims for you to decide, and the daily Digest.
  */
 export function ActivityHub() {
   const [params, setParams] = useSearchParams();
   const raw = params.get("tab");
-  const tab: HubTabId = TAB_IDS.includes(raw as HubTabId) ? (raw as HubTabId) : "inbox";
+  const tab: HubTabId = TAB_IDS.includes(raw as HubTabId)
+    ? (raw as HubTabId)
+    : TAB_ALIASES[raw ?? ""] ?? "feed";
 
-  const [queuePending, setQueuePending] = useState(0);
-  const [conflictCount, setConflictCount] = useState(0);
+  const [reviewCount, setReviewCount] = useState(0);
 
-  // Poll the inbox so the Inbox tab carries a live "absorbing" count.
-  useEffect(() => {
-    const poll = () => api.getInbox().then((r) => setQueuePending(r.queuePending)).catch(() => {});
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Open conflicts + likely duplicates feed the Conflicts tab badge.
+  // Open conflicts + likely duplicates feed the Review tab badge.
   useEffect(() => {
     Promise.all([
       api.getContradictions().then((r) => r.contradictions.length).catch(() => 0),
       api.getDuplicates().then((r) => r.duplicates.length).catch(() => 0),
-    ]).then(([c, d]) => setConflictCount(c + d));
+    ]).then(([c, d]) => setReviewCount(c + d));
   }, [tab]);
 
   const setTab = (next: HubTabId) => {
@@ -54,23 +53,19 @@ export function ActivityHub() {
       />
 
       <HubTabs className="rise mt-8">
-        <HubTab active={tab === "inbox"} count={queuePending} onClick={() => setTab("inbox")}>
-          Inbox
+        <HubTab active={tab === "feed"} onClick={() => setTab("feed")}>
+          Feed
         </HubTab>
-        <HubTab active={tab === "runs"} onClick={() => setTab("runs")}>
-          Runs
-        </HubTab>
-        <HubTab active={tab === "conflicts"} count={conflictCount} onClick={() => setTab("conflicts")}>
-          Conflicts
+        <HubTab active={tab === "review"} count={reviewCount} onClick={() => setTab("review")}>
+          Review
         </HubTab>
         <HubTab active={tab === "digest"} onClick={() => setTab("digest")}>
           Digest
         </HubTab>
       </HubTabs>
 
-      {tab === "inbox" && <InboxView embedded />}
-      {tab === "runs" && <ActivityView embedded />}
-      {tab === "conflicts" && <ContradictionsView embedded />}
+      {tab === "feed" && <ActivityView embedded />}
+      {tab === "review" && <ContradictionsView embedded />}
       {tab === "digest" && <DigestView embedded />}
     </Page>
   );

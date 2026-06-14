@@ -1,6 +1,5 @@
 import { Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { HubTab, HubTabs } from "@/components/HubTabs";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { api, type Contradiction, type DuplicateProposal, type ResolutionAction } from "../api.js";
 
-type Tab = "linked" | "conflicts";
+/** Which "apply all" flow the confirm dialog is for — duplicate merges or conflict resolutions. */
+type AutoKind = "linked" | "conflicts";
 
 const ACTION_LABEL: Record<ResolutionAction, string> = {
   supersede_a: "Keep the first",
@@ -35,10 +35,9 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<number | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("conflicts");
-  // Which tab's auto-apply the user is being asked to confirm, and whether a
-  // confirmed run is in flight. Auto mode never acts without this confirmation.
-  const [confirmAuto, setConfirmAuto] = useState<Tab | null>(null);
+  // Which "apply all" the user is being asked to confirm, and whether a confirmed
+  // run is in flight. Auto mode never acts without this confirmation.
+  const [confirmAuto, setConfirmAuto] = useState<AutoKind | null>(null);
   const [autoRunning, setAutoRunning] = useState(false);
 
   const load = () =>
@@ -157,17 +156,9 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
 
   const body = (
     <>
-      <HubTabs className="rise mt-8">
-        <HubTab active={tab === "linked"} onClick={() => setTab("linked")} count={duplicates.length}>
-          Linked
-        </HubTab>
-        <HubTab active={tab === "conflicts"} onClick={() => setTab("conflicts")} count={items.length}>
-          Conflicts
-        </HubTab>
-      </HubTabs>
-
-      {tab === "linked" && (
-        <div className="rise rise-1 mt-8 flex flex-col gap-2 pb-16">
+      <section className="rise mt-8">
+        <SectionHeading title="Possible duplicates" count={duplicates.length} />
+        <div className="mt-4 flex flex-col gap-2">
           {duplicates.length > 0 && (
             <AutoBar
               label={`Merge all ${duplicates.length} using the suggested winner`}
@@ -216,10 +207,11 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
             })
           )}
         </div>
-      )}
+      </section>
 
-      {tab === "conflicts" && (
-      <div className="rise rise-1 mt-8 flex flex-col gap-4 pb-16">
+      <section className="rise rise-1 mt-10">
+        <SectionHeading title="Conflicting claims" count={items.length} />
+        <div className="mt-4 flex flex-col gap-4 pb-16">
         {autoResolvable.length > 0 && (
           <AutoBar
             label={`Resolve ${autoResolvable.length} of ${items.length} using the suggestion`}
@@ -272,8 +264,8 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
             );
           })
         )}
-      </div>
-      )}
+        </div>
+      </section>
 
       <Dialog open={confirmAuto !== null} onOpenChange={(open) => !open && !autoRunning && setConfirmAuto(null)}>
         <DialogContent showCloseButton={!autoRunning}>
@@ -353,7 +345,19 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   );
 }
 
-/** A subtle row offering to apply every suggestion in the current tab at once. */
+/** A small section label with a count badge, separating the two kinds of review. */
+function SectionHeading({ title, count }: { title: string; count: number }) {
+  return (
+    <h2 className="flex items-center gap-2 text-sm font-medium text-paper">
+      {title}
+      {count > 0 && (
+        <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
+      )}
+    </h2>
+  );
+}
+
+/** A subtle row offering to apply every suggestion in a section at once. */
 function AutoBar({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
   return (
     <div className="mb-2 flex items-center justify-between rounded-lg border border-dashed border-line bg-card/20 px-3 py-2">
