@@ -317,18 +317,47 @@ export const MessageBranchPage = ({
 
 export type MessageResponseProps = ComponentProps<typeof Streamdown>;
 
-// Markdown only — the shiki/mermaid/katex streamdown plugins would add
-// megabytes to the bundle for rendering MeOS never produces.
+type StreamdownPlugins = NonNullable<ComponentProps<typeof Streamdown>["plugins"]>;
+
+// Syntax highlighting (Shiki) only — loaded on demand and code-split out of the
+// initial bundle, so the chat stays light until an assistant message actually
+// renders a code block. Loaded once per session and shared across messages.
+// Mermaid diagram rendering is deliberately NOT enabled: the knowledge graph an
+// answer traverses is already drawn as the interactive ai-elements graph beneath
+// it, so a second, cramped diagram in the prose would only duplicate it.
+let pluginsPromise: Promise<StreamdownPlugins> | null = null;
+function loadCodePlugins(): Promise<StreamdownPlugins> {
+  pluginsPromise ??= import("@streamdown/code").then(({ code }) => ({ code }));
+  return pluginsPromise;
+}
+
+// Markdown with on-demand syntax highlighting: until the plugin resolves, code
+// blocks render as plain (but still copyable) fenced blocks; once loaded they
+// upgrade in place.
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        className
-      )}
-      {...props}
-    />
-  ),
+  ({ className, ...props }: MessageResponseProps) => {
+    const [plugins, setPlugins] = useState<StreamdownPlugins>();
+    useEffect(() => {
+      let active = true;
+      loadCodePlugins().then((loaded) => {
+        if (active) setPlugins(loaded);
+      });
+      return () => {
+        active = false;
+      };
+    }, []);
+
+    return (
+      <Streamdown
+        className={cn(
+          "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          className
+        )}
+        plugins={plugins}
+        {...props}
+      />
+    );
+  },
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
     nextProps.isAnimating === prevProps.isAnimating

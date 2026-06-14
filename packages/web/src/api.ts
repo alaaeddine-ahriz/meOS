@@ -248,6 +248,9 @@ export type ChatEvent =
   | { type: "start"; conversationId: number }
   | { type: "sources"; sources: SourceRef[] }
   | { type: "reasoning"; text: string }
+  | { type: "tool-call"; toolCallId?: string; toolName: string; input: unknown }
+  | { type: "tool-result"; toolCallId?: string; toolName: string; output: unknown }
+  | { type: "graph"; nodes: GraphNode[]; links: GraphLink[] }
   | { type: "delta"; text: string }
   | { type: "done" }
   | { type: "error"; message: string; kind?: LlmErrorKind };

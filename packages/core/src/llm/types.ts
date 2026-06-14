@@ -33,8 +33,8 @@ export interface StructuredRequest<T> extends CompletionRequest {
  */
 export type AgentActivityChunk =
   | { type: "reasoning"; text: string }
-  | { type: "tool-call"; toolName: string; input: unknown }
-  | { type: "tool-result"; toolName: string; output: unknown }
+  | { type: "tool-call"; toolCallId?: string; toolName: string; input: unknown }
+  | { type: "tool-result"; toolCallId?: string; toolName: string; output: unknown }
   | { type: "text"; text: string };
 
 /**
@@ -63,6 +63,22 @@ export interface AgentResult {
   steps: number;
 }
 
+/**
+ * A streaming, sandbox-free tool-using run — the agentic chat's seam. Unlike
+ * {@link AgentRequest} (the wiki maintainer, which edits files in a bash-tool
+ * sandbox), this carries a multi-turn conversation and a {@link ToolSet} whose
+ * tools `execute` against the knowledge base directly. The run is consumed as an
+ * async iterable so the chat can stream the model's reasoning, each tool call /
+ * result, and the answer text the moment they arrive.
+ */
+export interface AgentStreamRequest {
+  system?: string;
+  /** Conversation history plus the current user turn. */
+  messages: ChatMessage[];
+  tools: ToolSet;
+  maxSteps?: number;
+}
+
 /** A streamed completion chunk: either visible answer text or model reasoning. */
 export type StreamChunk =
   | { type: "text"; text: string }
@@ -77,6 +93,8 @@ export interface LlmClient {
   stream(request: CompletionRequest): AsyncIterable<StreamChunk>;
   /** Multi-step tool-using run over a bash-tool sandbox. */
   runAgent(request: AgentRequest): Promise<AgentResult>;
+  /** Streaming, sandbox-free tool-using run — powers the agentic chat. */
+  streamAgent(request: AgentStreamRequest): AsyncIterable<AgentActivityChunk>;
 }
 
 /** Flatten message content to plain text (images dropped) — for providers without vision. */

@@ -32,6 +32,9 @@ export type {
   RelationshipView,
   SourceChangeRow,
   SourceRef,
+  Subgraph,
+  SubgraphEdge,
+  SubgraphNode,
   WikiChange,
   WikiPageWithVector,
   WikiRunEventKind,
@@ -91,6 +94,8 @@ export { classifyIntent } from "./chat/query-planner.js";
 export type { QueryIntent } from "./chat/query-planner.js";
 export { ChatService } from "./chat/chat.js";
 export type { ChatResponseEvent } from "./chat/chat.js";
+export { buildChatTools } from "./chat/tools.js";
+export type { ChatTools, TraversalGraph } from "./chat/tools.js";
 export {
   contradictionReport,
   decisionBrief,

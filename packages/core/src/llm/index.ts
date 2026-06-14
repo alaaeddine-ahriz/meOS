@@ -181,6 +181,7 @@ export type {
   AgentActivityChunk,
   AgentRequest,
   AgentResult,
+  AgentStreamRequest,
   ChatMessage,
   CompletionRequest,
   ContentPart,

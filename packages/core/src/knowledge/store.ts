@@ -14,6 +14,31 @@ export interface EntityRow {
   updated_at: string;
 }
 
+/** A node in a traversed subgraph — the fields a graph view needs to draw + link it. */
+export interface SubgraphNode {
+  id: number;
+  type: string;
+  name: string;
+  slug: string;
+}
+
+/** A labelled, directed edge between two subgraph nodes. */
+export interface SubgraphEdge {
+  from: number;
+  to: number;
+  label: string;
+}
+
+/** A connected slice of the knowledge graph: nodes reached and the edges among them. */
+export interface Subgraph {
+  nodes: SubgraphNode[];
+  edges: SubgraphEdge[];
+}
+
+function toSubgraphNode(entity: EntityRow): SubgraphNode {
+  return { id: entity.id, type: entity.type, name: entity.name, slug: entity.slug };
+}
+
 export interface ObservationRow {
   id: number;
   entity_id: number;
@@ -666,6 +691,51 @@ export class KnowledgeStore {
       )
       .all(...seedIds, ...seedIds, ...seedIds, limit) as Array<{ neighbor: number }>;
     return rows.map((row) => row.neighbor);
+  }
+
+  /**
+   * Breadth-first walk of the knowledge graph outward from one entity, following
+   * active relationships up to `maxHops` and capped at `maxNodes`. Returns the
+   * connected subgraph — the nodes actually reached and the labelled edges among
+   * them — so a caller can both reason over the full neighbourhood and draw the
+   * exact path it traversed. The seed is always included; edges are kept only
+   * when both endpoints made the node cut, so the result is always renderable.
+   */
+  exploreSubgraph(seedId: number, maxHops = 2, maxNodes = 50): Subgraph {
+    const seed = this.getEntity(seedId);
+    if (!seed) return { nodes: [], edges: [] };
+    const nodes = new Map<number, SubgraphNode>([[seed.id, toSubgraphNode(seed)]]);
+    const edges: SubgraphEdge[] = [];
+    const seenEdge = new Set<string>();
+    const visited = new Set<number>([seedId]);
+    let frontier = [seedId];
+
+    for (let hop = 0; hop < maxHops && frontier.length > 0; hop++) {
+      const next: number[] = [];
+      for (const id of frontier) {
+        for (const rel of this.relationshipsFor(id)) {
+          const key = `${rel.from_entity}->${rel.to_entity}:${rel.label}`;
+          if (!seenEdge.has(key)) {
+            seenEdge.add(key);
+            edges.push({ from: rel.from_entity, to: rel.to_entity, label: rel.label });
+          }
+          const otherId = rel.from_entity === id ? rel.to_entity : rel.from_entity;
+          if (!visited.has(otherId) && nodes.size < maxNodes) {
+            visited.add(otherId);
+            const other = this.getEntity(otherId);
+            if (other) {
+              nodes.set(otherId, toSubgraphNode(other));
+              next.push(otherId);
+            }
+          }
+        }
+      }
+      frontier = next;
+    }
+
+    // Drop edges to nodes that fell outside the cap, so every edge is drawable.
+    const keptEdges = edges.filter((e) => nodes.has(e.from) && nodes.has(e.to));
+    return { nodes: [...nodes.values()], edges: keptEdges };
   }
 
   // --- observations ---

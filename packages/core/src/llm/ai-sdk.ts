@@ -8,8 +8,10 @@ import {
 } from "ai";
 import { normalizeLlmError } from "./errors.js";
 import type {
+  AgentActivityChunk,
   AgentRequest,
   AgentResult,
+  AgentStreamRequest,
   ChatMessage,
   CompletionRequest,
   LlmClient,
@@ -165,6 +167,34 @@ export class AiSdkClient implements LlmClient {
         else if (part.type === "error") throw part.error;
       }
       return { text: await result.text, steps: (await result.steps).length };
+    } catch (error) {
+      throw normalizeLlmError(error, this.provider);
+    }
+  }
+
+  async *streamAgent(request: AgentStreamRequest): AsyncIterable<AgentActivityChunk> {
+    // The agentic chat runs on the main chat model (not the maintainer's), so a
+    // tool loop answers in the model the user picked for chat. Tools carry their
+    // own `execute`, so the SDK runs the loop; we surface each reasoning delta,
+    // tool call, tool result, and answer-text delta as it streams.
+    try {
+      const result = streamText({
+        model: this.model,
+        system: request.system,
+        messages: request.messages.map(AiSdkClient.mapMessage),
+        tools: request.tools,
+        maxOutputTokens: this.maxTokens,
+        stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_STEPS),
+      });
+      for await (const part of result.fullStream) {
+        if (part.type === "reasoning-delta") yield { type: "reasoning", text: part.text };
+        else if (part.type === "text-delta") yield { type: "text", text: part.text };
+        else if (part.type === "tool-call")
+          yield { type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, input: part.input };
+        else if (part.type === "tool-result")
+          yield { type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: part.output };
+        else if (part.type === "error") throw part.error;
+      }
     } catch (error) {
       throw normalizeLlmError(error, this.provider);
     }

@@ -1,4 +1,13 @@
-import type { AgentRequest, AgentResult, CompletionRequest, LlmClient, StreamChunk, StructuredRequest } from "./types.js";
+import type {
+  AgentActivityChunk,
+  AgentRequest,
+  AgentResult,
+  AgentStreamRequest,
+  CompletionRequest,
+  LlmClient,
+  StreamChunk,
+  StructuredRequest,
+} from "./types.js";
 
 /**
  * Delegating client whose inner provider can be swapped at runtime — the
@@ -26,5 +35,9 @@ export class SwitchableLlmClient implements LlmClient {
 
   runAgent(request: AgentRequest): Promise<AgentResult> {
     return this.inner.runAgent(request);
+  }
+
+  streamAgent(request: AgentStreamRequest): AsyncIterable<AgentActivityChunk> {
+    return this.inner.streamAgent(request);
   }
 }

@@ -1,8 +1,17 @@
 import type { ChatStatus } from "ai";
 import { FileText, Library, Paperclip, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { api, streamChat, type EntitySummary, type LlmErrorKind, type Message as MessageRecord, type SourceRef } from "../api.js";
+import {
+  api,
+  streamChat,
+  type EntitySummary,
+  type GraphLink,
+  type GraphNode,
+  type LlmErrorKind,
+  type Message as MessageRecord,
+  type SourceRef,
+} from "../api.js";
 import { DiffView } from "../components/DiffView.js";
 import { SourceList } from "../components/SourceList.js";
 import { Button } from "@/components/ui/button";
@@ -29,8 +38,18 @@ import {
   type PromptInputMessage,
 } from "@/components/ai-elements/prompt-input";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
+import {
+  Tool,
+  ToolContent,
+  ToolHeader,
+  ToolInput,
+  ToolOutput,
+  type ToolState,
+} from "@/components/ai-elements/tool";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { Suggestion, Suggestions } from "@/components/ai-elements/suggestion";
+import { ForceGraph } from "../components/ForceGraph.js";
+import { WikiPageView } from "./WikiPage.js";
 import {
   CommandDialog,
   CommandEmpty,
@@ -101,6 +120,56 @@ function parseUserMessage(content: string): { text: string; files: string[]; wik
   return { text: rest.trim(), files, wikis };
 }
 
+/**
+ * One step in an assistant turn's live agent trace: either the model's
+ * (accreting) private reasoning, or a tool call with its eventual result. Kept
+ * in arrival order so the UI reads as "thought → consulted → thought → answered".
+ */
+type AgentPart =
+  | { kind: "reasoning"; text: string }
+  | { kind: "tool"; toolCallId?: string; toolName: string; input: unknown; output?: unknown; state: ToolState };
+
+/** Merge a reasoning delta into the trailing reasoning part, or open a new one. */
+function appendReasoning(parts: AgentPart[], text: string): AgentPart[] {
+  const last = parts[parts.length - 1];
+  if (last?.kind === "reasoning") {
+    return [...parts.slice(0, -1), { ...last, text: last.text + text }];
+  }
+  return [...parts, { kind: "reasoning", text }];
+}
+
+/** Attach a tool result to its pending call (matched by id, else by name). */
+function settleTool(parts: AgentPart[], toolCallId: string | undefined, toolName: string, output: unknown): AgentPart[] {
+  const next = [...parts];
+  for (let i = next.length - 1; i >= 0; i--) {
+    const part = next[i]!;
+    const matches = toolCallId ? part.kind === "tool" && part.toolCallId === toolCallId : part.kind === "tool" && part.toolName === toolName;
+    if (part.kind === "tool" && matches && part.output === undefined) {
+      next[i] = { ...part, output, state: "output-available" };
+      return next;
+    }
+  }
+  return next;
+}
+
+// Human-readable verb per knowledge tool, shown in the trace header.
+const TOOL_LABELS: Record<string, string> = {
+  search_knowledge: "Searched the knowledge base",
+  read_wiki_page: "Read a wiki page",
+  get_entity: "Looked up an entity",
+  explore_graph: "Explored the graph",
+};
+
+/** The argument worth showing inline in a tool header ("…for 'Orion'"). */
+function toolArg(input: unknown): string | null {
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    const value = record.query ?? record.entity ?? record.name;
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
 export function ChatView() {
   // the active conversation lives in the URL (?c=<id>) so the command palette
   // can open past chats; no `c` means a fresh conversation
@@ -110,13 +179,19 @@ export function ChatView() {
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<{ message: string; kind?: LlmErrorKind } | null>(null);
-  // sources and reasoning arrive per streamed reply, keyed by the assistant
-  // message's index
+  // sources arrive per streamed reply, keyed by the assistant message's index
   const [liveSources, setLiveSources] = useState<ReadonlyMap<number, SourceRef[]>>(new Map());
-  const [liveReasoning, setLiveReasoning] = useState<ReadonlyMap<number, string>>(new Map());
+  // the agent's live trace (reasoning + tool calls, in arrival order), keyed the
+  // same way — so each turn shows the model thinking and consulting the brain
+  const [liveTrace, setLiveTrace] = useState<ReadonlyMap<number, AgentPart[]>>(new Map());
+  // the subgraph the agent traversed this turn, drawn as an interactive graph
+  // beneath the answer (keyed by the assistant message's index)
+  const [liveGraph, setLiveGraph] = useState<ReadonlyMap<number, { nodes: GraphNode[]; links: GraphLink[] }>>(new Map());
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
+  // the wiki page opened beside the chat (a [[link]] click) — null when closed
+  const [wikiPanelSlug, setWikiPanelSlug] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -129,7 +204,8 @@ export function ChatView() {
       return;
     }
     setLiveSources(new Map());
-    setLiveReasoning(new Map());
+    setLiveTrace(new Map());
+    setLiveGraph(new Map());
     setError(null);
     setStatus("ready");
     if (activeId === null) {
@@ -139,16 +215,48 @@ export function ChatView() {
     api.getMessages(activeId).then((r) => setMessages(r.messages)).catch(() => {});
   }, [activeId]);
 
-  // streamdown renders plain anchors; route internal links through the router
-  const onProseClick = useCallback(
-    (event: MouseEvent<HTMLElement>) => {
-      const anchor = (event.target as HTMLElement).closest("a");
-      const href = anchor?.getAttribute("href");
-      if (href?.startsWith("/")) {
-        event.preventDefault();
-        navigate(href);
-      }
-    },
+  // Streamdown renders its own link element (a <button>, not an <a href>), so we
+  // override the link renderer instead of delegating clicks: a wiki link opens
+  // beside the chat (side panel), other internal links route, externals open out.
+  const markdownComponents = useMemo<ComponentProps<typeof MessageResponse>["components"]>(
+    () => ({
+      a: ({ href, children }) => {
+        const url = typeof href === "string" ? href : "";
+        if (url.startsWith("/wiki/")) {
+          return (
+            <a
+              href={url}
+              className="cursor-pointer font-medium text-lamp underline-offset-2 hover:underline"
+              onClick={(event) => {
+                event.preventDefault();
+                setWikiPanelSlug(url.slice("/wiki/".length));
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+        if (url.startsWith("/")) {
+          return (
+            <a
+              href={url}
+              className="cursor-pointer underline-offset-2 hover:underline"
+              onClick={(event) => {
+                event.preventDefault();
+                navigate(url);
+              }}
+            >
+              {children}
+            </a>
+          );
+        }
+        return (
+          <a href={url} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+            {children}
+          </a>
+        );
+      },
+    }),
     [navigate],
   );
 
@@ -174,8 +282,32 @@ export function ChatView() {
         } else if (event.type === "sources") {
           setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
         } else if (event.type === "reasoning") {
-          setLiveReasoning((current) =>
-            new Map(current).set(assistantIndex, (current.get(assistantIndex) ?? "") + event.text),
+          setLiveTrace((current) =>
+            new Map(current).set(assistantIndex, appendReasoning(current.get(assistantIndex) ?? [], event.text)),
+          );
+        } else if (event.type === "tool-call") {
+          setLiveTrace((current) =>
+            new Map(current).set(assistantIndex, [
+              ...(current.get(assistantIndex) ?? []),
+              {
+                kind: "tool",
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                input: event.input,
+                state: "input-available",
+              },
+            ]),
+          );
+        } else if (event.type === "tool-result") {
+          setLiveTrace((current) =>
+            new Map(current).set(
+              assistantIndex,
+              settleTool(current.get(assistantIndex) ?? [], event.toolCallId, event.toolName, event.output),
+            ),
+          );
+        } else if (event.type === "graph") {
+          setLiveGraph((current) =>
+            new Map(current).set(assistantIndex, { nodes: event.nodes, links: event.links }),
           );
         } else if (event.type === "delta") {
           setStatus("streaming");
@@ -238,30 +370,33 @@ export function ChatView() {
 
   return (
     <PromptInputProvider>
-      <div className="flex h-full min-w-0 flex-col">
+      <div className="flex h-full min-w-0">
+        <div className="flex h-full min-w-0 flex-1 flex-col">
         <Conversation className="flex-1">
           <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-10">
             <>
               {messages.map((message, index) => {
-                const reasoning = liveReasoning.get(index);
+                const trace = liveTrace.get(index);
+                const graph = liveGraph.get(index);
                 return (
                   <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
                     <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
                       {message.role === "assistant" ? (
                         <>
-                          {reasoning && (
-                            <Reasoning className="mb-1" isStreaming={busy && index === lastIndex && !message.content}>
-                              <ReasoningTrigger />
-                              <ReasoningContent>{reasoning}</ReasoningContent>
-                            </Reasoning>
+                          {trace && trace.length > 0 && (
+                            <AgentTrace trace={trace} streaming={busy && index === lastIndex && !message.content} />
                           )}
                           {message.content ? (
                             (() => {
                               const { text: proseText, patch: profilePatch } = splitProfileEdit(message.content);
                               return (
-                                <div onClick={onProseClick} className="text-[15px]">
+                                <div className="text-[15px]">
                                   {proseText && (
-                                    <MessageResponse className="prose-meos" isAnimating={busy && index === lastIndex}>
+                                    <MessageResponse
+                                      className="prose-meos"
+                                      isAnimating={busy && index === lastIndex}
+                                      components={markdownComponents}
+                                    >
                                       {resolveWikiLinks(proseText, entities)}
                                     </MessageResponse>
                                   )}
@@ -274,11 +409,12 @@ export function ChatView() {
                                 </div>
                               );
                             })()
-                          ) : reasoning ? null : (
+                          ) : trace && trace.length > 0 ? null : (
                             <Shimmer className="text-sm" duration={1.6}>
                               Consulting the knowledge base…
                             </Shimmer>
                           )}
+                          {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
                         </>
                       ) : (
                         <UserMessage content={message.content} entities={entities} />
@@ -298,8 +434,82 @@ export function ChatView() {
             <Composer status={status} busy={busy} onSend={send} entities={entities} />
           </div>
         </div>
+        </div>
+
+        {wikiPanelSlug && (
+          <aside className="flex h-full w-[420px] shrink-0 flex-col border-l border-line bg-desk">
+            <WikiPageView
+              slug={wikiPanelSlug}
+              embedded
+              onNavigate={setWikiPanelSlug}
+              onClose={() => setWikiPanelSlug(null)}
+            />
+          </aside>
+        )}
       </div>
     </PromptInputProvider>
+  );
+}
+
+/**
+ * The agent's live trace above an answer: its reasoning and each knowledge-base
+ * tool call, in the order they happened — the chat equivalent of the wiki
+ * maintainer's transcript, built from ai-elements Reasoning + Tool.
+ */
+function AgentTrace({ trace, streaming }: { trace: AgentPart[]; streaming: boolean }) {
+  return (
+    <div className="mb-2 flex flex-col gap-1.5">
+      {trace.map((part, index) => {
+        const isLast = index === trace.length - 1;
+        if (part.kind === "reasoning") {
+          return (
+            <Reasoning key={index} isStreaming={streaming && isLast}>
+              <ReasoningTrigger />
+              <ReasoningContent>{part.text}</ReasoningContent>
+            </Reasoning>
+          );
+        }
+        const label = TOOL_LABELS[part.toolName] ?? part.toolName;
+        const arg = toolArg(part.input);
+        return (
+          <Tool key={index}>
+            <ToolHeader
+              state={part.state}
+              title={
+                <span className="flex items-baseline gap-1.5">
+                  {label}
+                  {arg && <span className="truncate font-normal text-muted-foreground">“{arg}”</span>}
+                </span>
+              }
+            />
+            <ToolContent>
+              <ToolInput input={part.input} />
+              <ToolOutput output={part.output} />
+            </ToolContent>
+          </Tool>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * The subgraph the agent traversed to answer, drawn with the same interactive
+ * force engine as the wiki Graph view — drag nodes, pan, click through to a page.
+ * Wheel-zoom is off so it doesn't trap the chat scroll.
+ */
+function ChatGraph({ graph }: { graph: { nodes: GraphNode[]; links: GraphLink[] } }) {
+  return (
+    <figure className="mt-3 overflow-hidden rounded-xl border border-line bg-desk">
+      <figcaption className="flex items-center justify-between border-b border-line px-3 py-2 text-[11px] text-dim">
+        <span className="font-mono uppercase tracking-wider">Traversed</span>
+        <span>
+          {graph.nodes.length} {graph.nodes.length === 1 ? "node" : "nodes"} · {graph.links.length}{" "}
+          {graph.links.length === 1 ? "link" : "links"}
+        </span>
+      </figcaption>
+      <ForceGraph nodes={graph.nodes} links={graph.links} wheelZoom={false} className="h-72" />
+    </figure>
   );
 }
 
