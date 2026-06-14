@@ -5,8 +5,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * The single page shell every view sits in, so width, padding and rhythm stay
- * identical across the app. `bleed` opts out of the centred content column for
- * full-bleed surfaces (e.g. the graph canvas).
+ * identical across the app. The content column width comes from --page-max
+ * (set by the reading-width preference), so one switch widens every page at
+ * once. `bleed` opts out of the centred column for full-bleed surfaces (e.g.
+ * the graph canvas).
  */
 export function Page({
   children,
@@ -20,7 +22,7 @@ export function Page({
   if (bleed) return <div className={cn("relative h-full overflow-hidden", className)}>{children}</div>;
   return (
     <div className="h-full overflow-y-auto">
-      <div className={cn("mx-auto w-full max-w-4xl px-10 py-10", className)}>{children}</div>
+      <div className={cn("mx-auto w-full max-w-[var(--page-max)] px-10 py-10", className)}>{children}</div>
     </div>
   );
 }

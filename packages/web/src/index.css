@@ -178,6 +178,16 @@
   --prose-leading: 1.5;
 }
 
+/* ── reading width ────────────────────────────────────────────
+   Every page shell reads its content column from --page-max, so a
+   single switch widens the whole app coherently. */
+:root {
+  --page-max: 56rem;
+}
+[data-width="full"] {
+  --page-max: 100%;
+}
+
 @theme inline {
   --font-serif: var(--font-display);
   --font-sans: var(--font-body);
@@ -287,6 +297,19 @@ body::after {
 .rise-1 { animation-delay: 0.05s; }
 .rise-2 { animation-delay: 0.12s; }
 .rise-3 { animation-delay: 0.19s; }
+
+/* ── reduced motion ───────────────────────────────────────────
+   When the user turns animation off, collapse entrance animations,
+   the pulsing queue dot, and transitions to effectively instant. */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
 
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }
@@ -439,4 +462,106 @@ body::after {
   padding: 0.4rem 0.5rem;
   font-size: 0.8rem;
   color: var(--dim);
+}
+
+/* The `/` block-type menu — same shell as the @ popup, with leading icons. */
+.slash-menu {
+  position: absolute;
+  z-index: 60;
+  min-width: 15rem;
+  max-height: 20rem;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+  padding: 0.3rem;
+}
+.slash-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border-radius: 7px;
+  font-size: 0.9rem;
+  color: var(--faded);
+  text-align: left;
+}
+.slash-menu-item.is-active {
+  background: var(--desk);
+  color: var(--paper);
+}
+.slash-menu-icon {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 6px;
+  color: var(--dim);
+}
+.slash-menu-item.is-active .slash-menu-icon {
+  color: var(--lamp);
+}
+.slash-menu-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-menu-empty {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.85rem;
+  color: var(--dim);
+}
+
+/* Selection bubble menu — float the themed toolbar pill over the text. */
+.bubble-menu {
+  z-index: 60;
+}
+.bubble-menu .tiptap-toolbar {
+  --tt-toolbar-bg-color: var(--card);
+  --tt-toolbar-border-color: var(--line);
+  background-color: var(--card);
+  border-color: var(--line);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+
+/* Tables inserted from the `/` menu. */
+.tiptap.ProseMirror table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 0.75rem 0;
+  overflow: hidden;
+}
+.tiptap.ProseMirror table td,
+.tiptap.ProseMirror table th {
+  position: relative;
+  min-width: 4rem;
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+  vertical-align: top;
+}
+.tiptap.ProseMirror table th {
+  background: var(--card);
+  font-weight: 600;
+  text-align: left;
+}
+.tiptap.ProseMirror table .selectedCell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--lamp) 12%, transparent);
+  pointer-events: none;
+}
+.tiptap.ProseMirror table .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--lamp-dim);
+  cursor: col-resize;
 }

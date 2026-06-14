@@ -1,16 +1,20 @@
-// Appearance preferences. Four orthogonal axes persisted in localStorage and
-// applied to <html>: light/dark mode (a class), and palette / font / density
-// (data-attributes the stylesheet keys off). See index.css for the token sets.
+// Appearance preferences. Orthogonal axes persisted in localStorage and applied
+// to <html>: light/dark mode (a class), and palette / font / density / width /
+// motion (data-attributes the stylesheet keys off). See index.css for the tokens.
 
 export type ThemePreference = "light" | "dark" | "system";
 export type Palette = "warm" | "neutral" | "cool";
 export type FontPreset = "editorial" | "clean" | "literary" | "mono";
 export type Density = "spaced" | "compact";
+export type Width = "readable" | "full";
+export type Motion = "full" | "reduced";
 
 const MODE_KEY = "meos-theme";
 const PALETTE_KEY = "meos-palette";
 const FONT_KEY = "meos-font";
 const DENSITY_KEY = "meos-density";
+const WIDTH_KEY = "meos-width";
+const MOTION_KEY = "meos-motion";
 
 const media = window.matchMedia("(prefers-color-scheme: dark)");
 
@@ -34,6 +38,14 @@ export function storedFont(): FontPreset {
 
 export function storedDensity(): Density {
   return read(DENSITY_KEY, ["spaced", "compact"] as const, "spaced");
+}
+
+export function storedWidth(): Width {
+  return read(WIDTH_KEY, ["readable", "full"] as const, "readable");
+}
+
+export function storedMotion(): Motion {
+  return read(MOTION_KEY, ["full", "reduced"] as const, "full");
 }
 
 function resolveMode(preference: ThemePreference): "light" | "dark" {
@@ -65,6 +77,16 @@ export function setDensity(density: Density): void {
   document.documentElement.dataset.density = density;
 }
 
+export function setWidth(width: Width): void {
+  localStorage.setItem(WIDTH_KEY, width);
+  document.documentElement.dataset.width = width;
+}
+
+export function setMotion(motion: Motion): void {
+  localStorage.setItem(MOTION_KEY, motion);
+  document.documentElement.dataset.motion = motion;
+}
+
 /** Apply every stored preference and keep mode in sync with the OS while "system". */
 export function initTheme(): void {
   const root = document.documentElement;
@@ -72,6 +94,8 @@ export function initTheme(): void {
   root.dataset.palette = storedPalette();
   root.dataset.font = storedFont();
   root.dataset.density = storedDensity();
+  root.dataset.width = storedWidth();
+  root.dataset.motion = storedMotion();
   media.addEventListener("change", () => {
     if (storedTheme() === "system") applyMode("system");
   });
