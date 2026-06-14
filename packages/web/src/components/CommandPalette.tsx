@@ -13,10 +13,13 @@ import { api, type Conversation, type EntitySummary } from "../api.js";
 
 const VIEWS = [
   { label: "Chat", to: "/" },
+  { label: "Notes", to: "/notes" },
   { label: "Wiki", to: "/wiki" },
-  { label: "Graph", to: "/graph" },
-  { label: "Inbox", to: "/inbox" },
-  { label: "Digest", to: "/digest" },
+  { label: "Graph", to: "/wiki?view=graph" },
+  { label: "Activity", to: "/activity" },
+  { label: "Inbox", to: "/activity?tab=inbox" },
+  { label: "Conflicts", to: "/activity?tab=conflicts" },
+  { label: "Digest", to: "/activity?tab=digest" },
   { label: "Settings", to: "/settings" },
 ];
 

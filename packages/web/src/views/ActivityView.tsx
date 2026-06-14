@@ -54,7 +54,7 @@ function appendChunk(
   return [...segments, { kind, toolName: toolName ?? "tool", payload }];
 }
 
-export function ActivityView() {
+export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [runs, setRuns] = useState<WikiRun[]>([]);
   const [transcripts, setTranscripts] = useState<ReadonlyMap<number, Segment[]>>(new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
@@ -147,13 +147,8 @@ export function ActivityView() {
   // stream, but the agent's thinking won't without a reasoning-capable model.
   const needsReasoningModel = maintainer !== null && !maintainer.reasoning;
 
-  return (
-    <Page>
-      <PageHeader
-        title="Activity"
-        description="Watch the wiki maintainer think, search, and edit pages as new documents land."
-      />
-
+  const content = (
+    <>
       {needsReasoningModel && (
         <div className="rise mt-6 rounded-lg border border-lamp-dim/40 bg-lamp/5 px-4 py-3 text-sm text-faded">
           <p className="flex items-center gap-2 text-paper">
@@ -190,6 +185,17 @@ export function ActivityView() {
           )}
         </ul>
       </section>
+    </>
+  );
+
+  if (embedded) return content;
+  return (
+    <Page>
+      <PageHeader
+        title="Activity"
+        description="Watch the wiki maintainer think, search, and edit pages as new documents land."
+      />
+      {content}
     </Page>
   );
 }

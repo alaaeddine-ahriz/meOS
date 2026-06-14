@@ -22,7 +22,7 @@ export function ChangesView() {
     return (
       <Page>
         <p className="text-sm text-faded">
-          Couldn't load this document's changes. <Link className="text-lamp" to="/inbox">Back to the inbox.</Link>
+          Couldn't load this document's changes. <Link className="text-lamp" to="/activity?tab=inbox">Back to the inbox.</Link>
         </p>
       </Page>
     );
@@ -38,7 +38,7 @@ export function ChangesView() {
             <Breadcrumbs
               className="rise"
               items={[
-                { label: "Inbox", to: "/inbox", icon: Inbox },
+                { label: "Inbox", to: "/activity?tab=inbox", icon: Inbox },
                 { label: diff.source.title },
               ]}
             />

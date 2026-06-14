@@ -21,7 +21,7 @@ function timeOf(item: InboxItem): string {
   return new Date(item.created_at + "Z").toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export function InboxView() {
+export function InboxView({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [queuePending, setQueuePending] = useState(0);
 
@@ -39,22 +39,8 @@ export function InboxView() {
     return () => clearInterval(interval);
   }, []);
 
-  return (
-    <Page>
-      <PageHeader
-        title="Inbox"
-        description="What came in, and what the system did with it."
-        actions={
-          queuePending > 0 ? (
-            <span className="flex items-center gap-2 font-mono text-[11px] text-faded">
-              <span className="working-dot h-1.5 w-1.5 rounded-full bg-lamp" />
-              {queuePending} in queue
-            </span>
-          ) : undefined
-        }
-      />
-
-      <section className="rise rise-1 mt-8">
+  const section = (
+    <section className="rise rise-1 mt-8">
           <ul className="divide-y divide-line">
             {items.map((item) => {
               const muted = item.status === "unsupported";
@@ -109,6 +95,24 @@ export function InboxView() {
             )}
           </ul>
         </section>
+  );
+
+  if (embedded) return section;
+  return (
+    <Page>
+      <PageHeader
+        title="Inbox"
+        description="What came in, and what the system did with it."
+        actions={
+          queuePending > 0 ? (
+            <span className="flex items-center gap-2 font-mono text-[11px] text-faded">
+              <span className="working-dot h-1.5 w-1.5 rounded-full bg-lamp" />
+              {queuePending} in queue
+            </span>
+          ) : undefined
+        }
+      />
+      {section}
     </Page>
   );
 }
