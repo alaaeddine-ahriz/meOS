@@ -24,6 +24,7 @@ import {
   type MeosDatabase,
   type WikiChange,
 } from "@meos/core";
+import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
 import { GitSync } from "./git.js";
 import { FolderWatcher } from "./watcher.js";
@@ -45,6 +46,8 @@ export interface AppContext {
   watcher: FolderWatcher;
   git: GitSync;
   events: MeosEvents;
+  /** Live + persisted wiki-maintainer transcripts for the Activity view. */
+  activity: ActivityBus;
 }
 
 /**
@@ -95,7 +98,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // Switchable so the Settings UI can change provider/model/key at runtime.
   const llm = new SwitchableLlmClient(createLlmClient(config));
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
-  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder);
+  // Records each page regeneration's agent transcript and streams it live.
+  const activity = new ActivityBus(store);
+  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder, activity.hook);
   // The user's hand-authored note vault (Obsidian-style), distinct from the
   // system-compiled wiki — free-form markdown that cross-links via [[links]].
   const vault = new Vault(path.join(config.dataDir, "vault"));
@@ -173,5 +178,5 @@ export function createContext(rootDir = findRootDir()): AppContext {
     });
   });
 
-  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events };
+  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity };
 }

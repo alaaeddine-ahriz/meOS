@@ -106,6 +106,32 @@ export interface WikiChange {
   sourceIds: number[];
 }
 
+/** A single agentic wiki-maintainer run (one page regeneration). */
+export interface WikiRunRow {
+  id: number;
+  entity_id: number | null;
+  source_id: number | null;
+  name: string;
+  type: string;
+  slug: string | null;
+  status: "running" | "done" | "failed";
+  created_at: string;
+  finished_at: string | null;
+}
+
+export type WikiRunEventKind = "reasoning" | "tool-call" | "tool-result" | "text";
+
+/** One ordered step in a run's transcript: reasoning, a tool call/result, or text. */
+export interface WikiRunEventRow {
+  id: number;
+  run_id: number;
+  seq: number;
+  kind: WikiRunEventKind;
+  tool_name: string | null;
+  payload: string;
+  created_at: string;
+}
+
 /** One file changed in a recorded wiki commit, attributed to a source document. */
 export interface SourceChangeRow {
   hash: string;
@@ -460,6 +486,61 @@ export class KnowledgeStore {
          ORDER BY wc.id DESC, cc.file_path`,
       )
       .all(sourceId) as SourceChangeRow[];
+  }
+
+  // --- wiki-maintainer runs (Activity transcripts) ---
+
+  /** Open a run for a page regeneration; events are appended as the agent works. */
+  createWikiRun(input: {
+    entityId: number;
+    name: string;
+    type: string;
+    slug: string;
+    sourceIds: number[];
+  }): number {
+    return Number(
+      this.db
+        .prepare(
+          "INSERT INTO wiki_runs (entity_id, source_id, name, type, slug) VALUES (?, ?, ?, ?, ?)",
+        )
+        .run(input.entityId, input.sourceIds[0] ?? null, input.name, input.type, input.slug)
+        .lastInsertRowid,
+    );
+  }
+
+  /** Append one ordered transcript event to a run. */
+  appendWikiRunEvent(
+    runId: number,
+    event: { seq: number; kind: WikiRunEventKind; toolName?: string | null; payload: string },
+  ): void {
+    this.db
+      .prepare(
+        "INSERT INTO wiki_run_events (run_id, seq, kind, tool_name, payload) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(runId, event.seq, event.kind, event.toolName ?? null, event.payload);
+  }
+
+  /** Close a run, stamping its terminal status and finish time. */
+  finishWikiRun(runId: number, status: "done" | "failed"): void {
+    this.db
+      .prepare("UPDATE wiki_runs SET status = ?, finished_at = datetime('now') WHERE id = ?")
+      .run(status, runId);
+  }
+
+  /** The run feed, newest first. */
+  listWikiRuns(limit = 100): WikiRunRow[] {
+    return this.db.prepare("SELECT * FROM wiki_runs ORDER BY id DESC LIMIT ?").all(limit) as WikiRunRow[];
+  }
+
+  getWikiRun(id: number): WikiRunRow | undefined {
+    return this.db.prepare("SELECT * FROM wiki_runs WHERE id = ?").get(id) as WikiRunRow | undefined;
+  }
+
+  /** A run's full transcript in order. */
+  getWikiRunEvents(runId: number): WikiRunEventRow[] {
+    return this.db
+      .prepare("SELECT * FROM wiki_run_events WHERE run_id = ? ORDER BY seq")
+      .all(runId) as WikiRunEventRow[];
   }
 
   // --- relationships ---

@@ -34,6 +34,9 @@ export type {
   SourceRef,
   WikiChange,
   WikiPageWithVector,
+  WikiRunEventKind,
+  WikiRunEventRow,
+  WikiRunRow,
 } from "./knowledge/store.js";
 export {
   DEFAULT_SCHEMA_MD,
@@ -72,6 +75,7 @@ export type { ProfileProposal } from "./profile/profile-assistant.js";
 export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
+export type { WikiRunHook, WikiRunSink, WikiRunStart } from "./wiki/writer.js";
 export { Vault } from "./vault/vault.js";
 export type { NoteContents, NoteMeta } from "./vault/vault.js";
 export { lintPage } from "./wiki/wiki-lint.js";

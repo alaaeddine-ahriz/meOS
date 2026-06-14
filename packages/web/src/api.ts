@@ -111,6 +111,15 @@ export interface LlmSettings {
     google: { model: string; hasKey: boolean };
     local: { model: string; baseUrl: string };
   };
+  /** The reasoning-capable model powering the agentic wiki maintainer. */
+  maintainer: {
+    provider: LlmProvider;
+    model: string;
+    /** Whether the user has explicitly chosen a maintainer model. */
+    configured: boolean;
+    /** Whether that model can emit reasoning we can stream. */
+    reasoning: boolean;
+  };
 }
 
 export interface GitStatus {
@@ -239,6 +248,39 @@ export type ChatEvent =
   | { type: "done" }
   | { type: "error"; message: string; kind?: LlmErrorKind };
 
+/** A single agentic wiki-maintainer run (one page regeneration). */
+export interface WikiRun {
+  id: number;
+  entity_id: number | null;
+  source_id: number | null;
+  name: string;
+  type: string;
+  slug: string | null;
+  status: "running" | "done" | "failed";
+  created_at: string;
+  finished_at: string | null;
+}
+
+export type WikiRunEventKind = "reasoning" | "tool-call" | "tool-result" | "text";
+
+/** One persisted step in a run's transcript. */
+export interface WikiRunEvent {
+  id: number;
+  run_id: number;
+  seq: number;
+  kind: WikiRunEventKind;
+  tool_name: string | null;
+  payload: string;
+  created_at: string;
+}
+
+/** A live event off the Activity SSE feed (mirrors the server's ActivityStreamEvent). */
+export type ActivityEvent =
+  | { type: "ready" }
+  | { type: "run-start"; runId: number; name: string; entityType: string; slug: string }
+  | { type: "event"; runId: number; kind: WikiRunEventKind; toolName?: string; payload: string }
+  | { type: "run-finish"; runId: number; status: "done" | "failed" };
+
 import { isTauri } from "./lib/platform.js";
 
 // In the browser the dev proxy / same-origin server handles /api; inside the
@@ -296,6 +338,16 @@ export const api = {
     if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
     return { models: data.models ?? [], source: data.source ?? "curated", error: data.error };
   },
+  // Set (or clear, with an empty model) the reasoning-capable wiki-maintainer model.
+  updateMaintainerModel: (update: { provider?: LlmProvider; model: string }) =>
+    json<LlmSettings>("/api/settings/llm/maintainer", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(update),
+    }),
+  // --- activity (live + replayed wiki-maintainer transcripts) ---
+  getActivity: () => json<{ runs: WikiRun[] }>("/api/activity"),
+  getRunEvents: (id: number) => json<{ run: WikiRun; events: WikiRunEvent[] }>(`/api/activity/${id}/events`),
   // --- vault (the user's hand-written notes) ---
   listNotes: () => json<{ notes: NoteMeta[] }>("/api/vault"),
   getNote: (path: string) => json<NoteContents>(`/api/vault/note?path=${encodeURIComponent(path)}`),
@@ -438,6 +490,35 @@ export async function* streamChat(message: string, conversationId?: number): Asy
       const line = frame.trim();
       if (line.startsWith("data: ")) {
         yield JSON.parse(line.slice(6)) as ChatEvent;
+      }
+    }
+  }
+}
+
+/**
+ * Subscribe to the live wiki-maintainer feed. Yields every run's activity
+ * (start, transcript deltas, finish) until `signal` aborts. Mirrors streamChat's
+ * SSE frame parsing; the caller groups events by `runId`.
+ */
+export async function* streamActivity(signal?: AbortSignal): AsyncGenerator<ActivityEvent> {
+  const response = await fetch(API_BASE + "/api/activity/stream", { signal });
+  if (!response.ok || !response.body) {
+    throw new Error(`activity stream failed: ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame.trim();
+      // Skip heartbeat comments (": ping"); only data frames carry events.
+      if (line.startsWith("data: ")) {
+        yield JSON.parse(line.slice(6)) as ActivityEvent;
       }
     }
   }

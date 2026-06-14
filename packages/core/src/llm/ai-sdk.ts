@@ -20,6 +20,13 @@ import type {
 const DEFAULT_MAX_TOKENS = 16000;
 const DEFAULT_MAX_STEPS = 12;
 
+/**
+ * The SDK's `ProviderOptions` isn't re-exported from "ai", so derive the exact
+ * shape from `streamText`'s own signature — keeping us type-safe without
+ * importing an internal package.
+ */
+export type AgentProviderOptions = NonNullable<Parameters<typeof streamText>[0]>["providerOptions"];
+
 /** Mark a system message as a cacheable prefix; non-Anthropic providers ignore it. */
 const CACHE_CONTROL = { anthropic: { cacheControl: { type: "ephemeral" as const } } };
 
@@ -37,6 +44,14 @@ export class AiSdkClient implements LlmClient {
     private readonly maxTokens = DEFAULT_MAX_TOKENS,
     /** Config provider id ("anthropic" | "openai" | …) — used to phrase errors. */
     private readonly provider?: string,
+    /**
+     * The model that powers {@link runAgent} (the wiki maintainer). Defaults to
+     * the main model; set to a reasoning-capable model so the agent's thinking
+     * can be streamed. Independent of chat (`model`) and extraction.
+     */
+    private readonly agentModel: LanguageModel = model,
+    /** Provider-specific options for the agent run — e.g. enabling reasoning. */
+    private readonly agentProviderOptions?: AgentProviderOptions,
   ) {}
 
   /**
@@ -122,16 +137,34 @@ export class AiSdkClient implements LlmClient {
   }
 
   async runAgent(request: AgentRequest): Promise<AgentResult> {
+    // Stream the run (rather than generateText) so reasoning and each tool call
+    // surface live to `onActivity` — the wiki maintainer's transcript. A throwing
+    // sink must never abort the run, so every emit is guarded.
+    const emit = (chunk: Parameters<NonNullable<AgentRequest["onActivity"]>>[0]) => {
+      try {
+        request.onActivity?.(chunk);
+      } catch {
+        /* a broken sink can't break the agent */
+      }
+    };
     try {
-      const { text, steps } = await generateText({
-        model: this.model,
+      const result = streamText({
+        model: this.agentModel,
         system: request.system,
         prompt: request.prompt,
         tools: request.tools,
         maxOutputTokens: this.maxTokens,
         stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_STEPS),
+        ...(this.agentProviderOptions ? { providerOptions: this.agentProviderOptions } : {}),
       });
-      return { text, steps: steps.length };
+      for await (const part of result.fullStream) {
+        if (part.type === "reasoning-delta") emit({ type: "reasoning", text: part.text });
+        else if (part.type === "text-delta") emit({ type: "text", text: part.text });
+        else if (part.type === "tool-call") emit({ type: "tool-call", toolName: part.toolName, input: part.input });
+        else if (part.type === "tool-result") emit({ type: "tool-result", toolName: part.toolName, output: part.output });
+        else if (part.type === "error") throw part.error;
+      }
+      return { text: await result.text, steps: (await result.steps).length };
     } catch (error) {
       throw normalizeLlmError(error, this.provider);
     }

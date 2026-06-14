@@ -4,8 +4,27 @@ import { createBashTool } from "bash-tool";
 import type { Embedder } from "../embedding/embedder.js";
 import { loadSchema, withSchema } from "../knowledge/schema-doc.js";
 import { loadProfileContext, withProfile } from "../profile/profile-doc.js";
-import type { LlmClient } from "../llm/types.js";
+import type { AgentActivityChunk, LlmClient } from "../llm/types.js";
 import type { EntityRow, KnowledgeStore, ObservationRow, RelationshipView, WikiChange } from "../knowledge/store.js";
+
+/** Identifies the page regeneration a transcript belongs to. */
+export interface WikiRunStart {
+  entityId: number;
+  name: string;
+  type: string;
+  slug: string;
+  /** Documents that made the page stale and triggered this run. */
+  sourceIds: number[];
+}
+
+/** Receives a run's live transcript: each agent chunk, then a terminal status. */
+export interface WikiRunSink {
+  event(chunk: AgentActivityChunk): void;
+  finish(status: "done" | "failed"): void;
+}
+
+/** Opens a sink when a regeneration starts — the seam the server records + fans out on. */
+export type WikiRunHook = (start: WikiRunStart) => WikiRunSink;
 
 const SYSTEM_PROMPT = `You are the wiki maintainer of MeOS, a personal second brain.
 You maintain wiki pages that summarise everything the system knows about an entity.
@@ -169,6 +188,8 @@ export class WikiWriter {
     private readonly wikiDir: string,
     /** When provided, page prose is embedded so chat can retrieve it semantically. */
     private readonly embedder?: Embedder,
+    /** When provided, each regeneration's agent transcript is streamed here. */
+    private readonly onRun?: WikiRunHook,
   ) {}
 
   pagePath(entity: EntityRow): string {
@@ -215,6 +236,18 @@ export class WikiWriter {
       uploadDirectory: { source: this.wikiDir, include: "**/*.md" },
     });
 
+    // The documents that made this page stale — credited at the end, but read now
+    // so the run's transcript can be attributed to them as it streams.
+    const runSourceIds = this.store.pendingStaleSources(entity.id);
+    // Open a transcript sink for this regeneration (if the server is recording).
+    const sink = this.onRun?.({
+      entityId: entity.id,
+      name: entity.name,
+      type: entity.type,
+      slug: entity.slug,
+      sourceIds: runSourceIds,
+    });
+
     const dataDir = path.dirname(this.wikiDir);
     const schema = loadSchema(dataDir);
     const profileContext = loadProfileContext(dataDir);
@@ -223,6 +256,7 @@ export class WikiWriter {
         system: `${withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
         tools,
         sandbox,
+        onActivity: sink ? (chunk) => sink.event(chunk) : undefined,
         prompt: [
           `Update the wiki page for this entity. The target file is "${relPath}".`,
           "Read it first if it exists, then edit it in place (or create it) per the rules.",
@@ -238,6 +272,7 @@ export class WikiWriter {
           relationshipLines.join("\n") || "(none)",
         ].join("\n"),
       });
+      sink?.finish("done");
     } catch (error) {
       // An LLM failure here (no credits, rate limit, outage) must not abort the
       // ingest: the knowledge is already merged. The agentic write is best-effort
@@ -245,6 +280,7 @@ export class WikiWriter {
       // still gets a real body, just without the LLM's prose polish.
       console.warn(`wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
         error instanceof Error ? error.message : error);
+      sink?.finish("failed");
     }
 
     // The agentic write is best-effort: some models/providers complete the run
@@ -275,8 +311,8 @@ export class WikiWriter {
 
     if (summary) this.store.setEntitySummary(entity.id, summary);
 
-    // Credit the documents that made this page stale before clearing them.
-    const sourceIds = this.store.pendingStaleSources(entity.id);
+    // Credit the documents that made this page stale before clearing them
+    // (already read into runSourceIds above, before the transcript opened).
     this.store.clearStaleSources(entity.id);
     this.store.clearWikiStale(entity.id);
 
@@ -288,7 +324,7 @@ export class WikiWriter {
       slug: entity.slug,
       filePath: path.posix.join("wiki", entity.type, `${entity.slug}.md`),
       kind: created ? "created" : "updated",
-      sourceIds,
+      sourceIds: runSourceIds,
     };
   }
 

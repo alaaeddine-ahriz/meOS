@@ -299,6 +299,34 @@ const migrations: string[] = [
     PRIMARY KEY (a_id, b_id)
   );
   `,
+  // 14 — wiki-maintainer transcripts: each agentic page regeneration is a "run"
+  // whose reasoning + tool calls are recorded as ordered events, so the Activity
+  // view can replay a run after the fact (and stream it live as it happens).
+  `
+  CREATE TABLE wiki_runs (
+    id INTEGER PRIMARY KEY,
+    entity_id INTEGER REFERENCES entities(id) ON DELETE SET NULL,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    slug TEXT,
+    status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','done','failed')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+  );
+  CREATE INDEX idx_wiki_runs_created ON wiki_runs(id DESC);
+
+  CREATE TABLE wiki_run_events (
+    id INTEGER PRIMARY KEY,
+    run_id INTEGER NOT NULL REFERENCES wiki_runs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('reasoning','tool-call','tool-result','text')),
+    tool_name TEXT,
+    payload TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_wiki_run_events_run ON wiki_run_events(run_id, seq);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

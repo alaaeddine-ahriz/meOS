@@ -29,6 +29,16 @@ export interface LlmConfig {
     baseUrl: string;
     model: string;
   };
+  /**
+   * The model that powers the agentic wiki maintainer (its reasoning + tool
+   * calls are streamed to the Activity view). Independent of the chat/extraction
+   * model and meant to be a reasoning-capable model. When unset, the maintainer
+   * falls back to the active provider's main model with reasoning off.
+   */
+  maintainer?: {
+    provider?: LlmProvider;
+    model?: string;
+  };
 }
 
 export interface MeosConfig {
@@ -139,6 +149,7 @@ export function overlayStoredLlmConfig(config: MeosConfig, stored: Partial<LlmCo
       openai: { ...config.llm.openai, ...stored.openai },
       google: { ...config.llm.google, ...stored.google },
       local: { ...config.llm.local, ...legacy.ollama, ...stored.local },
+      maintainer: { ...config.llm.maintainer, ...stored.maintainer },
     };
   }
   const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;

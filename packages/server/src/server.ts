@@ -6,6 +6,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type { AppContext } from "./context.js";
+import { registerActivityRoutes } from "./routes/activity.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
@@ -40,6 +41,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerWikiRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
+  registerActivityRoutes(app, ctx);
   registerDigestRoutes(app, ctx);
   registerOutputRoutes(app, ctx);
   registerProfileRoutes(app, ctx);

@@ -33,6 +33,7 @@ import {
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { isTauri } from "@/lib/platform";
+import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
 import {
   type Density,
@@ -318,6 +319,11 @@ function IntelligenceSection() {
   const [cloudSource, setCloudSource] = useState<"live" | "curated">("curated");
   const [cloudModelsError, setCloudModelsError] = useState<string | null>(null);
   const [loadingCloud, setLoadingCloud] = useState(false);
+  // The reasoning-capable wiki-maintainer model (drives the Activity transcript).
+  const [maintainerModel, setMaintainerModel] = useState("");
+  const [savingMaintainer, setSavingMaintainer] = useState(false);
+  const [maintainerSaved, setMaintainerSaved] = useState(false);
+  const [maintainerError, setMaintainerError] = useState<string | null>(null);
 
   const applyLlm = (settings: LlmSettings, nextProvider?: LlmProvider) => {
     const active = nextProvider ?? settings.provider;
@@ -325,6 +331,22 @@ function IntelligenceSection() {
     setProvider(active);
     setModel(settings.providers[active].model);
     setBaseUrl(settings.providers.local.baseUrl);
+    setMaintainerModel(settings.maintainer.configured ? settings.maintainer.model : "");
+  };
+
+  const saveMaintainer = async () => {
+    setSavingMaintainer(true);
+    setMaintainerError(null);
+    setMaintainerSaved(false);
+    try {
+      const updated = await api.updateMaintainerModel({ provider, model: maintainerModel.trim() });
+      applyLlm(updated, provider);
+      setMaintainerSaved(true);
+    } catch (e) {
+      setMaintainerError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingMaintainer(false);
+    }
   };
 
   useEffect(() => {
@@ -565,11 +587,99 @@ function IntelligenceSection() {
                 </span>
               )}
             </div>
+
+            <MaintainerPicker
+              provider={provider}
+              options={cloudProvider ? cloudModels : localModels}
+              value={maintainerModel}
+              onChange={setMaintainerModel}
+              onSave={() => void saveMaintainer()}
+              saving={savingMaintainer}
+              saved={maintainerSaved}
+              error={maintainerError}
+            />
           </div>
         </>
       )}
       {llmError && <p className="text-sm text-ember">⚠ {llmError}</p>}
     </section>
+  );
+}
+
+/**
+ * Picks the reasoning-capable model that powers the agentic wiki maintainer
+ * (its thinking + tool calls stream to Activity). Reuses the active provider's
+ * discovered models; an empty value falls back to the main model with reasoning
+ * off. Flags whether the chosen model can actually emit reasoning.
+ */
+function MaintainerPicker({
+  provider,
+  options,
+  value,
+  onChange,
+  onSave,
+  saving,
+  saved,
+  error,
+}: {
+  provider: LlmProvider;
+  options: string[];
+  value: string;
+  onChange: (model: string) => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+  error: string | null;
+}) {
+  const trimmed = value.trim();
+  const reasoning = isReasoningModel(provider, trimmed);
+  return (
+    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-4">
+      <div>
+        <p className="text-sm text-paper">Wiki maintainer model</p>
+        <p className="mt-0.5 text-[13px] text-dim">
+          A reasoning-capable model narrates wiki updates in Activity — showing its thinking and each
+          edit as it works. Leave empty to reuse your main model (no reasoning).
+        </p>
+      </div>
+      <div className="flex min-w-0 items-center gap-2">
+        <Combobox
+          value={value}
+          onChange={onChange}
+          options={options}
+          allowCustom
+          placeholder="Same as main model"
+          searchPlaceholder="Search or type a model…"
+          emptyText="No matching models."
+          className={cn(comboboxClass, "flex-1 min-w-0")}
+        />
+        <Button variant="outline" onClick={onSave} disabled={saving} className={actionButtonClass}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+      {trimmed ? (
+        reasoning ? (
+          <p className="flex items-center gap-1.5 font-mono text-[11px] text-moss">
+            <Check className="size-3.5" /> Reasoning-capable — its thinking will stream to Activity.
+          </p>
+        ) : (
+          <p className="font-mono text-[11px] text-ember">
+            ⚠ This model can't stream reasoning. Pick a Claude Opus/Sonnet, GPT-5/o-series, or Gemini
+            2.5/3 model for the full transcript.
+          </p>
+        )
+      ) : (
+        <p className="font-mono text-[11px] text-dim">
+          Using your main model — tool calls stream, but no reasoning.
+        </p>
+      )}
+      {saved && (
+        <span className="flex items-center gap-1.5 text-sm text-moss">
+          <Check className="size-3.5" /> Maintainer model saved.
+        </span>
+      )}
+      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+    </div>
   );
 }
 

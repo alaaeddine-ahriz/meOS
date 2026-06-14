@@ -26,6 +26,18 @@ export interface StructuredRequest<T> extends CompletionRequest {
 }
 
 /**
+ * A streamed chunk of an agent run, surfaced live so the UI can render the
+ * agent the way an AI IDE does: its private reasoning, each tool call (read,
+ * grep, write) with its input, the tool's result, and the visible text it
+ * emits between steps.
+ */
+export type AgentActivityChunk =
+  | { type: "reasoning"; text: string }
+  | { type: "tool-call"; toolName: string; input: unknown }
+  | { type: "tool-result"; toolName: string; output: unknown }
+  | { type: "text"; text: string };
+
+/**
  * A tool-using agent run. `tools` and `sandbox` come from a single bash-tool
  * toolkit: the model edits files through `tools`, and those edits land in the
  * same in-memory `sandbox` — which the caller reads back afterwards. The
@@ -38,6 +50,12 @@ export interface AgentRequest {
   tools: ToolSet;
   sandbox: Sandbox;
   maxSteps?: number;
+  /**
+   * Fires for each reasoning/tool/text chunk as the run unfolds, so callers can
+   * stream a live transcript. Best-effort: a throwing sink is ignored so it can
+   * never abort the agent run.
+   */
+  onActivity?: (chunk: AgentActivityChunk) => void;
 }
 
 export interface AgentResult {

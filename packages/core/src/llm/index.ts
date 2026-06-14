@@ -1,8 +1,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { MeosConfig } from "../config.js";
-import { AiSdkClient } from "./ai-sdk.js";
+import type { LanguageModel } from "ai";
+import type { LlmConfig, LlmProvider, MeosConfig } from "../config.js";
+import { AiSdkClient, type AgentProviderOptions } from "./ai-sdk.js";
 import { StubLlmClient } from "./stub.js";
 import type { LlmClient } from "./types.js";
 
@@ -32,14 +33,86 @@ export function normalizeLocalBaseUrl(url: string): string {
   return /\/v\d+$/.test(trimmed) ? trimmed : `${trimmed}/v1`;
 }
 
+/** Reasoning-capable model families, used to gate the wiki-maintainer model. */
+const REASONING_PATTERNS: Partial<Record<LlmProvider, RegExp>> = {
+  // Claude 4.x Opus/Sonnet/Haiku support extended thinking.
+  anthropic: /claude.*(opus|sonnet|haiku)/i,
+  // o-series and GPT-5 are reasoning models; gpt-4.x are not.
+  openai: /^(o\d|gpt-5|chatgpt-5)/i,
+  // Gemini 2.5 / 3 expose thinking.
+  google: /gemini-(2\.5|3)/i,
+};
+
+/**
+ * Whether a model can emit reasoning we can stream — drives the "choose a
+ * reasoning-capable model" prompt and whether we turn thinking on. Local/stub
+ * are treated as non-reasoning since we can't know the served model's traits.
+ */
+export function isReasoningModel(provider: LlmProvider, modelId: string | undefined): boolean {
+  if (!modelId) return false;
+  return REASONING_PATTERNS[provider]?.test(modelId) ?? false;
+}
+
+/** Tokens the maintainer may spend thinking — comfortably under runAgent's output budget. */
+const THINKING_BUDGET = 4000;
+
+/** Provider-specific options that switch reasoning on, when the model supports it. */
+function reasoningOptions(provider: LlmProvider, modelId: string): AgentProviderOptions {
+  if (!isReasoningModel(provider, modelId)) return undefined;
+  switch (provider) {
+    case "anthropic":
+      return { anthropic: { thinking: { type: "enabled", budgetTokens: THINKING_BUDGET } } };
+    case "openai":
+      return { openai: { reasoningEffort: "medium", reasoningSummary: "auto" } };
+    case "google":
+      return { google: { thinkingConfig: { includeThoughts: true, thinkingBudget: THINKING_BUDGET } } };
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Resolve a `LanguageModel` for any provider from the stored keys/endpoints,
+ * independent of the active provider — so the wiki maintainer can run on a
+ * different (reasoning-capable) provider than chat does.
+ */
+function resolveModel(llm: LlmConfig, provider: LlmProvider, modelId: string): LanguageModel | null {
+  switch (provider) {
+    case "anthropic":
+      return createAnthropic({ apiKey: llm.anthropic.apiKey })(modelId);
+    case "openai":
+      return createOpenAI({ apiKey: llm.openai.apiKey })(modelId);
+    case "google":
+      return createGoogleGenerativeAI({ apiKey: llm.google.apiKey })(modelId);
+    case "local":
+      return createOpenAI({
+        baseURL: normalizeLocalBaseUrl(llm.local.baseUrl),
+        apiKey: "local",
+        name: "local",
+      }).chat(modelId);
+    case "stub":
+      return null;
+  }
+}
+
 /**
  * Build the right AI SDK provider/model from config and wrap it once in the
  * common client. Provider factories read their API key lazily (env at call
  * time when none is passed), so the server still boots keyless and the user
- * can paste a key in Settings.
+ * can paste a key in Settings. The wiki-maintainer ("agent") model is resolved
+ * separately so it can be a reasoning-capable model on any provider.
  */
 export function createLlmClient(config: MeosConfig): LlmClient {
   const { llm } = config;
+  if (llm.provider === "stub") return new StubLlmClient();
+
+  // The maintainer model: explicit when configured, else the active main model
+  // (with reasoning left off, preserving the prior headless behaviour).
+  const maintainerProvider = llm.maintainer?.provider ?? llm.provider;
+  const maintainerModelId = llm.maintainer?.model;
+  const agentModel = maintainerModelId ? resolveModel(llm, maintainerProvider, maintainerModelId) : null;
+  const agentOptions = maintainerModelId ? reasoningOptions(maintainerProvider, maintainerModelId) : undefined;
+
   switch (llm.provider) {
     case "anthropic": {
       const provider = createAnthropic({ apiKey: llm.anthropic.apiKey });
@@ -48,15 +121,31 @@ export function createLlmClient(config: MeosConfig): LlmClient {
         provider(llm.anthropic.extractionModel),
         undefined,
         "anthropic",
+        agentModel ?? provider(llm.anthropic.model),
+        agentOptions,
       );
     }
     case "openai": {
       const provider = createOpenAI({ apiKey: llm.openai.apiKey });
-      return new AiSdkClient(provider(llm.openai.model), undefined, undefined, "openai");
+      return new AiSdkClient(
+        provider(llm.openai.model),
+        undefined,
+        undefined,
+        "openai",
+        agentModel ?? provider(llm.openai.model),
+        agentOptions,
+      );
     }
     case "google": {
       const provider = createGoogleGenerativeAI({ apiKey: llm.google.apiKey });
-      return new AiSdkClient(provider(llm.google.model), undefined, undefined, "google");
+      return new AiSdkClient(
+        provider(llm.google.model),
+        undefined,
+        undefined,
+        "google",
+        agentModel ?? provider(llm.google.model),
+        agentOptions,
+      );
     }
     case "local": {
       // Any OpenAI-compatible local server (LM Studio, llama.cpp, Ollama's /v1).
@@ -67,10 +156,15 @@ export function createLlmClient(config: MeosConfig): LlmClient {
         apiKey: "local",
         name: "local",
       });
-      return new AiSdkClient(provider.chat(llm.local.model), undefined, undefined, "local");
+      return new AiSdkClient(
+        provider.chat(llm.local.model),
+        undefined,
+        undefined,
+        "local",
+        agentModel ?? provider.chat(llm.local.model),
+        agentOptions,
+      );
     }
-    case "stub":
-      return new StubLlmClient();
   }
 }
 
@@ -84,6 +178,7 @@ export { SwitchableLlmClient } from "./switchable.js";
 export type { StubHandlers } from "./stub.js";
 export { contentToText } from "./types.js";
 export type {
+  AgentActivityChunk,
   AgentRequest,
   AgentResult,
   ChatMessage,

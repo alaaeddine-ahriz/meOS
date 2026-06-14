@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import {
   createLlmClient,
   ensureDataDirs,
+  isReasoningModel,
   listProviderModels,
   normalizeLocalBaseUrl,
   resetDatabase,
@@ -29,6 +30,10 @@ function hasKey(ctx: AppContext, provider: CloudProvider): boolean {
 /** Never returns API keys — only whether one is configured. */
 function llmSettingsView(ctx: AppContext) {
   const { llm } = ctx.config;
+  // The wiki maintainer's model: explicit when configured, else the active main
+  // model. `reasoning` drives the "choose a reasoning-capable model" prompt.
+  const maintainerProvider = llm.maintainer?.provider ?? llm.provider;
+  const maintainerModel = llm.maintainer?.model ?? "";
   return {
     provider: llm.provider,
     providers: {
@@ -36,6 +41,12 @@ function llmSettingsView(ctx: AppContext) {
       openai: { model: llm.openai.model, hasKey: hasKey(ctx, "openai") },
       google: { model: llm.google.model, hasKey: hasKey(ctx, "google") },
       local: { model: llm.local.model, baseUrl: llm.local.baseUrl },
+    },
+    maintainer: {
+      provider: maintainerProvider,
+      model: maintainerModel,
+      configured: Boolean(llm.maintainer?.model),
+      reasoning: isReasoningModel(maintainerProvider, maintainerModel),
     },
   };
 }
@@ -128,6 +139,36 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       }
       // Persisted in the DB — never write near source files: the dev server
       // watches the tree and a config write would restart it mid-request.
+      ctx.store.setSetting("llm", llm);
+      return llmSettingsView(ctx);
+    },
+  );
+
+  // The wiki-maintainer model — the reasoning-capable model whose thinking and
+  // tool calls stream to the Activity view. Independent of the chat/extraction
+  // model; an empty model clears the override (falls back to the main model).
+  app.put<{ Body: { provider?: string; model?: string } }>(
+    "/api/settings/llm/maintainer",
+    async (request, reply) => {
+      const { provider, model } = request.body ?? {};
+      const llm = ctx.config.llm;
+      const next = model?.trim();
+      if (!next) {
+        llm.maintainer = undefined;
+      } else {
+        const validProviders: LlmProvider[] = ["anthropic", "openai", "google", "local"];
+        const chosen = (provider?.trim() as LlmProvider | undefined) ?? llm.provider;
+        if (!validProviders.includes(chosen)) {
+          return reply.code(400).send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
+        }
+        llm.maintainer = { provider: chosen, model: next };
+      }
+
+      try {
+        ctx.llm.swap(createLlmClient(ctx.config));
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
       ctx.store.setSetting("llm", llm);
       return llmSettingsView(ctx);
     },

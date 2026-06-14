@@ -1,4 +1,4 @@
-import { GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, NotebookPen, Search, Settings, Waypoints } from "lucide-react";
+import { Activity, GitCompareArrows, Inbox, Library, type LucideIcon, MessageSquare, Newspaper, NotebookPen, Search, Settings, Waypoints } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -11,6 +11,7 @@ import { ChatView } from "./views/ChatView.js";
 import { ContradictionsView } from "./views/ContradictionsView.js";
 import { DigestView } from "./views/DigestView.js";
 import { GraphView } from "./views/GraphView.js";
+import { ActivityView } from "./views/ActivityView.js";
 import { InboxView } from "./views/InboxView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { VaultView } from "./views/VaultView.js";
@@ -23,8 +24,9 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/wiki", label: "Wiki", key: "3", icon: Library },
   { to: "/graph", label: "Graph", key: "4", icon: Waypoints },
   { to: "/inbox", label: "Inbox", key: "5", icon: Inbox },
-  { to: "/digest", label: "Digest", key: "6", icon: Newspaper },
-  { to: "/contradictions", label: "Conflicts", key: "7", icon: GitCompareArrows },
+  { to: "/activity", label: "Activity", key: "6", icon: Activity },
+  { to: "/digest", label: "Digest", key: "7", icon: Newspaper },
+  { to: "/contradictions", label: "Conflicts", key: "8", icon: GitCompareArrows },
 ];
 
 export function App() {
@@ -126,6 +128,7 @@ export function App() {
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/graph" element={<GraphView />} />
           <Route path="/inbox" element={<InboxView />} />
+          <Route path="/activity" element={<ActivityView />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/digest" element={<DigestView />} />
           <Route path="/contradictions" element={<ContradictionsView />} />
