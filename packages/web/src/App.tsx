@@ -2,8 +2,8 @@ import { Activity, Library, type LucideIcon, MessageSquare, NotebookPen, Search,
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
-import { api } from "./api.js";
 import { CommandPalette } from "./components/CommandPalette.js";
+import { useInbox } from "./lib/inbox-context.js";
 import { isTauri } from "./lib/platform.js";
 import { cn } from "./lib/utils.js";
 import { ActivityHub } from "./views/ActivityHub.js";
@@ -23,7 +23,7 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [queuePending, setQueuePending] = useState(0);
+  const { queuePending } = useInbox();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -44,13 +44,6 @@ export function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [navigate]);
-
-  useEffect(() => {
-    const poll = () => api.getInbox().then((r) => setQueuePending(r.queuePending)).catch(() => {});
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <div className="flex h-full">

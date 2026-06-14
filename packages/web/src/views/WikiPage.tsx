@@ -9,6 +9,7 @@ import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { stripWikiMarkup } from "@/lib/wikilinks";
 import { pushWikiTrail, readWikiTrail, type TrailEntry } from "@/lib/wiki-trail";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
+import { utcDate } from "../lib/datetime.js";
 import { Markdown } from "../components/Markdown.js";
 import { SourceList } from "../components/SourceList.js";
 import { GraphView } from "./GraphView.js";
@@ -74,7 +75,7 @@ export function WikiPageView() {
             <p className="mt-2 text-[15px] italic text-faded">{stripWikiMarkup(page.entity.summary)}</p>
           )}
           <p className="mt-2 font-mono text-[11px] text-dim">
-            updated {new Date(page.entity.updatedAt + "Z").toLocaleString()}
+            updated {utcDate(page.entity.updatedAt).toLocaleString()}
             {page.entity.stale && " · refresh pending"}
           </p>
         </header>
@@ -163,7 +164,7 @@ export function WikiPageView() {
                         "shrink-0 whitespace-nowrap font-mono text-[11px]",
                         observation.stale ? "text-ember" : "text-dim",
                       )}
-                      title={observation.stale ? "Unconfirmed past this fact's freshness horizon" : `Recorded ${new Date(observation.recordedAt + "Z").toLocaleDateString()}`}
+                      title={observation.stale ? "Unconfirmed past this fact's freshness horizon" : `Recorded ${utcDate(observation.recordedAt).toLocaleDateString()}`}
                     >
                       {observation.when}
                     </span>

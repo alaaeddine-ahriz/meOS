@@ -1,5 +1,5 @@
 import { ChevronRight, FilePenLine, FileText, Search, Sparkles, Terminal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Page, PageHeader } from "@/components/Page";
 import {
@@ -19,6 +19,8 @@ import {
   type WikiRun,
   type WikiRunEventKind,
 } from "../api.js";
+import { epochOf, formatTime } from "../lib/datetime.js";
+import { useInbox } from "../lib/inbox-context.js";
 
 /** One rendered step of a transcript. Reasoning/text accrete deltas; tools are discrete. */
 type Segment =
@@ -55,16 +57,6 @@ const DOC_DOTS: Record<string, string> = {
   unsupported: "bg-dim",
 };
 
-/** Persisted SQLite timestamps are UTC without a zone; live ones are full ISO. Normalise both. */
-function epochOf(iso: string): number {
-  const normalized = iso.includes("T") ? iso : `${iso.replace(" ", "T")}Z`;
-  return new Date(normalized).getTime();
-}
-
-function timeOf(iso: string): string {
-  return new Date(epochOf(iso)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-}
-
 /** Append a streamed chunk to a transcript: merge consecutive reasoning/text, push tools. */
 function appendChunk(
   segments: Segment[],
@@ -84,7 +76,7 @@ function appendChunk(
 
 export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [runs, setRuns] = useState<WikiRun[]>([]);
-  const [docs, setDocs] = useState<InboxItem[]>([]);
+  const { items: docs } = useInbox();
   const [transcripts, setTranscripts] = useState<ReadonlyMap<number, Segment[]>>(new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // Runs whose transcript we've already streamed live or fetched, so expanding
@@ -95,14 +87,6 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   useEffect(() => {
     api.getActivity().then((r) => setRuns(r.runs)).catch(() => {});
     api.getLlmSettings().then((s) => setMaintainer(s.maintainer)).catch(() => {});
-  }, []);
-
-  // Poll the inbox so documents land in the feed as they're absorbed.
-  useEffect(() => {
-    const refresh = () => api.getInbox().then((r) => setDocs(r.items)).catch(() => {});
-    refresh();
-    const interval = setInterval(refresh, 2500);
-    return () => clearInterval(interval);
   }, []);
 
   // Subscribe to the live feed: new runs appear in place and animate as the
@@ -181,10 +165,15 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   };
 
   // One timeline: documents arriving and the pages they prompt, newest first.
-  const feed: FeedItem[] = [
-    ...runs.map<FeedItem>((run) => ({ kind: "run", run })),
-    ...docs.map<FeedItem>((item) => ({ kind: "doc", item })),
-  ].sort((a, b) => feedTime(b) - feedTime(a));
+  // Memoised so transcript-only re-renders during a live run don't re-sort.
+  const feed = useMemo<FeedItem[]>(
+    () =>
+      [
+        ...runs.map<FeedItem>((run) => ({ kind: "run", run })),
+        ...docs.map<FeedItem>((item) => ({ kind: "doc", item })),
+      ].sort((a, b) => feedTime(b) - feedTime(a)),
+    [runs, docs],
+  );
 
   // Prompt for a reasoning model when none is configured — tool calls still
   // stream, but the agent's thinking won't without a reasoning-capable model.
@@ -265,7 +254,7 @@ function DocCard({ item }: { item: InboxItem }) {
           {item.detail ?? item.status}
         </span>
       </span>
-      <span className="shrink-0 font-mono text-[11px] text-dim">{timeOf(item.created_at)}</span>
+      <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(item.created_at)}</span>
     </>
   );
   return (
@@ -314,7 +303,7 @@ function RunCard({
             {run.status === "failed" && " · failed"}
           </span>
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-dim">{timeOf(run.created_at)}</span>
+        <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(run.created_at)}</span>
         <ChevronRight className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")} />
       </button>
 

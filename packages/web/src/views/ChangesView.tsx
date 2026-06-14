@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { Breadcrumbs, Page, PageHeader } from "@/components/Page";
 import { cn } from "@/lib/utils";
 import { api, type SourceDiff } from "../api.js";
+import { utcDate } from "../lib/datetime.js";
 import { DiffView } from "../components/DiffView.js";
 
 export function ChangesView() {
@@ -56,7 +57,7 @@ export function ChangesView() {
           <section key={commit.hash} className="rise rise-2 mt-8">
             <div className="flex items-baseline justify-between font-mono text-[11px] text-dim">
               <span>{commit.hash}</span>
-              <span>{new Date(commit.committedAt + "Z").toLocaleString()}</span>
+              <span>{utcDate(commit.committedAt).toLocaleString()}</span>
             </div>
 
             <ul className="mt-3 flex flex-wrap gap-2">
