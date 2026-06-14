@@ -31,13 +31,14 @@ export function ActivityHub() {
 
   const [reviewCount, setReviewCount] = useState(0);
 
-  // Open conflicts + likely duplicates feed the Review tab badge.
+  // Open conflicts + likely duplicates feed the Review tab badge. The count is
+  // the same on every tab, so fetch it once on mount rather than on each switch.
   useEffect(() => {
     Promise.all([
       api.getContradictions().then((r) => r.contradictions.length).catch(() => 0),
       api.getDuplicates().then((r) => r.duplicates.length).catch(() => 0),
     ]).then(([c, d]) => setReviewCount(c + d));
-  }, [tab]);
+  }, []);
 
   const setTab = (next: HubTabId) => {
     const params2 = new URLSearchParams(params);

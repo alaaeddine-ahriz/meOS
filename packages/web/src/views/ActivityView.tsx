@@ -31,8 +31,13 @@ type Segment =
  * sorted together by when they happened.
  */
 type FeedItem =
-  | { kind: "run"; ts: number; run: WikiRun }
-  | { kind: "doc"; ts: number; item: InboxItem };
+  | { kind: "run"; run: WikiRun }
+  | { kind: "doc"; item: InboxItem };
+
+/** When a feed entry happened, from whichever record it wraps. */
+function feedTime(entry: FeedItem): number {
+  return epochOf(entry.kind === "run" ? entry.run.created_at : entry.item.created_at);
+}
 
 const RUN_DOTS: Record<WikiRun["status"], string> = {
   running: "bg-lamp working-dot",
@@ -177,9 +182,9 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
 
   // One timeline: documents arriving and the pages they prompt, newest first.
   const feed: FeedItem[] = [
-    ...runs.map<FeedItem>((run) => ({ kind: "run", ts: epochOf(run.created_at), run })),
-    ...docs.map<FeedItem>((item) => ({ kind: "doc", ts: epochOf(item.created_at), item })),
-  ].sort((a, b) => b.ts - a.ts);
+    ...runs.map<FeedItem>((run) => ({ kind: "run", run })),
+    ...docs.map<FeedItem>((item) => ({ kind: "doc", item })),
+  ].sort((a, b) => feedTime(b) - feedTime(a));
 
   // Prompt for a reasoning model when none is configured — tool calls still
   // stream, but the agent's thinking won't without a reasoning-capable model.

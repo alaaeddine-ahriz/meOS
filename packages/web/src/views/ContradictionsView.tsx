@@ -1,5 +1,6 @@
 import { Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { CountBadge } from "@/components/HubTabs";
 import { Page, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import {
@@ -350,9 +351,7 @@ function SectionHeading({ title, count }: { title: string; count: number }) {
   return (
     <h2 className="flex items-center gap-2 text-sm font-medium text-paper">
       {title}
-      {count > 0 && (
-        <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
-      )}
+      <CountBadge count={count} />
     </h2>
   );
 }

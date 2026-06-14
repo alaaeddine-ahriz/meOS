@@ -30,10 +30,17 @@ export function HubTab({
       )}
     >
       {children}
-      {count != null && count > 0 && (
-        <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
-      )}
+      {count != null && <CountBadge count={count} />}
       {active && <span className="absolute inset-x-0 -bottom-px h-px bg-lamp" />}
     </button>
+  );
+}
+
+/** A small pill showing a positive count; renders nothing at zero. Shared by the
+ * hub tabs and the in-page section headings so the chip can't drift between them. */
+export function CountBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="rounded-full bg-line px-1.5 text-[11px] tabular-nums text-faded">{count}</span>
   );
 }
