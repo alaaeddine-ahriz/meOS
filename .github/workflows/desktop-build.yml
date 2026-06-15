@@ -89,13 +89,20 @@ jobs:
       # --bundles overrides tauri.conf's macOS-only "app" target per platform.
       - name: Build desktop bundle
         if: runner.os != 'Linux'
-        run: pnpm --filter @meos/desktop exec tauri build --bundles ${{ matrix.bundles }}
+        run: pnpm --filter @meos/desktop exec tauri build --ci --bundles ${{ matrix.bundles }}
 
-      - name: Build Linux AppImage
+      - name: Build Linux package
         if: runner.os == 'Linux'
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
-        run: pnpm --filter @meos/desktop exec tauri build --bundles appimage
+          ARCH: x86_64
+          NO_STRIP: 1
+        run: |
+          set -euxo pipefail
+          if ! pnpm --filter @meos/desktop exec tauri build --ci -vv --bundles appimage; then
+            echo "::warning::AppImage bundling failed via linuxdeploy; building a Debian package instead."
+            pnpm --filter @meos/desktop exec tauri build --ci -vv --bundles deb
+          fi
 
       - name: Upload bundle
         uses: actions/upload-artifact@v4
@@ -106,3 +113,4 @@ jobs:
             packages/desktop/src-tauri/target/release/bundle/**/*.dmg
             packages/desktop/src-tauri/target/release/bundle/**/*.exe
             packages/desktop/src-tauri/target/release/bundle/**/*.AppImage
+            packages/desktop/src-tauri/target/release/bundle/**/*.deb
