@@ -64,14 +64,7 @@ describe("WorkerRegistry", () => {
     await registry.startAll();
     await registry.stopAll();
 
-    expect(order).toEqual([
-      "start:a",
-      "start:b",
-      "start:c",
-      "stop:c",
-      "stop:b",
-      "stop:a",
-    ]);
+    expect(order).toEqual(["start:a", "start:b", "start:c", "stop:c", "stop:b", "stop:a"]);
     expect(registry.health().map((h) => h.name)).toEqual(["a", "b", "c"]);
   });
 });

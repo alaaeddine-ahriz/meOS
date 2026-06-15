@@ -1,0 +1,60 @@
+# meOS container dev loop — runs the API server (:4321) + the web Vite dev
+# server (:5173) inside one Node 22 container, mirroring `pnpm dev`.
+#
+# This is the NON-desktop path: the Tauri shell, Rust toolchain, and Linux
+# WebKit deps stay host-native and are intentionally absent here. See
+# docker/README.md for details and the smoke check.
+#
+# Start with: pnpm dev:container   (or: docker compose -f docker/docker-compose.dev.yml up)
+
+services:
+  dev:
+    # The full Node 22 image is buildpack-deps based, so it ships gcc/g++/make/
+    # python — the build tools `better-sqlite3`, `sharp`, and friends need to
+    # compile their native bindings. (A slim image would need them installed.)
+    # Node 22 matches the version pinned by the desktop runtime bundle.
+    image: node:22-bookworm
+    working_dir: /workspace
+    # corepack activates the repo's pnpm; then run the same flow as `pnpm dev`.
+    command: >
+      sh -c "corepack enable &&
+             corepack prepare pnpm@latest --activate &&
+             pnpm install &&
+             pnpm dev"
+    environment:
+      # Bind the Vite dev server to all interfaces so the host can reach it
+      # (the `/api` proxy still targets the server on loopback, same container).
+      MEOS_DEV_HOST: "true"
+      # Keep SQLite + the wiki/vault/digests under the mounted, disposable
+      # data dir so container state is visible on the host and easy to wipe.
+      MEOS_DATA_DIR: /workspace/data
+      # Optional: pass an LLM key through instead of setting it in Settings.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    ports:
+      - "4321:4321" # API server
+      - "5173:5173" # web (Vite) dev server, proxies /api -> :4321
+    volumes:
+      # Mount the repo so edits hot-reload into the container.
+      - ..:/workspace
+      # Mount the data dir explicitly so SQLite data is visible/disposable on
+      # the host (it already lives under the repo, but calling it out keeps the
+      # contract obvious and survives a `.dockerignore`-style repo mount tweak).
+      - ../data:/workspace/data
+      # Keep node_modules in container-owned volumes so the Linux-built native
+      # modules (better-sqlite3, sharp, onnxruntime) are NOT shadowed by the
+      # host's platform-specific install bind-mounted over them.
+      - meos_node_modules:/workspace/node_modules
+      - meos_core_node_modules:/workspace/packages/core/node_modules
+      - meos_server_node_modules:/workspace/packages/server/node_modules
+      - meos_web_node_modules:/workspace/packages/web/node_modules
+      # pnpm's content-addressable store, persisted across runs for fast installs.
+      - meos_pnpm_store:/root/.local/share/pnpm/store
+
+volumes:
+  meos_node_modules:
+  meos_core_node_modules:
+  meos_server_node_modules:
+  meos_web_node_modules:
+  meos_pnpm_store:

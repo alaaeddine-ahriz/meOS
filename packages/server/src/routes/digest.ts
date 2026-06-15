@@ -1,7 +1,13 @@
 import path from "node:path";
 import { digest as digestSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import { applyResolution, loadProfileContext, loadSchema, proposeResolution, runConsolidation } from "@meos/core";
+import {
+  applyResolution,
+  loadProfileContext,
+  loadSchema,
+  proposeResolution,
+  runConsolidation,
+} from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 
@@ -55,7 +61,11 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
   app.post<{ Params: { id: string }; Body: { action?: string } }>(
     "/api/contradictions/:id/resolve",
     async (request, reply) => {
-      const { id } = parseOrThrow(digestSchema.ResolveContradictionParams, request.params, "params");
+      const { id } = parseOrThrow(
+        digestSchema.ResolveContradictionParams,
+        request.params,
+        "params",
+      );
       const { action } = parseOrThrow(digestSchema.ResolveContradictionBody, request.body, "body");
       if (!applyResolution(ctx.store, id, action)) {
         throw httpError.notFound("No such open contradiction");

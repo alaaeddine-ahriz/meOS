@@ -22,7 +22,6 @@ function pageBody(markdown: string): string {
     .trim();
 }
 
-
 export interface WikiPageViewProps {
   /** Render this slug instead of the route param — for the chat's side panel. */
   slug?: string;
@@ -34,7 +33,12 @@ export interface WikiPageViewProps {
   onClose?: () => void;
 }
 
-export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onClose }: WikiPageViewProps = {}) {
+export function WikiPageView({
+  slug: slugProp,
+  embedded = false,
+  onNavigate,
+  onClose,
+}: WikiPageViewProps = {}) {
   const params = useParams<{ slug: string }>();
   const slug = slugProp ?? params.slug;
   const [page, setPage] = useState<WikiPage | null>(null);
@@ -48,8 +52,14 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
     setError(null);
     setShowGraph(false);
     if (!slug) return;
-    api.getWikiPage(slug).then(setPage).catch((e) => setError(String(e)));
-    api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
+    api
+      .getWikiPage(slug)
+      .then(setPage)
+      .catch((e) => setError(String(e)));
+    api
+      .listEntities()
+      .then((r) => setEntities(r.entities))
+      .catch(() => {});
   }, [slug]);
 
   // record the visit once the page name is known, so the breadcrumb reads well
@@ -80,11 +90,7 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
         Back to the wiki.
       </Link>
     );
-    const message = (
-      <p className="text-sm text-faded">
-        That page doesn't exist. {back}
-      </p>
-    );
+    const message = <p className="text-sm text-faded">That page doesn't exist. {back}</p>;
     return embedded ? <div className="p-4">{message}</div> : <Page>{message}</Page>;
   }
   if (!page) {
@@ -140,10 +146,14 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
           <Markdown
             text={pageBody(page.markdown)}
             entities={entities}
-            onInternalLink={embedded && onNavigate ? (href) => onNavigate(wikiSlugFromHref(href)) : undefined}
+            onInternalLink={
+              embedded && onNavigate ? (href) => onNavigate(wikiSlugFromHref(href)) : undefined
+            }
           />
         ) : (
-          <p className="text-sm text-dim">This page hasn't been written yet — it will be after the next update.</p>
+          <p className="text-sm text-dim">
+            This page hasn't been written yet — it will be after the next update.
+          </p>
         )}
       </article>
 
@@ -151,7 +161,9 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
         <section className={cn(embedded ? "mt-8" : "rise rise-3 mt-10")}>
           <Separator className="bg-line" />
           <div className="mt-6 flex items-center justify-between gap-4">
-            <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">connections</h3>
+            <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+              connections
+            </h3>
             {/* The graph navigates on node-click, which would leave the panel — route only. */}
             {!embedded && (
               <button
@@ -181,9 +193,13 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
               return (
                 <li key={index} className="text-sm text-faded">
                   {relationship.direction === "out" ? (
-                    <>{relationship.label} {otherLink}</>
+                    <>
+                      {relationship.label} {otherLink}
+                    </>
                   ) : (
-                    <>{otherLink} {relationship.label} this</>
+                    <>
+                      {otherLink} {relationship.label} this
+                    </>
                   )}
                 </li>
               );
@@ -215,7 +231,11 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
                   <span
                     className={cn(
                       "shrink-0 font-mono text-[11px]",
-                      observation.confidence >= 0.7 ? "text-moss" : observation.confidence >= 0.4 ? "text-lamp" : "text-ember",
+                      observation.confidence >= 0.7
+                        ? "text-moss"
+                        : observation.confidence >= 0.4
+                          ? "text-lamp"
+                          : "text-ember",
                     )}
                   >
                     {observation.confidence.toFixed(2)}
@@ -226,7 +246,11 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
                       "shrink-0 whitespace-nowrap font-mono text-[11px]",
                       observation.stale ? "text-ember" : "text-dim",
                     )}
-                    title={observation.stale ? "Unconfirmed past this fact's freshness horizon" : `Recorded ${utcDate(observation.recordedAt).toLocaleDateString()}`}
+                    title={
+                      observation.stale
+                        ? "Unconfirmed past this fact's freshness horizon"
+                        : `Recorded ${utcDate(observation.recordedAt).toLocaleDateString()}`
+                    }
                   >
                     {observation.when}
                   </span>
@@ -247,7 +271,9 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
     <div className="flex h-full flex-col">
       <header className="flex items-center gap-2 border-b border-line px-4 py-3">
         {TypeIcon && <TypeIcon className="size-4 shrink-0 text-lamp" />}
-        <h2 className="min-w-0 flex-1 truncate font-serif text-lg text-paper">{page.entity.name}</h2>
+        <h2 className="min-w-0 flex-1 truncate font-serif text-lg text-paper">
+          {page.entity.name}
+        </h2>
         <Link
           to={`/wiki/${slug}`}
           title="Open full page"

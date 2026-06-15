@@ -445,7 +445,9 @@ export function resetDatabase(
   db.pragma("foreign_keys = OFF");
   const wipe = db.transaction(() => {
     for (const table of tables) db.exec(`DELETE FROM "${table}"`);
-    const hasSequence = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'").get();
+    const hasSequence = db
+      .prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_sequence'")
+      .get();
     if (hasSequence) {
       const clearSeq = db.prepare("DELETE FROM sqlite_sequence WHERE name = ?");
       for (const table of tables) clearSeq.run(table);

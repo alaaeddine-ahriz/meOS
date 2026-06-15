@@ -40,9 +40,25 @@ export const RunEventsResponse = z.object({
 /** A live event off the Activity SSE feed (mirrors the server's ActivityStreamEvent). */
 export const ActivityStreamEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ready") }),
-  z.object({ type: z.literal("run-start"), runId: z.number(), name: z.string(), entityType: z.string(), slug: z.string() }),
-  z.object({ type: z.literal("event"), runId: z.number(), kind: WikiRunEventKindSchema, toolName: z.string().optional(), payload: z.string() }),
-  z.object({ type: z.literal("run-finish"), runId: z.number(), status: z.enum(["done", "failed"]) }),
+  z.object({
+    type: z.literal("run-start"),
+    runId: z.number(),
+    name: z.string(),
+    entityType: z.string(),
+    slug: z.string(),
+  }),
+  z.object({
+    type: z.literal("event"),
+    runId: z.number(),
+    kind: WikiRunEventKindSchema,
+    toolName: z.string().optional(),
+    payload: z.string(),
+  }),
+  z.object({
+    type: z.literal("run-finish"),
+    runId: z.number(),
+    status: z.enum(["done", "failed"]),
+  }),
 ]);
 
 export type WikiRun = z.infer<typeof WikiRunSchema>;

@@ -58,7 +58,9 @@ async function discoverOpenAi(apiKey: string): Promise<string[]> {
 // non-text variants that share the same list.
 function isOpenAiChatModel(id: string): boolean {
   if (!/^(gpt-|o\d|chatgpt)/.test(id)) return false;
-  return !/(audio|realtime|transcribe|tts|image|embedding|moderation|search|dall-e|whisper|instruct)/.test(id);
+  return !/(audio|realtime|transcribe|tts|image|embedding|moderation|search|dall-e|whisper|instruct)/.test(
+    id,
+  );
 }
 
 async function discoverAnthropic(apiKey: string): Promise<string[]> {
@@ -74,9 +76,12 @@ async function discoverGoogle(apiKey: string): Promise<string[]> {
   const body = await getJson(
     `https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=${encodeURIComponent(apiKey)}`,
   );
-  const models = (body as {
-    models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
-  }).models ?? [];
+  const models =
+    (
+      body as {
+        models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>;
+      }
+    ).models ?? [];
   return models
     .filter((m) => m.supportedGenerationMethods?.includes("generateContent"))
     .map((m) => m.name?.replace(/^models\//, ""))
@@ -87,10 +92,14 @@ async function discoverGoogle(apiKey: string): Promise<string[]> {
 /** GET JSON, turning the provider's own error message into a thrown Error. */
 async function getJson(url: string, headers: Record<string, string> = {}): Promise<unknown> {
   const response = await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-  const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } | string };
+  const body = (await response.json().catch(() => ({}))) as {
+    error?: { message?: string } | string;
+  };
   if (!response.ok) {
     const message =
-      typeof body.error === "string" ? body.error : body.error?.message ?? `HTTP ${response.status}`;
+      typeof body.error === "string"
+        ? body.error
+        : (body.error?.message ?? `HTTP ${response.status}`);
     throw new Error(message);
   }
   return body;

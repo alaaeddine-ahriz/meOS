@@ -20,7 +20,11 @@ describe("GET /api/connectors", () => {
     expect(parsed.google.connected).toBe(false);
     expect(parsed.google.hasCredentials).toBe(false);
     // Every known kind is reported, defaulted to disabled.
-    expect(parsed.google.kinds.map((k) => k.kind).sort()).toEqual(["calendar", "contacts", "gmail"]);
+    expect(parsed.google.kinds.map((k) => k.kind).sort()).toEqual([
+      "calendar",
+      "contacts",
+      "gmail",
+    ]);
   });
 });
 

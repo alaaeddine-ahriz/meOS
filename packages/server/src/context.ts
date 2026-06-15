@@ -83,7 +83,10 @@ export async function commitWikiChanges(
     const hash = await deps.git.headHash();
     if (hash) deps.store.recordWikiCommit(hash, subject, changes);
   } catch (error) {
-    console.error("[git] failed to commit wiki changes:", error instanceof Error ? error.message : error);
+    console.error(
+      "[git] failed to commit wiki changes:",
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -111,7 +114,13 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   // Records each page regeneration's agent transcript and streams it live.
   const activity = new ActivityBus(store);
-  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder, activity.hook);
+  const wiki = new WikiWriter(
+    store,
+    llm,
+    path.join(config.dataDir, "wiki"),
+    embedder,
+    activity.hook,
+  );
   // The user's hand-authored note vault (Obsidian-style), distinct from the
   // system-compiled wiki — free-form markdown that cross-links via [[links]].
   const vault = new Vault(path.join(config.dataDir, "vault"));
@@ -119,7 +128,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const events = new MeosEvents();
   events.on("onContradiction", ({ entityId }) => {
     const entity = store.getEntity(entityId);
-    console.log(`[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`);
+    console.log(
+      `[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`,
+    );
   });
 
   // Wiki regeneration runs decoupled from ingestion: stale flags accumulate in
@@ -155,7 +166,8 @@ export function createContext(rootDir = findRootDir()): AppContext {
       );
       const notes: string[] = [];
       if (result.superseded > 0) notes.push(`${result.superseded} fact(s) superseded`);
-      if (result.contradictions > 0) notes.push(`${result.contradictions} contradiction(s) flagged`);
+      if (result.contradictions > 0)
+        notes.push(`${result.contradictions} contradiction(s) flagged`);
       return notes.join(", ") || undefined;
     },
   });
@@ -189,7 +201,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
       });
       if (crystal) {
         scheduleWikiRefresh();
-        console.log(`[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`);
+        console.log(
+          `[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
+        );
       }
     });
   });
@@ -208,5 +222,22 @@ export function createContext(rootDir = findRootDir()): AppContext {
     new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
   );
 
-  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity, connectors, workers };
+  return {
+    rootDir,
+    config,
+    db,
+    store,
+    llm,
+    embedder,
+    wiki,
+    vault,
+    pipeline,
+    queue,
+    watcher,
+    git,
+    events,
+    activity,
+    connectors,
+    workers,
+  };
 }

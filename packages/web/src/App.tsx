@@ -1,4 +1,12 @@
-import { Activity, Library, type LucideIcon, MessageSquare, NotebookPen, Search, Settings } from "lucide-react";
+import {
+  Activity,
+  Library,
+  type LucideIcon,
+  MessageSquare,
+  NotebookPen,
+  Search,
+  Settings,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -50,8 +58,12 @@ export function App() {
       {/* under the overlay titlebar the window is dragged from this strip */}
       {isTauri && <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-50 h-7" />}
 
-      <aside className={cn("flex w-52 shrink-0 flex-col border-r border-line bg-desk/60 px-5 py-6", isTauri && "pt-10")}>
-
+      <aside
+        className={cn(
+          "flex w-52 shrink-0 flex-col border-r border-line bg-desk/60 px-5 py-6",
+          isTauri && "pt-10",
+        )}
+      >
         <nav className="flex flex-col gap-0.5">
           {NAV.map((item) => (
             <NavLink
@@ -87,7 +99,9 @@ export function App() {
           >
             <Search className="size-4 shrink-0 opacity-70" />
             <span>Jump to…</span>
-            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘K</Kbd>
+            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">
+              ⌘K
+            </Kbd>
           </button>
           <NavLink
             to="/settings"
@@ -100,7 +114,9 @@ export function App() {
           >
             <Settings className="size-4 shrink-0 opacity-70" />
             <span>Settings</span>
-            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">⌘,</Kbd>
+            <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">
+              ⌘,
+            </Kbd>
           </NavLink>
         </div>
       </aside>

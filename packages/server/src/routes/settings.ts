@@ -62,45 +62,61 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // because the desktop shell calls our API anyway. `baseUrl` defaults to the
   // saved endpoint but the UI passes its live input so models can be detected
   // before saving.
-  app.get<{ Querystring: { baseUrl?: string } }>("/api/settings/llm/local/models", async (request) => {
-    const base = normalizeLocalBaseUrl(request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl);
-    if (!base) {
-      throw httpError.badRequest("No local endpoint configured");
-    }
-    try {
-      const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
-      // LM Studio answers an unknown route with HTTP 200 and an { error } body,
-      // so a real model list is the one with a `data` array — not just an ok status.
-      const body = (await response.json().catch(() => ({}))) as { data?: Array<{ id?: string }>; error?: string };
-      if (!response.ok || !Array.isArray(body.data)) {
+  app.get<{ Querystring: { baseUrl?: string } }>(
+    "/api/settings/llm/local/models",
+    async (request) => {
+      const base = normalizeLocalBaseUrl(
+        request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl,
+      );
+      if (!base) {
+        throw httpError.badRequest("No local endpoint configured");
+      }
+      try {
+        const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
+        // LM Studio answers an unknown route with HTTP 200 and an { error } body,
+        // so a real model list is the one with a `data` array — not just an ok status.
+        const body = (await response.json().catch(() => ({}))) as {
+          data?: Array<{ id?: string }>;
+          error?: string;
+        };
+        if (!response.ok || !Array.isArray(body.data)) {
+          throw httpError.upstream(
+            `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
+          );
+        }
+        const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
+        return { models };
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
         throw httpError.upstream(
-          `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
+          "Couldn't reach the local server — is it running at that endpoint?",
         );
       }
-      const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
-      return { models };
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw httpError.upstream("Couldn't reach the local server — is it running at that endpoint?");
-    }
-  });
+    },
+  );
 
   // Discover the models a cloud provider's key can actually use, so the picker
   // reflects the account's catalogue instead of a list we hard-code. The key is
   // read from the `x-llm-api-key` header (the UI's unsaved input) or, absent
   // that, the saved/env key — keeping it out of the URL and the logs. Discovery
   // falls back to the curated list on any failure, so this never 500s.
-  app.get<{ Params: { provider: string } }>("/api/settings/llm/:provider/models", async (request) => {
-    const provider = request.params.provider;
-    if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
-      throw httpError.badRequest(`Unknown cloud provider: ${provider}`);
-    }
-    const cloud = provider as CloudProvider;
-    const header = request.headers["x-llm-api-key"];
-    const typedKey = (Array.isArray(header) ? header[0] : header)?.trim();
-    const apiKey = typedKey || ctx.config.llm[cloud].apiKey || ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
-    return listProviderModels(cloud, apiKey);
-  });
+  app.get<{ Params: { provider: string } }>(
+    "/api/settings/llm/:provider/models",
+    async (request) => {
+      const provider = request.params.provider;
+      if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
+        throw httpError.badRequest(`Unknown cloud provider: ${provider}`);
+      }
+      const cloud = provider as CloudProvider;
+      const header = request.headers["x-llm-api-key"];
+      const typedKey = (Array.isArray(header) ? header[0] : header)?.trim();
+      const apiKey =
+        typedKey ||
+        ctx.config.llm[cloud].apiKey ||
+        ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
+      return listProviderModels(cloud, apiKey);
+    },
+  );
 
   app.put<{ Body: { provider?: string; model?: string; apiKey?: string; baseUrl?: string } }>(
     "/api/settings/llm",
@@ -119,7 +135,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         // UI reflects the corrected URL after saving.
         if (baseUrl?.trim()) llm.local.baseUrl = normalizeLocalBaseUrl(baseUrl.trim());
         if (!llm.local.baseUrl.trim()) {
-          throw httpError.validation("A local endpoint URL is required (e.g. http://localhost:1234/v1)");
+          throw httpError.validation(
+            "A local endpoint URL is required (e.g. http://localhost:1234/v1)",
+          );
         }
       } else {
         const cloud = provider as CloudProvider;
@@ -153,7 +171,11 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   app.put<{ Body: { provider?: string; model?: string } }>(
     "/api/settings/llm/maintainer",
     async (request) => {
-      const { provider, model } = parseOrThrow(settingsSchema.UpdateMaintainerBody, request.body, "body");
+      const { provider, model } = parseOrThrow(
+        settingsSchema.UpdateMaintainerBody,
+        request.body,
+        "body",
+      );
       const llm = ctx.config.llm;
       const next = model.trim();
       if (!next) {

@@ -1,6 +1,11 @@
 import type { Embedder } from "../embedding/embedder.js";
 import { reciprocalRankFusion, topK } from "../embedding/vectors.js";
-import { effectiveDate, type EntityRow, type KnowledgeStore, type SourceRef } from "../knowledge/store.js";
+import {
+  effectiveDate,
+  type EntityRow,
+  type KnowledgeStore,
+  type SourceRef,
+} from "../knowledge/store.js";
 import { temporalTag } from "../memory/temporal.js";
 import { classifyIntent, type QueryIntent } from "./query-planner.js";
 
@@ -146,7 +151,9 @@ export async function buildContextPack(
         return `- [${temporalTag(o)}, confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${o.text}`;
       }),
       ...relationships.map((r) =>
-        r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
+        r.from_entity === entity.id
+          ? `- ${entity.name} ${r.label} ${r.to_name}`
+          : `- ${r.from_name} ${r.label} ${entity.name}`,
       ),
     ].filter(Boolean);
     sections.push(lines.join("\n"));
@@ -162,7 +169,10 @@ export async function buildContextPack(
       sections.push(
         [
           "### Open contradictions:",
-          ...open.map((c) => `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`),
+          ...open.map(
+            (c) =>
+              `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`,
+          ),
         ].join("\n"),
       );
     }
@@ -175,7 +185,11 @@ export async function buildContextPack(
     if (chunksShown >= chunkCount) break;
     const chunk = chunkById.get(chunkId);
     if (!chunk) continue;
-    sources.set(chunk.source_id, { id: chunk.source_id, title: chunk.source_title, path: chunk.source_path });
+    sources.set(chunk.source_id, {
+      id: chunk.source_id,
+      title: chunk.source_title,
+      path: chunk.source_path,
+    });
     chunkLines.push(`[from "${chunk.source_title}"]\n${chunk.text}`);
     chunksShown++;
   }

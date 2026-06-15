@@ -4,7 +4,8 @@ import { googleGet, SyncTokenExpiredError } from "./http.js";
 /** Thin Google People REST client: incremental contact sync + the "me" profile. */
 
 const BASE = "https://people.googleapis.com/v1";
-const PERSON_FIELDS = "names,nicknames,emailAddresses,phoneNumbers,organizations,birthdays,metadata";
+const PERSON_FIELDS =
+  "names,nicknames,emailAddresses,phoneNumbers,organizations,birthdays,metadata";
 
 interface PersonName {
   displayName?: string;
@@ -52,7 +53,9 @@ function normalize(person: Person): ContactItem {
     externalId: person.resourceName,
     displayName: person.names?.[0]?.displayName?.trim() || "Unknown contact",
     nicknames: (person.nicknames ?? []).map((n) => n.value?.trim()).filter((v): v is string => !!v),
-    emails: (person.emailAddresses ?? []).map((e) => e.value?.trim()).filter((v): v is string => !!v),
+    emails: (person.emailAddresses ?? [])
+      .map((e) => e.value?.trim())
+      .filter((v): v is string => !!v),
     phones: (person.phoneNumbers ?? []).map((p) => p.value?.trim()).filter((v): v is string => !!v),
     organisation: person.organizations?.[0]?.name?.trim() || undefined,
     jobTitle: person.organizations?.[0]?.title?.trim() || undefined,
@@ -109,7 +112,8 @@ export async function fetchContactsDelta(
       nextSyncToken = data.nextSyncToken ?? nextSyncToken;
     } while (pageToken);
   } catch (error) {
-    if (error instanceof SyncTokenExpiredError) return { items: [], deletions: [], fullResync: true };
+    if (error instanceof SyncTokenExpiredError)
+      return { items: [], deletions: [], fullResync: true };
     throw error;
   }
 

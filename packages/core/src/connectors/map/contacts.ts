@@ -18,27 +18,55 @@ export function mapContact(item: ContactItem): Extraction {
 
   for (const email of item.emails) {
     observations.push(
-      observation({ entity: name, claim: `${name}'s email is ${email}.`, kind: "fact", confidence: 0.9, sensitivity: "private" }),
+      observation({
+        entity: name,
+        claim: `${name}'s email is ${email}.`,
+        kind: "fact",
+        confidence: 0.9,
+        sensitivity: "private",
+      }),
     );
   }
   for (const phone of item.phones) {
     observations.push(
-      observation({ entity: name, claim: `${name}'s phone number is ${phone}.`, kind: "fact", confidence: 0.9, sensitivity: "private" }),
+      observation({
+        entity: name,
+        claim: `${name}'s phone number is ${phone}.`,
+        kind: "fact",
+        confidence: 0.9,
+        sensitivity: "private",
+      }),
     );
   }
   if (item.organisation) {
     observations.push(
-      observation({ entity: name, claim: `${name} works at ${item.organisation}.`, kind: "fact", confidence: 0.85 }),
+      observation({
+        entity: name,
+        claim: `${name} works at ${item.organisation}.`,
+        kind: "fact",
+        confidence: 0.85,
+      }),
     );
   }
   if (item.jobTitle) {
     observations.push(
-      observation({ entity: name, claim: `${name}'s role is ${item.jobTitle}.`, kind: "fact", confidence: 0.85 }),
+      observation({
+        entity: name,
+        claim: `${name}'s role is ${item.jobTitle}.`,
+        kind: "fact",
+        confidence: 0.85,
+      }),
     );
   }
   if (item.birthday) {
     observations.push(
-      observation({ entity: name, claim: `${name}'s birthday is ${item.birthday}.`, kind: "fact", confidence: 0.85, sensitivity: "private" }),
+      observation({
+        entity: name,
+        claim: `${name}'s birthday is ${item.birthday}.`,
+        kind: "fact",
+        confidence: 0.85,
+        sensitivity: "private",
+      }),
     );
   }
 
@@ -49,7 +77,13 @@ export function mapContact(item: ContactItem): Extraction {
 
   const entities = [personEntity({ name, aliases })];
   if (item.organisation) {
-    entities.push({ name: item.organisation, type: "organisation", aliases: [], summary: "", relevance: "high" });
+    entities.push({
+      name: item.organisation,
+      type: "organisation",
+      aliases: [],
+      summary: "",
+      relevance: "high",
+    });
   }
 
   return { entities, relationships, observations };

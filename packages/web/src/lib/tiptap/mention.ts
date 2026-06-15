@@ -72,7 +72,10 @@ export const VaultMention = Mention.extend<MentionOptions & MentionExtraOptions>
     return {
       ...this.parent?.(),
       markdown: {
-        serialize(state: { write: (text: string) => void }, node: { attrs: { label?: string; id?: string } }) {
+        serialize(
+          state: { write: (text: string) => void },
+          node: { attrs: { label?: string; id?: string } },
+        ) {
           state.write(`[[${node.attrs.label ?? node.attrs.id ?? ""}]]`);
         },
       },
@@ -86,7 +89,9 @@ export const VaultMention = Mention.extend<MentionOptions & MentionExtraOptions>
       new Plugin({
         props: {
           handleClickOn(_view, _pos, _node, _nodePos, event) {
-            const el = (event.target as HTMLElement)?.closest(".mention-chip") as HTMLElement | null;
+            const el = (event.target as HTMLElement)?.closest(
+              ".mention-chip",
+            ) as HTMLElement | null;
             if (!el) return false;
             event.preventDefault();
             onFollow({
@@ -116,7 +121,12 @@ export function mentionSuggestion(
         .insertContentAt(range, [
           {
             type: "mention",
-            attrs: { id: props.target || props.label, label: props.label, kind: props.type, target: props.target },
+            attrs: {
+              id: props.target || props.label,
+              label: props.label,
+              kind: props.type,
+              target: props.target,
+            },
           },
           { type: "text", text: " " },
         ])
