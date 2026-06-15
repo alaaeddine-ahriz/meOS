@@ -12,7 +12,7 @@ import {
   type LlmProvider,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
-import { httpError, parseOrThrow } from "../errors.js";
+import { ApiError, httpError, parseOrThrow } from "../errors.js";
 
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google"] as const;
 type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
@@ -64,12 +64,12 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // before saving.
   app.get<{ Querystring: { baseUrl?: string } }>(
     "/api/settings/llm/local/models",
-    async (request, reply) => {
+    async (request) => {
       const base = normalizeLocalBaseUrl(
         request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl,
       );
       if (!base) {
-        return reply.code(400).send({ error: "No local endpoint configured" });
+        throw httpError.badRequest("No local endpoint configured");
       }
       try {
         const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
@@ -80,16 +80,17 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
           error?: string;
         };
         if (!response.ok || !Array.isArray(body.data)) {
-          return reply.code(502).send({
-            error: `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
-          });
+          throw httpError.upstream(
+            `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
+          );
         }
         const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
         return { models };
-      } catch {
-        return reply
-          .code(502)
-          .send({ error: "Couldn't reach the local server — is it running at that endpoint?" });
+      } catch (error) {
+        if (error instanceof ApiError) throw error;
+        throw httpError.upstream(
+          "Couldn't reach the local server — is it running at that endpoint?",
+        );
       }
     },
   );
@@ -101,10 +102,10 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // falls back to the curated list on any failure, so this never 500s.
   app.get<{ Params: { provider: string } }>(
     "/api/settings/llm/:provider/models",
-    async (request, reply) => {
+    async (request) => {
       const provider = request.params.provider;
       if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
-        return reply.code(400).send({ error: `Unknown cloud provider: ${provider}` });
+        throw httpError.badRequest(`Unknown cloud provider: ${provider}`);
       }
       const cloud = provider as CloudProvider;
       const header = request.headers["x-llm-api-key"];
