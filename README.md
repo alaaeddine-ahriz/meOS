@@ -18,6 +18,19 @@ pnpm build
 node packages/server/dist/main.js     # serves API + UI on :4321
 ```
 
+## Run in a container
+
+Prefer not to install Node and native build tools? Start the server + web dev
+loop in a Node 22 container with one command:
+
+```sh
+pnpm dev:container
+```
+
+Then open <http://localhost:5173>. This is the non-desktop path — the Tauri
+desktop build, Rust toolchain, and Linux WebKit deps stay host-native. See
+[`docker/README.md`](docker/README.md) for the smoke check and details.
+
 ### Desktop app (Tauri)
 
 Prerequisites: the [Rust toolchain](https://rustup.rs).

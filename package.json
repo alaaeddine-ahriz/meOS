@@ -12,7 +12,8 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "desktop": "pnpm --filter @meos/desktop dev",
-    "desktop:build": "pnpm --filter @meos/desktop bundle"
+    "desktop:build": "pnpm --filter @meos/desktop bundle",
+    "dev:container": "docker compose -f docker/docker-compose.dev.yml up"
   },
   "devDependencies": {
     "shadcn": "^4.11.0"
