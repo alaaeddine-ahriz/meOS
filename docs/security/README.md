@@ -7,14 +7,14 @@ secret-scanning guidance, and the `.env.example` policy.
 
 ## Automation overview
 
-| Concern | Tooling | Where |
-| --- | --- | --- |
-| Automatic dependency update PRs | Dependabot (npm, github-actions, cargo) | `.github/dependabot.yml` |
-| Static analysis (JS/TS + Rust) | CodeQL | `.github/workflows/codeql.yml` |
-| PR dependency / license / vuln gate | `actions/dependency-review-action` | `.github/workflows/dependency-review.yml` |
-| Repo posture scoring | OpenSSF Scorecard | `.github/workflows/scorecard.yml` |
-| Release dependency inventory (SBOM) | Syft (`anchore/sbom-action`) | `.github/workflows/sbom.yml` |
-| Local audit | `pnpm audit` / `pnpm licenses` | root `package.json` scripts |
+| Concern                             | Tooling                                 | Where                                     |
+| ----------------------------------- | --------------------------------------- | ----------------------------------------- |
+| Automatic dependency update PRs     | Dependabot (npm, github-actions, cargo) | `.github/dependabot.yml`                  |
+| Static analysis (JS/TS + Rust)      | CodeQL                                  | `.github/workflows/codeql.yml`            |
+| PR dependency / license / vuln gate | `actions/dependency-review-action`      | `.github/workflows/dependency-review.yml` |
+| Repo posture scoring                | OpenSSF Scorecard                       | `.github/workflows/scorecard.yml`         |
+| Release dependency inventory (SBOM) | Syft (`anchore/sbom-action`)            | `.github/workflows/sbom.yml`              |
+| Local audit                         | `pnpm audit` / `pnpm licenses`          | root `package.json` scripts               |
 
 ### Dependabot
 
