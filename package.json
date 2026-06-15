@@ -9,7 +9,7 @@
     "pnpm": ">=10"
   },
   "scripts": {
-    "dev": "pnpm --filter @meos/core build && pnpm --parallel --filter @meos/core --filter @meos/server --filter @meos/web dev",
+    "dev": "pnpm --filter @meos/core --filter @meos/contracts build && pnpm --parallel --filter @meos/core --filter @meos/contracts --filter @meos/server --filter @meos/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",

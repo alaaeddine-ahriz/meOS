@@ -179,7 +179,9 @@ async function installRuntimeDeps() {
   const core = await readJson(path.join(pkgDir("core"), "package.json"));
   const server = await readJson(path.join(pkgDir("server"), "package.json"));
   const deps = { ...core.dependencies, ...server.dependencies };
-  delete deps["@meos/core"]; // vendored locally below, not from a registry
+  // Workspace packages are vendored locally below, not pulled from a registry.
+  delete deps["@meos/core"];
+  delete deps["@meos/contracts"];
 
   const app = path.join(payload, "app");
   await fs.writeFile(
@@ -222,6 +224,17 @@ async function vendorBuilds() {
   await fs.mkdir(coreDest, { recursive: true });
   await fs.cp(path.join(pkgDir("core"), "dist"), path.join(coreDest, "dist"), { recursive: true });
   await fs.cp(path.join(pkgDir("core"), "package.json"), path.join(coreDest, "package.json"));
+
+  // @meos/contracts: the shared API schemas the server imports at runtime.
+  const contractsDest = path.join(app, "node_modules", "@meos", "contracts");
+  await fs.mkdir(contractsDest, { recursive: true });
+  await fs.cp(path.join(pkgDir("contracts"), "dist"), path.join(contractsDest, "dist"), {
+    recursive: true,
+  });
+  await fs.cp(
+    path.join(pkgDir("contracts"), "package.json"),
+    path.join(contractsDest, "package.json"),
+  );
 
   await fs.cp(path.join(pkgDir("server"), "dist"), path.join(app, "server", "dist"), {
     recursive: true,
