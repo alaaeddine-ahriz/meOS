@@ -51,6 +51,22 @@ describe("GET /api/wiki/:slug", () => {
   });
 });
 
+describe("GET /api/entities/duplicates", () => {
+  it("surfaces an org-suffix variant as a confidence-scored proposal", async () => {
+    // Seed an organisation written two ways; entity resolution should pair them.
+    server.ctx.store.createEntity({ type: "organisation", name: "Globex" });
+    server.ctx.store.createEntity({ type: "organisation", name: "Globex Inc." });
+    const res = await server.app.inject({ method: "GET", url: "/api/entities/duplicates" });
+    expect(res.statusCode).toBe(200);
+    const parsed = wiki.DuplicatesResponse.parse(res.json());
+    const pair = parsed.duplicates.find(
+      (d) => [d.aName, d.bName].includes("Globex") && [d.aName, d.bName].includes("Globex Inc."),
+    );
+    expect(pair).toBeDefined();
+    expect(pair!.score).toBeGreaterThan(0.5);
+  });
+});
+
 describe("POST /api/entities/merge", () => {
   it("rejects a non-numeric merge body with the VALIDATION_ERROR envelope", async () => {
     const res = await server.app.inject({
