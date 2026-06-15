@@ -1,6 +1,6 @@
 import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
-import type { EntityType } from "../extract/schema.js";
+import type { EntityType, Extraction } from "../extract/schema.js";
 import { CONFIDENCE_CAP, REINFORCE_STEP } from "../memory/confidence.js";
 import { defaultVisibilityForType, type SourceVisibility } from "./visibility.js";
 
@@ -150,6 +150,40 @@ export interface SourceRevisionRow {
   content_hash: string | null;
   raw_content: string | null;
   normalized_content: string | null;
+  created_at: string;
+}
+
+/** Which extraction strategy produced a cached partial (#15). */
+export type ExtractionStrategy = "single" | "map-reduce";
+
+/**
+ * The version tuple that, together with a revision + section content hash,
+ * keys an extraction-cache row (#15). A change to any component invalidates the
+ * cache for that section so a stale partial is never served.
+ */
+export interface ExtractionCacheKey {
+  sourceRevisionId: number;
+  /** sha256 of the exact section text the LLM saw (context included). */
+  contentHash: string;
+  schemaVersion: string;
+  promptVersion: string;
+  modelId: string;
+  profileVersion: string;
+}
+
+/** A cached partial extraction (#15). */
+export interface ExtractionCacheRow {
+  id: number;
+  source_revision_id: number;
+  content_hash: string;
+  schema_version: string;
+  prompt_version: string;
+  model_id: string;
+  profile_version: string;
+  strategy: ExtractionStrategy;
+  /** The partial Extraction, JSON-encoded. */
+  extraction: string;
+  token_usage: number;
   created_at: string;
 }
 
@@ -786,6 +820,83 @@ export class KnowledgeStore {
          FROM source_revisions WHERE source_id = ? ORDER BY revision`,
       )
       .all(sourceId) as SourceRevisionRow[];
+  }
+
+  /**
+   * Look up a cached partial extraction (#15) by its full version-keyed identity.
+   * A hit lets map-reduce skip the LLM call for that section; a miss (any version
+   * component changed, or never extracted) returns undefined so it recomputes.
+   * Returns the parsed Extraction, or undefined on miss / unparseable row.
+   */
+  getCachedExtraction(key: ExtractionCacheKey): Extraction | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT extraction FROM extraction_cache
+         WHERE source_revision_id = ? AND content_hash = ? AND schema_version = ?
+           AND prompt_version = ? AND model_id = ? AND profile_version = ?`,
+      )
+      .get(
+        key.sourceRevisionId,
+        key.contentHash,
+        key.schemaVersion,
+        key.promptVersion,
+        key.modelId,
+        key.profileVersion,
+      ) as { extraction: string } | undefined;
+    if (!row) return undefined;
+    try {
+      return JSON.parse(row.extraction) as Extraction;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Store a partial extraction in the cache (#15), keyed by revision + section
+   * content hash + version tuple. Idempotent: re-storing the same key overwrites
+   * (so a re-run with a real LLM result replaces any earlier placeholder). Records
+   * the LLM `tokenUsage` the map call spent and which `strategy` owns it.
+   */
+  putCachedExtraction(
+    key: ExtractionCacheKey,
+    extraction: Extraction,
+    strategy: ExtractionStrategy,
+    tokenUsage = 0,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO extraction_cache
+           (source_revision_id, content_hash, schema_version, prompt_version,
+            model_id, profile_version, strategy, extraction, token_usage)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(source_revision_id, content_hash, schema_version, prompt_version,
+                     model_id, profile_version)
+         DO UPDATE SET strategy = excluded.strategy,
+                       extraction = excluded.extraction,
+                       token_usage = excluded.token_usage`,
+      )
+      .run(
+        key.sourceRevisionId,
+        key.contentHash,
+        key.schemaVersion,
+        key.promptVersion,
+        key.modelId,
+        key.profileVersion,
+        strategy,
+        JSON.stringify(extraction),
+        tokenUsage,
+      );
+  }
+
+  /** Every cache row for a revision (telemetry/tests) — newest first. */
+  extractionCacheForRevision(sourceRevisionId: number): ExtractionCacheRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, source_revision_id, content_hash, schema_version, prompt_version,
+                model_id, profile_version, strategy, extraction, token_usage, created_at
+         FROM extraction_cache WHERE source_revision_id = ? ORDER BY id DESC`,
+      )
+      .all(sourceRevisionId) as ExtractionCacheRow[];
   }
 
   /** Set a revision's lifecycle status (active|missing|deleted|superseded|failed|incomplete). */

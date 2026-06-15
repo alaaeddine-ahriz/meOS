@@ -181,7 +181,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(21);
+    expect(migrations.length).toBe(22);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -196,6 +196,7 @@ describe("migration 21 (durable ingest jobs)", () => {
       // 'extract-failed'), simulating a DB created before #13 shipped.
       db.pragma("foreign_keys = OFF");
       db.exec(`
+        DROP TABLE IF EXISTS extraction_cache;
         DROP TABLE IF EXISTS ingest_runs;
         DROP TABLE IF EXISTS ingest_jobs;
         CREATE TABLE inbox_items_v20 (
@@ -221,9 +222,10 @@ describe("migration 21 (durable ingest jobs)", () => {
       db.pragma("user_version = 20");
       db.close();
 
-      // Re-open through the real migrator: migration 21 must apply cleanly.
+      // Re-open through the real migrator: migration 21 (and every later one)
+      // must apply cleanly, landing at the latest version.
       const upgraded = openDatabase(file);
-      expect(upgraded.pragma("user_version", { simple: true })).toBe(21);
+      expect(upgraded.pragma("user_version", { simple: true })).toBe(migrations.length);
 
       const upStore = new KnowledgeStore(upgraded);
       // Legacy inbox row survived.
