@@ -112,7 +112,9 @@ export async function runConsolidation(deps: {
   const wikiChanges = await wiki.regenerateStale();
   const staleRegenerated = wikiChanges.length;
 
-  const sources = store.recentSources(since);
+  // The digest is written to disk and git-synced/exported — only list sources
+  // whose content is allowed to leave the device (exportable).
+  const sources = store.recentSources(since, "export");
   const observations = store.recentObservations(since);
   const superseded = store.recentlySuperseded(since);
   const contradictions = store.unresolvedContradictions();
