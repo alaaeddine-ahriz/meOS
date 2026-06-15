@@ -388,6 +388,40 @@ const migrations: string[] = [
   );
   CREATE INDEX idx_connector_items_lookup ON connector_items(account_id, kind, external_id);
   `,
+  // 18 — source-level visibility (privacy). Until now privacy lived only at the
+  // observation tier (sensitivity normal|private|secret, filtered by
+  // visibleObservations). A source now also carries six surface permissions, so a
+  // whole document/connector can be scoped without per-claim tagging:
+  //   searchable       — eligible as a retrieval candidate at all
+  //   answerable       — may back a chat answer's citations
+  //   wiki_eligible    — its observations may feed a generated wiki page
+  //   syncable         — its derived content may be git-synced to a remote
+  //   exportable       — its derived content may appear in exports/digests
+  //   activity_visible — it may surface in the Activity / recent-sources feed
+  // Stored as integer booleans (0/1). Backfilled by type so existing rows keep
+  // today's behaviour: connector-derived sources (google:contacts|calendar|gmail)
+  // are private by default — searchable/answerable but NOT syncable/exportable
+  // (aligns with the existing privacy stance: connector PII stays off portable,
+  // remote-pushed artifacts). Profile context is searchable/answerable but kept
+  // out of the wiki and out of sync/export. Everything else (local files, watched
+  // folders, uploads, vault notes, pasted text, conversations, sessions) defaults
+  // to fully permissive, exactly as before this migration.
+  `
+  ALTER TABLE sources ADD COLUMN searchable INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sources ADD COLUMN answerable INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sources ADD COLUMN wiki_eligible INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sources ADD COLUMN syncable INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sources ADD COLUMN exportable INTEGER NOT NULL DEFAULT 1;
+  ALTER TABLE sources ADD COLUMN activity_visible INTEGER NOT NULL DEFAULT 1;
+
+  -- Backfill: connector sources are private by default (no sync/export).
+  UPDATE sources SET syncable = 0, exportable = 0
+    WHERE type IN ('google:contacts', 'google:calendar', 'google:gmail');
+
+  -- Backfill: profile-context docs are not wiki/sync/export material.
+  UPDATE sources SET wiki_eligible = 0, syncable = 0, exportable = 0
+    WHERE type = 'profile_context';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

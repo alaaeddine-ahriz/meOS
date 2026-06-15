@@ -2,6 +2,7 @@ import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
 import type { EntityType } from "../extract/schema.js";
 import { CONFIDENCE_CAP, REINFORCE_STEP } from "../memory/confidence.js";
+import { defaultVisibilityForType, type SourceVisibility } from "./visibility.js";
 
 export interface EntityRow {
   id: number;
@@ -234,11 +235,108 @@ export class KnowledgeStore {
 
   // --- sources & chunks ---
 
-  createSource(input: { type: string; title: string; path?: string; mime?: string; content: string }): number {
+  createSource(input: {
+    type: string;
+    title: string;
+    path?: string;
+    mime?: string;
+    content: string;
+    /** Override the per-type visibility defaults (rarely needed). */
+    visibility?: Partial<SourceVisibility>;
+  }): number {
+    // Apply the per-source-type visibility defaults at creation (mirrors the
+    // migration-18 backfill so new and existing rows agree); callers may override.
+    const v = { ...defaultVisibilityForType(input.type), ...input.visibility };
     const result = this.db
-      .prepare("INSERT INTO sources (type, title, path, mime, content) VALUES (?, ?, ?, ?, ?)")
-      .run(input.type, input.title, input.path ?? null, input.mime ?? null, input.content);
+      .prepare(
+        `INSERT INTO sources
+           (type, title, path, mime, content,
+            searchable, answerable, wiki_eligible, syncable, exportable, activity_visible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.type,
+        input.title,
+        input.path ?? null,
+        input.mime ?? null,
+        input.content,
+        v.searchable ? 1 : 0,
+        v.answerable ? 1 : 0,
+        v.wikiEligible ? 1 : 0,
+        v.syncable ? 1 : 0,
+        v.exportable ? 1 : 0,
+        v.activityVisible ? 1 : 0,
+      );
     return Number(result.lastInsertRowid);
+  }
+
+  /** A source's six surface permissions (defaults to fully permissive if unknown). */
+  sourceVisibility(id: number): SourceVisibility {
+    const row = this.db
+      .prepare(
+        `SELECT searchable, answerable, wiki_eligible, syncable, exportable, activity_visible
+         FROM sources WHERE id = ?`,
+      )
+      .get(id) as
+      | {
+          searchable: number;
+          answerable: number;
+          wiki_eligible: number;
+          syncable: number;
+          exportable: number;
+          activity_visible: number;
+        }
+      | undefined;
+    if (!row) return defaultVisibilityForType("");
+    return {
+      searchable: row.searchable === 1,
+      answerable: row.answerable === 1,
+      wikiEligible: row.wiki_eligible === 1,
+      syncable: row.syncable === 1,
+      exportable: row.exportable === 1,
+      activityVisible: row.activity_visible === 1,
+    };
+  }
+
+  /** Set a source's visibility flags (partial update; unset flags are left as-is). */
+  setSourceVisibility(id: number, patch: Partial<SourceVisibility>): void {
+    const cols: Record<keyof SourceVisibility, string> = {
+      searchable: "searchable",
+      answerable: "answerable",
+      wikiEligible: "wiki_eligible",
+      syncable: "syncable",
+      exportable: "exportable",
+      activityVisible: "activity_visible",
+    };
+    const sets: string[] = [];
+    const vals: number[] = [];
+    for (const [key, col] of Object.entries(cols) as Array<[keyof SourceVisibility, string]>) {
+      const value = patch[key];
+      if (value !== undefined) {
+        sets.push(`${col} = ?`);
+        vals.push(value ? 1 : 0);
+      }
+    }
+    if (sets.length === 0) return;
+    this.db.prepare(`UPDATE sources SET ${sets.join(", ")} WHERE id = ?`).run(...vals, id);
+  }
+
+  /** The set of source ids excluded from a given surface (flag = 0). */
+  private sourceIdsWhere(flag: string): Set<number> {
+    const rows = this.db.prepare(`SELECT id FROM sources WHERE ${flag} = 0`).all() as Array<{
+      id: number;
+    }>;
+    return new Set(rows.map((r) => r.id));
+  }
+
+  /** Source ids that may NOT be used as retrieval candidates. */
+  nonSearchableSourceIds(): Set<number> {
+    return this.sourceIdsWhere("searchable");
+  }
+
+  /** Source ids that may NOT back a chat answer's citations. */
+  nonAnswerableSourceIds(): Set<number> {
+    return this.sourceIdsWhere("answerable");
   }
 
   getSourceTitle(id: number): string | undefined {
@@ -853,11 +951,17 @@ export class KnowledgeStore {
 
   /**
    * Active observations safe to put in a portable artifact — the wiki, exported
-   * briefs, lint. Excludes private/secret claims (the privacy boundary lives
-   * here, once, instead of a `sensitivity === "normal"` filter at every caller).
+   * briefs, lint. Two privacy boundaries are applied here, once, instead of at
+   * every caller:
+   *   - observation sensitivity: private/secret claims never leave memory;
+   *   - source visibility: a claim whose backing source is not `wiki_eligible`
+   *     (e.g. profile-context docs) is kept out of the compiled wiki page.
    */
   visibleObservations(entityId: number): ObservationRow[] {
-    return this.activeObservations(entityId).filter((o) => o.sensitivity === "normal");
+    const blocked = this.sourceIdsWhere("wiki_eligible");
+    return this.activeObservations(entityId).filter(
+      (o) => o.sensitivity === "normal" && !(o.source_id !== null && blocked.has(o.source_id)),
+    );
   }
 
   activeObservationVectors(entityId: number): Array<{ id: number; vector: Float32Array }> {
@@ -1128,9 +1232,21 @@ export class KnowledgeStore {
       .all() as EntityRow[];
   }
 
-  recentSources(sinceIso: string): Array<{ id: number; title: string; type: string; created_at: string }> {
+  /**
+   * Sources created since a cutoff. By default the raw list (used internally,
+   * e.g. to gather profile-context docs the assistant drafts from). Pass a scope
+   * to honour the source-visibility model where the result is surfaced to the
+   * user or exported:
+   *   - "export"   keeps only `exportable` sources (the daily digest);
+   *   - "activity" keeps only `activity_visible` sources (the recent-sources feed).
+   */
+  recentSources(
+    sinceIso: string,
+    scope?: "export" | "activity",
+  ): Array<{ id: number; title: string; type: string; created_at: string }> {
+    const flag = scope === "export" ? " AND exportable = 1" : scope === "activity" ? " AND activity_visible = 1" : "";
     return this.db
-      .prepare("SELECT id, title, type, created_at FROM sources WHERE created_at >= ? ORDER BY id DESC")
+      .prepare(`SELECT id, title, type, created_at FROM sources WHERE created_at >= ?${flag} ORDER BY id DESC`)
       .all(sinceIso) as Array<{ id: number; title: string; type: string; created_at: string }>;
   }
 
