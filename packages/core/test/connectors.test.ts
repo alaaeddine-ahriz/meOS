@@ -395,7 +395,7 @@ describe("connector materialization (#19)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(24);
+    expect(migrations.length).toBe(25);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -417,6 +417,9 @@ describe("migration 23 (connector materialization)", () => {
 
       // Rewind to v22: drop the migration-23 column + the migration-24 priority
       // artifacts, and reset user_version, simulating a DB created before #19.
+      db.exec(`DROP INDEX IF EXISTS idx_meeting_links_source;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_link_suggestions;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_notes;`);
       db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
       db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
       db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);

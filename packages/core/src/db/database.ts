@@ -702,6 +702,43 @@ export const migrations: readonly string[] = [
   CREATE INDEX idx_ingest_jobs_claim
     ON ingest_jobs(queue, state, priority, run_after);
   `,
+  // 25 — meeting notes as auto-linked trusted sources (#26).
+  //
+  // A meeting note is a type='meeting' source (visibility defaults to fully
+  // permissive — searchable + answerable + wiki-eligible, like a local file).
+  // Its structured fields — the meeting date and the attendee list — live in a
+  // companion table keyed 1:1 by the source id, so the markdown body stays on
+  // `sources.content` (re-using the whole revision/chunk/extraction chain) while
+  // the date/attendees are queryable on their own. Attendees are stored as a
+  // JSON array of names so the UI round-trips them without a join table.
+  //
+  // Auto-suggested links from a meeting to existing entities (projects, people,
+  // organisations, decisions) are persisted in `meeting_link_suggestions`, each
+  // with a `rationale` ("why linked") and a review `status`. A suggestion is
+  // unique per (source, entity); re-running extraction (reprocess) refreshes the
+  // pending rows but never clobbers a user's accept/reject decision.
+  `
+  CREATE TABLE meeting_notes (
+    source_id INTEGER PRIMARY KEY REFERENCES sources(id) ON DELETE CASCADE,
+    meeting_date TEXT,
+    attendees TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE meeting_link_suggestions (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    entity_id INTEGER NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    rationale TEXT NOT NULL,
+    method TEXT NOT NULL DEFAULT 'name',
+    status TEXT NOT NULL DEFAULT 'suggested'
+      CHECK (status IN ('suggested','accepted','rejected')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_id, entity_id)
+  );
+  CREATE INDEX idx_meeting_links_source ON meeting_link_suggestions(source_id, status);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

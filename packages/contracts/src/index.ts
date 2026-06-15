@@ -18,6 +18,7 @@ export * from "./schemas/common.js";
 // write `wiki.WikiPageResponse`, and the most commonly shared types are also
 // re-exported directly below for ergonomic `z.infer` consumption in the client.
 export * as ingest from "./schemas/ingest.js";
+export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";
 export * as staleFacts from "./schemas/stale-facts.js";
 export * as vault from "./schemas/vault.js";
@@ -46,6 +47,12 @@ export type {
   IngestMetrics,
 } from "./schemas/ingest.js";
 export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
+export type {
+  MeetingSummary,
+  MeetingObservation,
+  MeetingLink,
+  MeetingDetail,
+} from "./schemas/meetings.js";
 export type { StaleFact, StaleFacts, RevisionStatus } from "./schemas/stale-facts.js";
 export type { NoteMeta, NoteContents } from "./schemas/vault.js";
 export type { Conversation, Message, ChatEvent, LlmErrorKind } from "./schemas/chat.js";

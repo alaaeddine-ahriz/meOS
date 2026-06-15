@@ -1,5 +1,6 @@
 import {
   Activity,
+  CalendarDays,
   Library,
   type LucideIcon,
   MessageSquare,
@@ -17,6 +18,7 @@ import { cn } from "./lib/utils.js";
 import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
+import { MeetingsView } from "./views/MeetingsView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { VaultView } from "./views/VaultView.js";
 import { WikiPageView } from "./views/WikiPage.js";
@@ -25,8 +27,9 @@ import { WikiView } from "./views/WikiView.js";
 const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> = [
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/notes", label: "Notes", key: "2", icon: NotebookPen },
-  { to: "/wiki", label: "Wiki", key: "3", icon: Library },
-  { to: "/activity", label: "Activity", key: "4", icon: Activity },
+  { to: "/meetings", label: "Meetings", key: "3", icon: CalendarDays },
+  { to: "/wiki", label: "Wiki", key: "4", icon: Library },
+  { to: "/activity", label: "Activity", key: "5", icon: Activity },
 ];
 
 export function App() {
@@ -125,6 +128,8 @@ export function App() {
         <Routes>
           <Route path="/" element={<ChatView />} />
           <Route path="/notes" element={<VaultView />} />
+          <Route path="/meetings" element={<MeetingsView />} />
+          <Route path="/meetings/:id" element={<MeetingsView />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/activity" element={<ActivityHub />} />

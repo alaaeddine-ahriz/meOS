@@ -15,7 +15,36 @@ import { blocksFromText, imageMediaType, parseDocument, type Block } from "./par
 
 export type IngestInput =
   | { kind: "file"; filename: string; buffer: Buffer; origin?: string; path?: string }
-  | { kind: "text"; title: string; text: string; origin?: string };
+  | {
+      kind: "text";
+      title: string;
+      text: string;
+      origin?: string;
+      /**
+       * A stable logical-source key (#16). When set, re-ingesting the same key
+       * advances that source's revision history (superseding its prior facts)
+       * instead of forking a new source — the meeting flow keys reprocess by
+       * "meeting:<id>" so editing a note supersedes the previous version.
+       */
+      path?: string;
+      /**
+       * An extra extraction lens (#26) folded into the profile context for this
+       * one ingest only — used to steer extraction of a typed source (e.g. a
+       * meeting note toward decisions / action items / risks / open questions)
+       * without changing the shared extractor prompt or the user's profile.
+       */
+      extractionLens?: string;
+      /**
+       * Invoked once extraction+merge succeeds, with the same Extraction that was
+       * merged. The meeting flow uses it to derive + persist link suggestions
+       * from the extracted entities without re-running the LLM.
+       */
+      onExtraction?: (context: {
+        sourceId: number;
+        revisionId: number;
+        extraction: Extraction;
+      }) => void | Promise<void>;
+    };
 
 export interface IngestOutcome {
   inboxItemId: number;
@@ -324,12 +353,12 @@ export class IngestionPipeline {
         return { inboxItemId, status: "unsupported" };
       }
 
-      // Logical-source identity (#16): a watched/uploaded file re-ingested at a
-      // known path advances the SAME source's revision history instead of forking
-      // a fresh source row — so an edit supersedes the prior version's facts
-      // rather than accumulating duplicates. New paths (and all pasted text) open
-      // a new logical source.
-      const sourcePath = input.kind === "file" ? (input.path ?? input.filename) : undefined;
+      // Logical-source identity (#16): a watched/uploaded file (or keyed text,
+      // e.g. a meeting note) re-ingested at a known path advances the SAME
+      // source's revision history instead of forking a fresh source row — so an
+      // edit supersedes the prior version's facts rather than accumulating
+      // duplicates. New paths (and all unkeyed pasted text) open a new source.
+      const sourcePath = input.kind === "file" ? (input.path ?? input.filename) : input.path;
       const existing = sourcePath ? store.findSourceByPath(sourcePath) : undefined;
       let sourceId: number;
       if (existing) {
@@ -391,6 +420,8 @@ export class IngestionPipeline {
           revisionId,
           parsed,
           inboxItemId,
+          extractionLens: input.kind === "text" ? input.extractionLens : undefined,
+          onExtraction: input.kind === "text" ? input.onExtraction : undefined,
         });
       } catch (error) {
         // Mark the revision incomplete so it doesn't look fully ingested, and
@@ -430,13 +461,27 @@ export class IngestionPipeline {
     revisionId: number;
     parsed: { title: string; text: string; blocks?: Block[] };
     inboxItemId?: number;
+    /** A per-ingest extraction lens folded into the profile context (#26). */
+    extractionLens?: string;
+    /** Called with the merged extraction (meeting link suggestions ride here). */
+    onExtraction?: (context: {
+      sourceId: number;
+      revisionId: number;
+      extraction: Extraction;
+    }) => void | Promise<void>;
   }): Promise<MergeResult> {
     const { store, embedder, wiki } = this.deps;
     const { sourceId, revisionId, parsed, inboxItemId } = args;
 
     if (inboxItemId) store.updateInboxItem(inboxItemId, "extracting");
     const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
-    const profile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
+    const baseProfile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
+    // The per-ingest lens (e.g. a meeting note's decision/action focus) is folded
+    // into the profile context so it steers the same extractor without changing
+    // the shared prompt or the user's stored profile.
+    const profile = args.extractionLens
+      ? `${baseProfile ? `${baseProfile}\n\n` : ""}${args.extractionLens}`
+      : baseProfile;
     // #15: size-gated extraction. Small documents keep the single-pass fast path;
     // large ones are extracted section-by-section (cached per revision + section
     // hash + version tuple) and deterministically reduced before the merge seam.
@@ -473,6 +518,11 @@ export class IngestionPipeline {
     if (store.getRevision(revisionId)?.status === "incomplete") {
       store.setRevisionStatus(revisionId, "active");
     }
+
+    // Post-extraction hook (#26): the meeting flow derives + persists its link
+    // suggestions from the same Extraction that was just merged. Runs after the
+    // merge so the candidate entities (newly created or reinforced) already exist.
+    await args.onExtraction?.({ sourceId, revisionId, extraction });
 
     // Automation hooks: a source landed, and memory was written. Subscribers
     // (contradiction checks, crystallization, etc.) react without the pipeline

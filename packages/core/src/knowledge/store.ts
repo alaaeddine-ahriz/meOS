@@ -153,6 +153,39 @@ export interface SourceRevisionRow {
   created_at: string;
 }
 
+/** The structured fields of a meeting note, stored alongside its source (#26). */
+export interface MeetingNoteRow {
+  source_id: number;
+  /** ISO date (YYYY-MM-DD) the meeting took place, or null if unknown. */
+  meeting_date: string | null;
+  /** The attendee names. */
+  attendees: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** Review status of an auto-suggested meeting → entity link (#26). */
+export type MeetingLinkStatus = "suggested" | "accepted" | "rejected";
+
+/** How a meeting → entity link was resolved (drives the "why linked" rationale). */
+export type MeetingLinkMethod = "name" | "alias" | "slug";
+
+/** One persisted, reviewable meeting → entity link suggestion (#26). */
+export interface MeetingLinkSuggestionRow {
+  id: number;
+  source_id: number;
+  entity_id: number;
+  /** Human-readable "why linked" explanation. */
+  rationale: string;
+  method: MeetingLinkMethod;
+  status: MeetingLinkStatus;
+  created_at: string;
+  /** Joined entity fields, for the review UI. */
+  entity_name: string;
+  entity_type: EntityType;
+  entity_slug: string;
+}
+
 /** Which extraction strategy produced a cached partial (#15). */
 export type ExtractionStrategy = "single" | "map-reduce";
 
@@ -498,6 +531,17 @@ export function slugify(name: string): string {
   );
 }
 
+/** Defensively parse a stored attendees JSON column into a string array (#26). */
+function safeParseAttendees(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((a): a is string => typeof a === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 export class KnowledgeStore {
   constructor(readonly db: MeosDatabase) {}
 
@@ -645,6 +689,175 @@ export class KnowledgeStore {
     return row?.type;
   }
 
+  /** Set a source's title — kept in sync when a meeting note is edited (#26). */
+  updateSourceTitle(id: number, title: string): void {
+    this.db.prepare("UPDATE sources SET title = ? WHERE id = ?").run(title, id);
+  }
+
+  // --- meeting notes (#26) ---
+
+  /**
+   * Upsert the structured fields of a meeting note (its date + attendees). The
+   * markdown body lives on `sources.content` (so it rides the whole revision/
+   * chunk/extraction chain); only the queryable fields live here.
+   */
+  upsertMeetingNote(input: {
+    sourceId: number;
+    meetingDate?: string | null;
+    attendees?: string[];
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO meeting_notes (source_id, meeting_date, attendees)
+         VALUES (?, ?, ?)
+         ON CONFLICT(source_id) DO UPDATE SET
+           meeting_date = excluded.meeting_date,
+           attendees = excluded.attendees,
+           updated_at = datetime('now')`,
+      )
+      .run(input.sourceId, input.meetingDate ?? null, JSON.stringify(input.attendees ?? []));
+  }
+
+  /** The structured fields of a meeting note, or undefined if the source isn't one. */
+  getMeetingNote(sourceId: number): MeetingNoteRow | undefined {
+    const row = this.db.prepare("SELECT * FROM meeting_notes WHERE source_id = ?").get(sourceId) as
+      | {
+          source_id: number;
+          meeting_date: string | null;
+          attendees: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    return { ...row, attendees: safeParseAttendees(row.attendees) };
+  }
+
+  /** Every meeting-note source, newest first — for the meeting list view. */
+  listMeetingNotes(): Array<MeetingNoteRow & { title: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT m.*, s.title AS title
+         FROM meeting_notes m JOIN sources s ON s.id = m.source_id
+         ORDER BY COALESCE(m.meeting_date, m.created_at) DESC, m.source_id DESC`,
+      )
+      .all() as Array<{
+      source_id: number;
+      meeting_date: string | null;
+      attendees: string;
+      created_at: string;
+      updated_at: string;
+      title: string;
+    }>;
+    return rows.map((r) => ({ ...r, attendees: safeParseAttendees(r.attendees) }));
+  }
+
+  /**
+   * Replace a meeting's pending (still-"suggested") link suggestions with a fresh
+   * set, leaving any the user already accepted/rejected untouched (their decision
+   * is durable across reprocesses). Each suggestion is keyed by (source, entity);
+   * a fresh suggestion for a pair the user already ruled on is skipped.
+   */
+  replaceMeetingLinkSuggestions(
+    sourceId: number,
+    suggestions: Array<{
+      entityId: number;
+      rationale: string;
+      method: MeetingLinkMethod;
+    }>,
+  ): void {
+    const run = this.db.transaction(() => {
+      // Drop only the pending ones; accepted/rejected decisions persist.
+      this.db
+        .prepare(
+          "DELETE FROM meeting_link_suggestions WHERE source_id = ? AND status = 'suggested'",
+        )
+        .run(sourceId);
+      // Pairs the user already decided on — never re-suggest these.
+      const decided = new Set(
+        (
+          this.db
+            .prepare(
+              "SELECT entity_id FROM meeting_link_suggestions WHERE source_id = ? AND status != 'suggested'",
+            )
+            .all(sourceId) as Array<{ entity_id: number }>
+        ).map((r) => r.entity_id),
+      );
+      const insert = this.db.prepare(
+        `INSERT OR IGNORE INTO meeting_link_suggestions
+           (source_id, entity_id, rationale, method, status)
+         VALUES (?, ?, ?, ?, 'suggested')`,
+      );
+      for (const s of suggestions) {
+        if (decided.has(s.entityId)) continue;
+        insert.run(sourceId, s.entityId, s.rationale, s.method);
+      }
+    });
+    run();
+  }
+
+  /**
+   * The active observations a source supports, joined with their entity name —
+   * the structured context (decisions / tasks / risks / open questions) a meeting
+   * detail view groups by `kind`. Uses the observation_sources provenance table
+   * (plus the primary source_id) so a claim a meeting *reinforced* (the merge
+   * collapses a near-duplicate into an existing observation) still surfaces as
+   * that meeting's evidence, not just claims it was the first to create. Newest
+   * first.
+   */
+  observationsForSource(sourceId: number): Array<{
+    id: number;
+    kind: string;
+    text: string;
+    source_quote: string | null;
+    entity_name: string;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT o.id, o.kind, o.text, o.source_quote, e.name AS entity_name
+         FROM observations o JOIN entities e ON e.id = o.entity_id
+         WHERE o.status = 'active'
+           AND (o.source_id = ?
+                OR EXISTS (SELECT 1 FROM observation_sources os
+                           WHERE os.observation_id = o.id AND os.source_id = ?))
+         ORDER BY o.id DESC`,
+      )
+      .all(sourceId, sourceId) as Array<{
+      id: number;
+      kind: string;
+      text: string;
+      source_quote: string | null;
+      entity_name: string;
+    }>;
+  }
+
+  /** A meeting's link suggestions (joined with their entities), for the review UI. */
+  meetingLinkSuggestions(sourceId: number): MeetingLinkSuggestionRow[] {
+    return this.db
+      .prepare(
+        `SELECT l.id, l.source_id, l.entity_id, l.rationale, l.method, l.status, l.created_at,
+                e.name AS entity_name, e.type AS entity_type, e.slug AS entity_slug
+         FROM meeting_link_suggestions l
+         JOIN entities e ON e.id = l.entity_id
+         WHERE l.source_id = ?
+         ORDER BY CASE l.status WHEN 'suggested' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END,
+                  e.type, e.name`,
+      )
+      .all(sourceId) as MeetingLinkSuggestionRow[];
+  }
+
+  /**
+   * Record the user's review of a single suggestion (accept or reject). The
+   * decision is durable: a later reprocess (#16) will not re-suggest or clobber
+   * a pair the user has ruled on. Returns false if the suggestion id is unknown.
+   */
+  reviewMeetingLinkSuggestion(id: number, status: "accepted" | "rejected"): boolean {
+    const result = this.db
+      .prepare("UPDATE meeting_link_suggestions SET status = ? WHERE id = ?")
+      .run(status, id);
+    return result.changes > 0;
+  }
+
   /**
    * Persist a source's chunks with their embeddings and, when provided, the
    * structure-aware metadata (#14) that lets a result navigate chunk → section →
@@ -758,6 +971,15 @@ export class KnowledgeStore {
     return this.db
       .prepare("SELECT id FROM sources WHERE path = ? ORDER BY id DESC LIMIT 1")
       .get(path) as { id: number } | undefined;
+  }
+
+  /**
+   * Assign (or change) a source's logical-source key. The meeting flow (#26)
+   * uses this to key a just-created note by its synthetic "meeting:<id>" path so
+   * a later reprocess advances the same source's revision history (#16).
+   */
+  setSourcePath(id: number, path: string): void {
+    this.db.prepare("UPDATE sources SET path = ? WHERE id = ?").run(path, id);
   }
 
   /** Replace a source's stored content (and optional raw bytes) on a re-ingest. */

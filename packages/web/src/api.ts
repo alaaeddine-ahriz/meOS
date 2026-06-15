@@ -29,6 +29,10 @@ import type {
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
+  MeetingDetail,
+  MeetingLink,
+  MeetingObservation,
+  MeetingSummary,
   Message,
   ModelListing,
   NoteContents,
@@ -74,6 +78,10 @@ export type {
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
+  MeetingDetail,
+  MeetingLink,
+  MeetingObservation,
+  MeetingSummary,
   Message,
   ModelListing,
   NoteContents,
@@ -198,6 +206,40 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ from, to }),
+    }),
+
+  // Meeting notes (#26): trusted, auto-linked, citable sources.
+  listMeetings: () => json<{ meetings: MeetingSummary[] }>("/api/meetings"),
+  getMeeting: (id: number) => json<MeetingDetail>(`/api/meetings/${id}`),
+  createMeeting: (body: {
+    title: string;
+    date?: string | null;
+    attendees: string[];
+    content: string;
+  }) =>
+    json<MeetingDetail>("/api/meetings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateMeeting: (
+    id: number,
+    body: { title: string; date?: string | null; attendees: string[]; content: string },
+  ) =>
+    json<MeetingDetail>(`/api/meetings/${id}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  reprocessMeeting: (id: number) =>
+    json<{ sourceId: number; status: string }>(`/api/meetings/${id}/reprocess`, {
+      method: "POST",
+    }),
+  reviewMeetingLink: (id: number, linkId: number, status: "accepted" | "rejected") =>
+    json<{ updated: boolean }>(`/api/meetings/${id}/links/${linkId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
     }),
 
   listConversations: () => json<{ conversations: Conversation[] }>("/api/conversations"),
