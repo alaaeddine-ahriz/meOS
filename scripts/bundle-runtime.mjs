@@ -70,11 +70,50 @@ function resolveFromApp(app, specifier) {
   return require.resolve(specifier, { paths: [app] });
 }
 
+async function findFilesByName(dir, filename, acc = []) {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await findFilesByName(fullPath, filename, acc);
+    } else if (entry.isFile() && entry.name === filename) {
+      acc.push(fullPath);
+    }
+  }
+  return acc;
+}
+
+async function fileExists(p) {
+  return fs.access(p).then(() => true, () => false);
+}
+
+async function restoreCompatibleOnnxRuntimePayload(packageDir, expectedBinding) {
+  const candidates = await findFilesByName(packageDir, "onnxruntime_binding.node");
+  const compatible = candidates.find((candidate) => {
+    const parts = candidate.split(path.sep);
+    return parts.includes("darwin") && parts.includes("x64");
+  });
+
+  if (!compatible) {
+    if (candidates.length > 0) {
+      console.warn(`Found onnxruntime native candidates, but none for darwin/x64:\n${candidates.join("\n")}`);
+    }
+    return false;
+  }
+
+  const sourceDir = path.dirname(compatible);
+  const targetDir = path.dirname(expectedBinding);
+  await fs.mkdir(targetDir, { recursive: true });
+  await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
+  console.warn(`Restored onnxruntime native payload from ${sourceDir} to ${targetDir}.`);
+  return fileExists(expectedBinding);
+}
+
 async function ensureOnnxRuntimeNativeBinary(app) {
-  // onnxruntime-node officially ships a macOS x64 prebuilt binary, but its
-  // optional postinstall download can occasionally leave the package present
-  // without bin/napi-v6/darwin/x64/onnxruntime_binding.node. That breaks the
-  // model pre-seed step and would also break local embeddings at runtime.
+  // onnxruntime-node officially supports macOS x64 prebuilt binaries, but some
+  // npm installs leave the package present without the exact N-API folder that
+  // binding.js requires. When a compatible darwin/x64 payload exists under a
+  // different napi-v* folder, copy the full native payload into the expected one.
   if (platform !== "darwin" || arch !== "x64") return;
 
   const packageJson = resolveFromApp(app, "onnxruntime-node/package.json");
@@ -82,15 +121,13 @@ async function ensureOnnxRuntimeNativeBinary(app) {
   const pkg = await readJson(packageJson);
   const binding = path.join(packageDir, "bin", "napi-v6", "darwin", "x64", "onnxruntime_binding.node");
 
-  async function hasBinding() {
-    return fs.access(binding).then(() => true, () => false);
-  }
-
-  if (await hasBinding()) return;
+  if (await fileExists(binding)) return;
+  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
 
   console.warn(`onnxruntime-node native binary missing at ${binding}; rebuilding ${pkg.name}@${pkg.version}.`);
   run(npmCmd(), ["rebuild", "onnxruntime-node", "--foreground-scripts"], { cwd: app });
-  if (await hasBinding()) return;
+  if (await fileExists(binding)) return;
+  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
 
   console.warn(`onnxruntime-node rebuild did not restore the native binary; reinstalling ${pkg.name}@${pkg.version}.`);
   run(
@@ -99,9 +136,14 @@ async function ensureOnnxRuntimeNativeBinary(app) {
     { cwd: app },
   );
 
-  if (!(await hasBinding())) {
-    throw new Error(`onnxruntime-node native binary is still missing after rebuild/reinstall: ${binding}`);
-  }
+  if (await fileExists(binding)) return;
+  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
+
+  const candidates = await findFilesByName(packageDir, "onnxruntime_binding.node");
+  throw new Error(
+    `onnxruntime-node native binary is still missing after rebuild/reinstall: ${binding}` +
+      (candidates.length ? `\nAvailable candidates:\n${candidates.join("\n")}` : "\nNo onnxruntime_binding.node candidates were found."),
+  );
 }
 
 // ---------------------------------------------------------------------------
