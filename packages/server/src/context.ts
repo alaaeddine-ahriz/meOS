@@ -28,6 +28,8 @@ import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
 import { ConnectorManager } from "./connector-manager.js";
 import { GitSync } from "./git.js";
+import { WorkerRegistry } from "./runtime/worker.js";
+import { ConnectorSyncWorker, QueueWorker, WatcherWorker } from "./runtime/workers.js";
 import { FolderWatcher } from "./watcher.js";
 
 /** How many documents may move through parse/embed/extract at once. */
@@ -51,6 +53,12 @@ export interface AppContext {
   activity: ActivityBus;
   /** Background sync schedule for connected external accounts (Google). */
   connectors: ConnectorManager;
+  /**
+   * The background workers (watcher, connectors, scheduler, ingest/wiki queues)
+   * behind a uniform lifecycle + health surface. `main.ts` drives start/stop
+   * through this; the /api/runtime route reads each worker's health.
+   */
+  workers: WorkerRegistry;
 }
 
 /**
@@ -186,5 +194,19 @@ export function createContext(rootDir = findRootDir()): AppContext {
     });
   });
 
-  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity, connectors };
+  // The runtime surface: each background component wrapped behind the uniform
+  // Worker interface (see docs/runtime.md). Registered in startup order so the
+  // registry's startAll preserves watcher → connectors; main.ts appends the
+  // SchedulerWorker once it has built the Cron, keeping the historical
+  // watcher → connectors → scheduler ordering. The ingest + wiki queues are
+  // queue-driven (no start/stop of their own), surfaced for health only.
+  const workers = new WorkerRegistry();
+  workers.register(
+    new WatcherWorker(watcher),
+    new ConnectorSyncWorker(connectors),
+    new QueueWorker("ingest", queue, "ingestion pipeline"),
+    new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
+  );
+
+  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity, connectors, workers };
 }

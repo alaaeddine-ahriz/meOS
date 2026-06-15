@@ -28,6 +28,7 @@ export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
 export * as connectors from "./schemas/connectors.js";
 export * as git from "./schemas/git.js";
+export * as runtime from "./schemas/runtime.js";
 
 // --- Directly re-exported inferred TYPES, for the web client signatures. ---
 export type {
@@ -67,3 +68,4 @@ export type {
   ConnectorStatus,
 } from "./schemas/connectors.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
+export type { WorkerStatus, WorkerHealth, RuntimeHealth } from "./schemas/runtime.js";
