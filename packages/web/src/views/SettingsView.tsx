@@ -1126,6 +1126,26 @@ function ConnectorsSection() {
         </ul>
       )}
 
+      {/* Visibility model — what connector data is allowed to influence. Connector
+          sources default to private: they inform you here, but never leave the device. */}
+      <div className="flex flex-col gap-2 rounded-md border border-line bg-card/50 p-3.5 text-[12px] text-dim">
+        <span className="text-faded">What synced Google data can do</span>
+        <ul className="flex flex-col gap-1">
+          <li>
+            <span className="text-paper">Searchable &amp; answerable</span> — yes. Synced people and
+            events become entities your chat can find and cite.
+          </li>
+          <li>
+            <span className="text-paper">Wiki</span> — non-private facts may appear on a person's
+            page; contact details and email metadata are kept off it.
+          </li>
+          <li>
+            <span className="text-paper">Sync &amp; export</span> — no. Connector-derived content is
+            never written to the git-synced wiki/digests or any export. It stays on this device.
+          </li>
+        </ul>
+      </div>
+
       {error && <p className="text-sm text-ember">⚠ {error}</p>}
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>

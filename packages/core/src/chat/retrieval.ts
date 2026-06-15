@@ -54,19 +54,27 @@ export async function buildContextPack(
   const [queryVector] = await embedder.embed([query], { interactive: true });
   const qv = queryVector!;
 
+  // Source-visibility (privacy): non-`searchable` sources are dropped as
+  // retrieval candidates entirely; non-`answerable` ones are never surfaced as a
+  // citation. Both id-sets are tiny (only sources with a flag turned off).
+  const nonSearchable = store.nonSearchableSourceIds();
+  const nonAnswerable = store.nonAnswerableSourceIds();
+
   // --- rank each id-space (vector ∪ BM25, fused) ---
-  const allChunks = store.allChunks();
+  const allChunks = store.allChunks().filter((c) => !nonSearchable.has(c.source_id));
   const chunkById = new Map(allChunks.map((c) => [c.id, c]));
   const chunkOrder = hybridRank(
     topK(allChunks, qv, (c) => c.vector, 30).map((h) => h.item.id),
-    store.chunkFtsSearch(query, 30),
+    store.chunkFtsSearch(query, 30).filter((id) => chunkById.has(id)),
   );
 
-  const allObs = store.allActiveObservationVectors();
+  const allObs = store
+    .allActiveObservationVectors()
+    .filter((o) => o.source_id === null || !nonSearchable.has(o.source_id));
   const obsById = new Map(allObs.map((o) => [o.id, o]));
   const obsOrder = hybridRank(
     topK(allObs, qv, (o) => o.vector, 30).map((h) => h.item.id),
-    store.observationFtsSearch(query, 30),
+    store.observationFtsSearch(query, 30).filter((id) => obsById.has(id)),
   );
 
   const allWiki = store.allWikiPageVectors();
@@ -109,6 +117,10 @@ export async function buildContextPack(
 
   const sections: string[] = [];
   const sources = new Map<number, SourceRef>();
+  // Add a source to the citation set unless it is flagged non-answerable.
+  const addSource = (ref: SourceRef) => {
+    if (!nonAnswerable.has(ref.id)) sources.set(ref.id, ref);
+  };
   const matchedEntities: EntityRow[] = [];
 
   // --- compiled wiki prose (top synthesised pages) ---
@@ -121,7 +133,7 @@ export async function buildContextPack(
     .map((entityId) => wikiByEntity.get(entityId))
     .filter((page): page is NonNullable<typeof page> => page !== undefined)
     .map((page) => {
-      for (const source of store.sourcesForEntity(page.entity_id)) sources.set(source.id, source);
+      for (const source of store.sourcesForEntity(page.entity_id)) addSource(source);
       return `### Wiki: ${page.entity_name} (${page.entity_type})\n${page.body}`;
     });
   if (wikiSection.length > 0) sections.push(wikiSection.join("\n\n"));
@@ -142,7 +154,7 @@ export async function buildContextPack(
       entity.summary ? `Summary: ${entity.summary}` : "",
       ...observations.map((o) => {
         const source = o.source_id ? store.getSource(o.source_id) : undefined;
-        if (source) sources.set(source.id, source);
+        if (source) addSource(source);
         // Tag non-working tiers so the model can weight a stable, cross-source
         // "semantic" fact above a fresh "working" capture.
         const tier = o.memory_tier !== "working" ? `, ${o.memory_tier}` : "";
@@ -185,11 +197,7 @@ export async function buildContextPack(
     if (chunksShown >= chunkCount) break;
     const chunk = chunkById.get(chunkId);
     if (!chunk) continue;
-    sources.set(chunk.source_id, {
-      id: chunk.source_id,
-      title: chunk.source_title,
-      path: chunk.source_path,
-    });
+    addSource({ id: chunk.source_id, title: chunk.source_title, path: chunk.source_path });
     chunkLines.push(`[from "${chunk.source_title}"]\n${chunk.text}`);
     chunksShown++;
   }
