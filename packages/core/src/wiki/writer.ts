@@ -12,6 +12,19 @@ import type {
   RelationshipView,
   WikiChange,
 } from "../knowledge/store.js";
+import {
+  DEFAULT_WIKI_SANDBOX_LIMITS,
+  RunLimitTracker,
+  WikiLimitExceededError,
+  WikiPathEscapeError,
+  assertInWorkspace,
+  guardTools,
+  type GuardAuditEvent,
+  type WikiSandboxLimits,
+} from "./sandbox-guard.js";
+
+export type { WikiSandboxLimits } from "./sandbox-guard.js";
+export { DEFAULT_WIKI_SANDBOX_LIMITS } from "./sandbox-guard.js";
 
 /** Identifies the page regeneration a transcript belongs to. */
 export interface WikiRunStart {
@@ -201,7 +214,34 @@ export class WikiWriter {
     private readonly embedder?: Embedder,
     /** When provided, each regeneration's agent transcript is streamed here. */
     private readonly onRun?: WikiRunHook,
+    /**
+     * Execution + filesystem limits for the agentic run. Generous defaults
+     * ({@link DEFAULT_WIKI_SANDBOX_LIMITS}) keep normal multi-page edits working;
+     * override to tighten the sandbox.
+     */
+    private readonly limits: WikiSandboxLimits = DEFAULT_WIKI_SANDBOX_LIMITS,
   ) {}
+
+  /**
+   * Append a guarded tool/file event to the governance audit trail. Every agent
+   * file mutation, every blocked path-escape, and every limit violation lands
+   * here (`op = "wiki.tool"`) so suspicious or failed calls surface in the
+   * Activity / debug views alongside other accountable operations.
+   */
+  private auditToolEvent(slug: string, event: GuardAuditEvent): void {
+    const detail = {
+      slug,
+      tool: event.tool,
+      ...(event.targetPath !== undefined ? { path: event.targetPath } : {}),
+      success: event.success,
+      ...(event.violation ? { violation: event.violation } : {}),
+    };
+    try {
+      this.store.logAudit("wiki.tool", JSON.stringify(detail));
+    } catch {
+      // Audit logging must never break a regeneration.
+    }
+  }
 
   pagePath(entity: EntityRow): string {
     return path.join(this.wikiDir, entity.type, `${entity.slug}.md`);
@@ -252,7 +292,18 @@ export class WikiWriter {
     fs.mkdirSync(this.wikiDir, { recursive: true });
     const { tools, sandbox } = await createBashTool({
       uploadDirectory: { source: this.wikiDir, include: "**/*.md" },
+      // First line of defence: bash-tool's own output cap mirrors our limit.
+      maxOutputLength: this.limits.maxOutputBytes,
     });
+
+    // Defence-in-depth over the sandbox: validate + audit every agent file
+    // mutation/command against the workspace allowlist and per-run execution
+    // limits before it can touch even the in-memory sandbox copy. A blocked
+    // path-escape or limit breach throws, aborting the run; we catch it below
+    // and fall back to the deterministic body — an out-of-workspace or oversized
+    // change is never committed.
+    const tracker = new RunLimitTracker(this.limits);
+    const guarded = guardTools(tools, tracker, (event) => this.auditToolEvent(entity.slug, event));
 
     // The documents that made this page stale — credited at the end, but read now
     // so the run's transcript can be attributed to them as it streams.
@@ -269,10 +320,16 @@ export class WikiWriter {
     const dataDir = path.dirname(this.wikiDir);
     const schema = loadSchema(dataDir);
     const profileContext = loadProfileContext(dataDir);
+    // Set when the sandbox guard rejects an op (path escape / limit breach), so
+    // we discard partial agent output and synthesise deterministically.
+    let agentAborted = false;
+    // Enforce the wall-clock budget even if the underlying agent never yields to
+    // a guarded tool call (e.g. a model that hangs mid-stream).
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
     try {
-      await this.llm.runAgent({
+      const run = this.llm.runAgent({
         system: `${withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext)}\n\nKnown entities available for [[wiki-links]] (use exact names): ${names.join(", ") || "(none)"}`,
-        tools,
+        tools: guarded,
         sandbox,
         onActivity: sink ? (chunk) => sink.event(chunk) : undefined,
         prompt: [
@@ -290,29 +347,90 @@ export class WikiWriter {
           relationshipLines.join("\n") || "(none)",
         ].join("\n"),
       });
+      // Swallow a late rejection from the losing branch of the race so a
+      // post-timeout agent failure never becomes an unhandled rejection.
+      run.catch(() => {});
+      const timeoutGuard = new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(
+            new WikiLimitExceededError({
+              kind: "limit",
+              limit: "runTimeoutMs",
+              value: this.limits.runTimeoutMs,
+              max: this.limits.runTimeoutMs,
+            }),
+          );
+        }, this.limits.runTimeoutMs);
+      });
+      await Promise.race([run, timeoutGuard]);
       sink?.finish("done");
     } catch (error) {
-      // An LLM failure here (no credits, rate limit, outage) must not abort the
-      // ingest: the knowledge is already merged. The agentic write is best-effort
-      // anyway, so fall through to the deterministic synthesis below — the page
-      // still gets a real body, just without the LLM's prose polish.
-      console.warn(
-        `wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
-        error instanceof Error ? error.message : error,
-      );
+      // A guard rejection (path escape) or limit breach means the agent tried
+      // something out-of-bounds — record it prominently and abandon the agent
+      // body, falling back to the safe deterministic synthesis below.
+      if (error instanceof WikiPathEscapeError || error instanceof WikiLimitExceededError) {
+        agentAborted = true;
+        this.store.logAudit(
+          "wiki.tool",
+          JSON.stringify({ slug: entity.slug, aborted: true, reason: error.violation }),
+        );
+        console.warn(
+          `wiki: agentic write for ${entity.slug} aborted (sandbox guard):`,
+          error.message,
+        );
+      } else {
+        // An LLM failure here (no credits, rate limit, outage) must not abort the
+        // ingest: the knowledge is already merged. The agentic write is best-effort
+        // anyway, so fall through to the deterministic synthesis below — the page
+        // still gets a real body, just without the LLM's prose polish.
+        console.warn(
+          `wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
+          error instanceof Error ? error.message : error,
+        );
+      }
       sink?.finish("failed");
+    } finally {
+      clearTimeout(timeoutHandle);
     }
 
     // The agentic write is best-effort: some models/providers complete the run
     // without reliably writing the file. Never ship an empty page — fall back to
     // a deterministic body assembled from the same observations and
     // relationships, so the compiled-knowledge retrieval stream is always lit.
-    const agentBody = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
-    const body = agentBody || synthesizeBody(entity, observations, relationships, names);
-    const summary =
-      (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() ||
-      entity.summary ||
-      `${entity.name} (${entity.type}).`;
+    // When the run was aborted by the guard, discard any partial agent output and
+    // synthesise deterministically instead. Read-back paths are themselves
+    // workspace-relative constants, but we assert them too for defence-in-depth.
+    assertInWorkspace(relPath);
+    assertInWorkspace(SUMMARY_FILE);
+    const agentBody = agentAborted
+      ? ""
+      : stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
+    let body = agentBody || synthesizeBody(entity, observations, relationships, names);
+    const summary = agentAborted
+      ? entity.summary || `${entity.name} (${entity.type}).`
+      : (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() ||
+        entity.summary ||
+        `${entity.name} (${entity.type}).`;
+
+    // Final guardrail before committing: an agent body whose diff from the prior
+    // page exceeds the cap is treated as abusive — audit it and fall back to the
+    // deterministic synthesis (which is bounded by the entity's own knowledge).
+    if (agentBody) {
+      const diffViolation = tracker.checkPageDiff(beforeBody, body);
+      if (diffViolation) {
+        this.auditToolEvent(entity.slug, {
+          tool: "writeFile",
+          targetPath: relPath,
+          success: false,
+          violation: diffViolation,
+        });
+        console.warn(
+          `wiki: agentic page diff for ${entity.slug} exceeds limit, using synthesized body`,
+        );
+        body = synthesizeBody(entity, observations, relationships, names);
+      }
+    }
+    const usedSynthesis = !agentBody || body !== agentBody;
 
     // Only touch the file when the prose actually changed: a no-op rewrite
     // would churn the frontmatter timestamp, dirty git, and surface an empty
@@ -324,7 +442,7 @@ export class WikiWriter {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(
         file,
-        composePage(entity, body, observations.length, meanOf(observations), !agentBody),
+        composePage(entity, body, observations.length, meanOf(observations), usedSynthesis),
       );
       // Persist the compiled prose so chat retrieves it directly (and BM25 can
       // index it); embed it when an embedder is available for semantic recall.

@@ -108,6 +108,16 @@ export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
 export type { WikiRunHook, WikiRunSink, WikiRunStart } from "./wiki/writer.js";
+export {
+  DEFAULT_WIKI_SANDBOX_LIMITS,
+  RunLimitTracker,
+  WikiLimitExceededError,
+  WikiPathEscapeError,
+  assertInWorkspace,
+  checkWorkspacePath,
+  guardTools,
+} from "./wiki/sandbox-guard.js";
+export type { GuardAuditEvent, GuardViolation, WikiSandboxLimits } from "./wiki/sandbox-guard.js";
 export { Vault } from "./vault/vault.js";
 export type { NoteContents, NoteMeta } from "./vault/vault.js";
 export { lintPage } from "./wiki/wiki-lint.js";
