@@ -1,6 +1,8 @@
+import { chat as chatSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import { buildContextPack, ChatService, LlmError, loadProfileContext } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 import { isProfileCommand, runProfileCommand } from "../profile-command.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -24,10 +26,10 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     conversations: ctx.store.listConversations(),
   }));
 
-  app.get<{ Params: { id: string } }>("/api/conversations/:id/messages", async (request, reply) => {
-    const id = Number(request.params.id);
+  app.get<{ Params: { id: string } }>("/api/conversations/:id/messages", async (request) => {
+    const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
     if (!ctx.store.conversationExists(id)) {
-      return reply.code(404).send({ error: "No such conversation" });
+      throw httpError.notFound("No such conversation");
     }
     return { messages: ctx.store.listMessages(id) };
   });
@@ -35,9 +37,9 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
   // Close a conversation: distil it into a first-class session source in the
   // background (crystallization). Fires the onSessionEnd hook.
   app.post<{ Params: { id: string } }>("/api/conversations/:id/end", async (request, reply) => {
-    const id = Number(request.params.id);
+    const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
     if (!ctx.store.conversationExists(id)) {
-      return reply.code(404).send({ error: "No such conversation" });
+      throw httpError.notFound("No such conversation");
     }
     await ctx.events.emit("onSessionEnd", { conversationId: id });
     return reply.code(202).send({ crystallizing: true });
@@ -46,15 +48,18 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.post<{ Body: { conversationId?: number; message: string } }>(
     "/api/chat",
     async (request, reply) => {
-      const { message } = request.body ?? {};
-      if (!message?.trim()) {
-        return reply.code(400).send({ error: "Field 'message' is required" });
+      // Validate the body before hijacking the socket, so a bad request still gets
+      // the standard JSON error envelope (the error handler can't run post-hijack).
+      const body = parseOrThrow(chatSchema.ChatBody, request.body, "body");
+      if (!body.message.trim()) {
+        throw httpError.validation("Field 'message' is required");
       }
-      let conversationId = request.body.conversationId;
+      const message = body.message;
+      let conversationId = body.conversationId;
       if (conversationId === undefined) {
         conversationId = ctx.store.createConversation();
       } else if (!ctx.store.conversationExists(conversationId)) {
-        return reply.code(404).send({ error: "No such conversation" });
+        throw httpError.notFound("No such conversation");
       }
 
       // Writing to the raw socket bypasses Fastify, which would otherwise both
@@ -113,10 +118,11 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  app.get<{ Querystring: { q?: string } }>("/api/search", async (request, reply) => {
-    const query = request.query.q?.trim();
+  app.get<{ Querystring: { q?: string } }>("/api/search", async (request) => {
+    const { q } = parseOrThrow(chatSchema.SearchQuery, request.query, "query");
+    const query = q.trim();
     if (!query) {
-      return reply.code(400).send({ error: "Query parameter 'q' is required" });
+      throw httpError.validation("Query parameter 'q' is required");
     }
     const context = await buildContextPack(ctx.store, ctx.embedder, query);
     return {

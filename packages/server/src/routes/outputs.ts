@@ -7,6 +7,7 @@ import {
   meetingBrief,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { httpError } from "../errors.js";
 
 /**
  * Output modes: project the knowledge base into the artifacts a consultant or
@@ -40,15 +41,12 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
   ] as const) {
     app.get<{ Querystring: { entity?: string; format?: string } }>(
       `/api/outputs/${path}`,
-      async (request, res) => {
+      async (request) => {
         const key = request.query.entity?.trim();
         if (!key)
-          return res
-            .code(400)
-            .send({ error: "Query parameter 'entity' is required (id, name, or slug)" });
+          throw httpError.validation("Query parameter 'entity' is required (id, name, or slug)");
         const entityId = entityResolver(key);
-        if (entityId === undefined)
-          return res.code(404).send({ error: `No entity matching "${key}"` });
+        if (entityId === undefined) throw httpError.notFound(`No entity matching "${key}"`);
         return reply(fn(ctx.store, entityId), request.query.format);
       },
     );

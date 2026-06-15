@@ -1,5 +1,7 @@
+import { git as gitSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 interface GitPrefs {
   /** Commit and push automatically after the nightly consolidation pass. */
@@ -16,64 +18,52 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     autoSync: prefs(ctx).autoSync,
   }));
 
-  app.post("/api/settings/git/init", async (_request, reply) => {
+  app.post("/api/settings/git/init", async () => {
     try {
       return await ctx.git.init();
     } catch (error) {
-      return reply
-        .code(400)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.badRequest(error instanceof Error ? error.message : String(error));
     }
   });
 
-  app.put<{ Body: { url?: string } }>("/api/settings/git/remote", async (request, reply) => {
-    const url = request.body?.url?.trim();
-    if (!url) {
-      return reply.code(400).send({ error: "Field 'url' is required" });
-    }
+  app.put<{ Body: { url?: string } }>("/api/settings/git/remote", async (request) => {
+    const { url } = parseOrThrow(gitSchema.SetGitRemoteBody, request.body, "body");
+    const trimmed = url.trim();
+    if (!trimmed) throw httpError.validation("Field 'url' is required");
     try {
-      await ctx.git.setRemote(url);
+      await ctx.git.setRemote(trimmed);
       return await ctx.git.status();
     } catch (error) {
-      return reply
-        .code(400)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.badRequest(error instanceof Error ? error.message : String(error));
     }
   });
 
-  app.put<{ Body: { enabled?: boolean } }>("/api/settings/git/auto", async (request, reply) => {
-    if (typeof request.body?.enabled !== "boolean") {
-      return reply.code(400).send({ error: "Field 'enabled' must be a boolean" });
-    }
-    ctx.store.setSetting("git", { autoSync: request.body.enabled });
-    return { autoSync: request.body.enabled };
+  app.put<{ Body: { enabled?: boolean } }>("/api/settings/git/auto", async (request) => {
+    const { enabled } = parseOrThrow(gitSchema.SetGitAutoBody, request.body, "body");
+    ctx.store.setSetting("git", { autoSync: enabled });
+    return { autoSync: enabled };
   });
 
-  app.post("/api/settings/git/sync", async (_request, reply) => {
+  app.post("/api/settings/git/sync", async () => {
     try {
       return await ctx.git.sync();
     } catch (error) {
-      return reply
-        .code(400)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.badRequest(error instanceof Error ? error.message : String(error));
     }
   });
 
   app.get<{ Querystring: { limit?: string } }>("/api/settings/git/log", async (request) => {
-    const limit = Math.min(Math.max(Number(request.query.limit) || 50, 1), 200);
-    return { commits: await ctx.git.log(limit) };
+    const { limit } = parseOrThrow(gitSchema.GitLogQuery, request.query, "query");
+    const bounded = Math.min(Math.max(limit ?? 50, 1), 200);
+    return { commits: await ctx.git.log(bounded) };
   });
 
-  app.get<{ Params: { hash: string } }>(
-    "/api/settings/git/commit/:hash",
-    async (request, reply) => {
-      try {
-        return await ctx.git.show(request.params.hash);
-      } catch (error) {
-        return reply
-          .code(404)
-          .send({ error: error instanceof Error ? error.message : String(error) });
-      }
-    },
-  );
+  app.get<{ Params: { hash: string } }>("/api/settings/git/commit/:hash", async (request) => {
+    const { hash } = parseOrThrow(gitSchema.GitCommitParams, request.params, "params");
+    try {
+      return await ctx.git.show(hash);
+    } catch (error) {
+      throw httpError.notFound(error instanceof Error ? error.message : String(error));
+    }
+  });
 }

@@ -1,3 +1,4 @@
+import { profile as profileSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import {
   composeProfileContext,
@@ -18,6 +19,7 @@ import {
   type ProfileSectionId,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 /** The source type uploaded profile documents are stored under — a lens input, never a raw graph source. */
 const PROFILE_SOURCE_TYPE = "profile_context";
@@ -109,11 +111,12 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   // Save one section. The store snapshots the prior version before overwriting.
   app.put<{ Params: { id: string }; Body: { content?: string } }>(
     "/api/profile/:id",
-    async (request, reply) => {
-      const section = profileSection(request.params.id);
-      if (!section) return reply.code(404).send({ error: "No such profile section" });
-      const content = request.body?.content ?? "";
-      saveProfileSection(ctx.config.dataDir, section.id, content);
+    async (request) => {
+      const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
+      const section = profileSection(params.id);
+      if (!section) throw httpError.notFound("No such profile section");
+      const { content } = parseOrThrow(profileSchema.SaveProfileSectionBody, request.body, "body");
+      saveProfileSection(ctx.config.dataDir, section.id, content ?? "");
       logProfileEdit(ctx, "edit_section", { section: section.id });
       return profileView(ctx);
     },
@@ -121,26 +124,24 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
 
   // Apply a reviewed proposal (or hand edit): persist every changed section in
   // one shot, after the user has accepted the diff.
-  app.post<{ Body: { profile?: Partial<Profile> } }>(
-    "/api/profile/apply",
-    async (request, reply) => {
-      const proposed = request.body?.profile;
-      if (!proposed || typeof proposed !== "object") {
-        return reply.code(400).send({ error: "Field 'profile' is required" });
-      }
-      const current = loadProfile(ctx.config.dataDir);
-      const applied: string[] = [];
-      for (const section of PROFILE_SECTIONS) {
-        const next = proposed[section.id];
-        if (typeof next !== "string") continue;
-        if (next.trim() === (current[section.id] ?? "").trim()) continue;
-        saveProfileSection(ctx.config.dataDir, section.id, next);
-        applied.push(section.id);
-      }
-      if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
-      return { ...profileView(ctx), applied };
-    },
-  );
+  app.post<{ Body: { profile?: Partial<Profile> } }>("/api/profile/apply", async (request) => {
+    const { profile: proposed } = parseOrThrow(
+      profileSchema.ApplyProfileBody,
+      request.body,
+      "body",
+    );
+    const current = loadProfile(ctx.config.dataDir);
+    const applied: string[] = [];
+    for (const section of PROFILE_SECTIONS) {
+      const next = proposed[section.id];
+      if (typeof next !== "string") continue;
+      if (next.trim() === (current[section.id] ?? "").trim()) continue;
+      saveProfileSection(ctx.config.dataDir, section.id, next);
+      applied.push(section.id);
+    }
+    if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
+    return { ...profileView(ctx), applied };
+  });
 
   // Upload context documents: parse each, store as a private profile_context
   // source (never run through extraction), then propose a profile update for
@@ -170,7 +171,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       stored.push(parsed);
     }
     if (stored.length === 0) {
-      return reply.code(400).send({ error: "No readable documents in request" });
+      throw httpError.badRequest("No readable documents in request");
     }
     logProfileEdit(ctx, "upload_documents", { titles: stored.map((d) => d.title) });
 
@@ -182,21 +183,18 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       return reply.code(200).send({ proposal, documents: stored.map((d) => d.title) });
     } catch (error) {
-      return reply
-        .code(502)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.upstream(error instanceof Error ? error.message : String(error));
     }
   });
 
   // Bootstrap an initial profile from the wiki MeOS has already compiled — a
   // first draft the user reviews and edits, rather than starting from blank.
-  app.post("/api/profile/draft-from-wiki", async (_request, reply) => {
+  app.post("/api/profile/draft-from-wiki", async () => {
     const knowledge = wikiKnowledge(ctx);
     if (!knowledge.trim()) {
-      return reply.code(400).send({
-        error:
-          "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
-      });
+      throw httpError.badRequest(
+        "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
+      );
     }
     try {
       const proposal = await draftProfileFromKnowledge({
@@ -207,17 +205,15 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       logProfileEdit(ctx, "draft_from_wiki", {});
       return { proposal };
     } catch (error) {
-      return reply
-        .code(502)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.upstream(error instanceof Error ? error.message : String(error));
     }
   });
 
   // Re-draft a proposal from all uploaded context documents (without a new upload).
-  app.post("/api/profile/draft", async (_request, reply) => {
+  app.post("/api/profile/draft", async () => {
     const { documents } = uploadedContext(ctx);
     if (documents.length === 0) {
-      return reply.code(400).send({ error: "No uploaded context documents to draft from" });
+      throw httpError.badRequest("No uploaded context documents to draft from");
     }
     try {
       const proposal = await draftProfileFromContext({
@@ -227,50 +223,55 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       return { proposal };
     } catch (error) {
-      return reply
-        .code(502)
-        .send({ error: error instanceof Error ? error.message : String(error) });
+      throw httpError.upstream(error instanceof Error ? error.message : String(error));
     }
   });
 
   // Natural-language edit: returns a proposed profile to review, never applied directly.
   app.post<{ Body: { instruction?: string; useUploaded?: boolean } }>(
     "/api/profile/edit",
-    async (request, reply) => {
-      const instruction = request.body?.instruction?.trim();
-      if (!instruction) return reply.code(400).send({ error: "Field 'instruction' is required" });
+    async (request) => {
+      const { instruction, useUploaded } = parseOrThrow(
+        profileSchema.EditProfileBody,
+        request.body,
+        "body",
+      );
+      const trimmed = instruction.trim();
+      if (!trimmed) throw httpError.validation("Field 'instruction' is required");
       try {
         const proposal = await editProfileWithInstruction({
           llm: ctx.llm,
           currentProfile: loadProfile(ctx.config.dataDir),
-          instruction,
-          uploadedContext: request.body?.useUploaded
-            ? uploadedContext(ctx).combined || undefined
-            : undefined,
+          instruction: trimmed,
+          uploadedContext: useUploaded ? uploadedContext(ctx).combined || undefined : undefined,
         });
         return { proposal };
       } catch (error) {
-        return reply
-          .code(502)
-          .send({ error: error instanceof Error ? error.message : String(error) });
+        throw httpError.upstream(error instanceof Error ? error.message : String(error));
       }
     },
   );
 
   // Version history for a section.
-  app.get<{ Params: { id: string } }>("/api/profile/:id/history", async (request, reply) => {
-    const section = profileSection(request.params.id);
-    if (!section) return reply.code(404).send({ error: "No such profile section" });
+  app.get<{ Params: { id: string } }>("/api/profile/:id/history", async (request) => {
+    const { id } = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
+    const section = profileSection(id);
+    if (!section) throw httpError.notFound("No such profile section");
     return { versions: listProfileHistory(ctx.config.dataDir, section.id) };
   });
 
   app.get<{ Params: { id: string; version: string } }>(
     "/api/profile/:id/history/:version",
-    async (request, reply) => {
-      const section = profileSection(request.params.id);
-      if (!section) return reply.code(404).send({ error: "No such profile section" });
-      const content = readProfileVersion(ctx.config.dataDir, section.id, request.params.version);
-      if (content === null) return reply.code(404).send({ error: "No such version" });
+    async (request) => {
+      const { id, version } = parseOrThrow(
+        profileSchema.ProfileIdVersionParam,
+        request.params,
+        "params",
+      );
+      const section = profileSection(id);
+      if (!section) throw httpError.notFound("No such profile section");
+      const content = readProfileVersion(ctx.config.dataDir, section.id, version);
+      if (content === null) throw httpError.notFound("No such version");
       return { content };
     },
   );
@@ -278,13 +279,13 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   // Restore a prior version (snapshotting the current one first, via save).
   app.post<{ Params: { id: string }; Body: { version?: string } }>(
     "/api/profile/:id/restore",
-    async (request, reply) => {
-      const section = profileSection(request.params.id);
-      if (!section) return reply.code(404).send({ error: "No such profile section" });
-      const version = request.body?.version;
-      if (!version) return reply.code(400).send({ error: "Field 'version' is required" });
+    async (request) => {
+      const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
+      const section = profileSection(params.id);
+      if (!section) throw httpError.notFound("No such profile section");
+      const { version } = parseOrThrow(profileSchema.RestoreProfileBody, request.body, "body");
       const content = readProfileVersion(ctx.config.dataDir, section.id, version);
-      if (content === null) return reply.code(404).send({ error: "No such version" });
+      if (content === null) throw httpError.notFound("No such version");
       saveProfileSection(ctx.config.dataDir, section.id, content);
       logProfileEdit(ctx, "restore_version", { section: section.id, version });
       return profileView(ctx);
@@ -298,7 +299,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
 
   // Privacy toggle: whether the profile dir is exported to git. Off by default.
   app.put<{ Body: { sync?: boolean } }>("/api/profile/privacy", async (request, reply) => {
-    const sync = Boolean(request.body?.sync);
+    const { sync } = parseOrThrow(profileSchema.ProfilePrivacyBody, request.body, "body");
     ensureProfilePrivacy(ctx.config.dataDir, sync);
     ctx.store.setSetting(GIT_SYNC_KEY, sync);
     logProfileEdit(ctx, "set_git_sync", { sync });

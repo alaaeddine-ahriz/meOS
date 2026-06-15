@@ -1,6 +1,8 @@
+import { wiki } from "@meos/contracts";
 import { findDuplicateEntities, isStale, temporalTag } from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import { commitWikiChanges, type AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void {
   // Likely-duplicate entities (human-gated dedup): detection only — the user
@@ -9,43 +11,27 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     duplicates: findDuplicateEntities(ctx.store),
   }));
 
-  app.post<{ Body: { loserId?: number; winnerId?: number } }>(
-    "/api/entities/merge",
-    async (request, reply) => {
-      const { loserId, winnerId } = request.body ?? {};
-      if (typeof loserId !== "number" || typeof winnerId !== "number") {
-        return reply
-          .code(400)
-          .send({ error: "Fields 'loserId' and 'winnerId' (numbers) are required" });
-      }
-      if (!ctx.store.mergeEntities(loserId, winnerId)) {
-        return reply.code(400).send({ error: "Merge failed (unknown entity or self-merge)" });
-      }
-      // The survivor's page needs rewriting around the merged knowledge.
-      ctx.queue.push(async () => {
-        const changes = await ctx.wiki.regenerateStale();
-        await commitWikiChanges(ctx, changes, "Entity merge");
-      });
-      return reply.send({ merged: true });
-    },
-  );
+  app.post("/api/entities/merge", async (request, reply) => {
+    const { loserId, winnerId } = parseOrThrow(wiki.MergeEntitiesBody, request.body, "body");
+    if (!ctx.store.mergeEntities(loserId, winnerId)) {
+      throw httpError.badRequest("Merge failed (unknown entity or self-merge)");
+    }
+    // The survivor's page needs rewriting around the merged knowledge.
+    ctx.queue.push(async () => {
+      const changes = await ctx.wiki.regenerateStale();
+      await commitWikiChanges(ctx, changes, "Entity merge");
+    });
+    return reply.send({ merged: true });
+  });
 
   // The "no" branch of dedup: remember a rejected pair so it stops resurfacing.
-  app.post<{ Body: { aId?: number; bId?: number } }>(
-    "/api/entities/dismiss-duplicate",
-    async (request, reply) => {
-      const { aId, bId } = request.body ?? {};
-      if (typeof aId !== "number" || typeof bId !== "number") {
-        return reply.code(400).send({ error: "Fields 'aId' and 'bId' (numbers) are required" });
-      }
-      if (!ctx.store.dismissDuplicate(aId, bId)) {
-        return reply
-          .code(400)
-          .send({ error: "Dismiss failed (a pair must be two distinct entities)" });
-      }
-      return reply.send({ dismissed: true });
-    },
-  );
+  app.post("/api/entities/dismiss-duplicate", async (request, reply) => {
+    const { aId, bId } = parseOrThrow(wiki.DismissDuplicateBody, request.body, "body");
+    if (!ctx.store.dismissDuplicate(aId, bId)) {
+      throw httpError.badRequest("Dismiss failed (a pair must be two distinct entities)");
+    }
+    return reply.send({ dismissed: true });
+  });
 
   // Rebuild the compiled-prose retrieval index from pages on disk (no LLM).
   app.post("/api/jobs/backfill-wiki", async (_request, reply) => {
@@ -81,10 +67,11 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     })),
   }));
 
-  app.get<{ Params: { slug: string } }>("/api/wiki/:slug", async (request, reply) => {
-    const entity = ctx.store.getEntityBySlug(request.params.slug);
+  app.get<{ Params: { slug: string } }>("/api/wiki/:slug", async (request) => {
+    const { slug } = parseOrThrow(wiki.WikiPageParams, request.params, "params");
+    const entity = ctx.store.getEntityBySlug(slug);
     if (!entity) {
-      return reply.code(404).send({ error: "No such wiki page" });
+      throw httpError.notFound("No such wiki page");
     }
     const markdown = ctx.wiki.readPage(entity);
     const relationships = ctx.store.relationshipsFor(entity.id).map((r) => ({

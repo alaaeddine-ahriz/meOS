@@ -1,4 +1,5 @@
 import path from "node:path";
+import { digest as digestSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import {
   applyResolution,
@@ -6,22 +7,15 @@ import {
   loadSchema,
   proposeResolution,
   runConsolidation,
-  type ResolutionAction,
 } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
-
-const RESOLUTION_ACTIONS = new Set<ResolutionAction>([
-  "supersede_a",
-  "supersede_b",
-  "keep_both",
-  "context_specific",
-]);
+import { httpError, parseOrThrow } from "../errors.js";
 
 export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get("/api/digest/latest", async (_request, reply) => {
+  app.get("/api/digest/latest", async () => {
     const digest = ctx.store.latestDigest();
     if (!digest) {
-      return reply.code(404).send({ error: "No digest generated yet" });
+      throw httpError.notFound("No digest generated yet");
     }
     return digest;
   });
@@ -59,23 +53,22 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
   }));
 
   // Governance: the append-only audit trail of automated memory operations.
-  app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request) => ({
-    entries: ctx.store.recentAudit(Number(request.query.limit) || 100),
-  }));
+  app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request) => {
+    const { limit } = parseOrThrow(digestSchema.AuditQuery, request.query, "query");
+    return { entries: ctx.store.recentAudit(limit ?? 100) };
+  });
 
-  app.post<{ Params: { id: string }; Body: { action?: ResolutionAction } }>(
+  app.post<{ Params: { id: string }; Body: { action?: string } }>(
     "/api/contradictions/:id/resolve",
     async (request, reply) => {
-      const id = Number(request.params.id);
-      const action = request.body?.action;
-      if (!action || !RESOLUTION_ACTIONS.has(action)) {
-        return reply.code(400).send({
-          error:
-            "Field 'action' must be one of supersede_a, supersede_b, keep_both, context_specific",
-        });
-      }
+      const { id } = parseOrThrow(
+        digestSchema.ResolveContradictionParams,
+        request.params,
+        "params",
+      );
+      const { action } = parseOrThrow(digestSchema.ResolveContradictionBody, request.body, "body");
       if (!applyResolution(ctx.store, id, action)) {
-        return reply.code(404).send({ error: "No such open contradiction" });
+        throw httpError.notFound("No such open contradiction");
       }
       // The resolution may have retired a claim; refresh the affected page.
       ctx.queue.push(async () => {

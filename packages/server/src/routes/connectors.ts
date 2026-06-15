@@ -1,3 +1,4 @@
+import { connectors as connectorsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import {
   buildAuthUrl,
@@ -8,6 +9,7 @@ import {
   type ConnectorKind,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 const KINDS: ConnectorKind[] = ["contacts", "calendar", "gmail"];
 
@@ -51,11 +53,12 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   // Save the user's OAuth client id/secret (no tokens yet).
   app.put<{ Body: { clientId?: string; clientSecret?: string } }>(
     "/api/connectors/google/credentials",
-    async (request, reply) => {
-      const clientId = request.body?.clientId?.trim();
-      const clientSecret = request.body?.clientSecret?.trim();
+    async (request) => {
+      const body = parseOrThrow(connectorsSchema.GoogleCredentialsBody, request.body, "body");
+      const clientId = body.clientId.trim();
+      const clientSecret = body.clientSecret.trim();
       if (!clientId || !clientSecret) {
-        return reply.code(400).send({ error: "Both clientId and clientSecret are required" });
+        throw httpError.validation("Both clientId and clientSecret are required");
       }
       ctx.store.upsertConnectorAccount({ provider: "google", clientId, clientSecret });
       return statusView();
@@ -63,10 +66,10 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   );
 
   // Begin the consent flow: build the PKCE auth URL the UI opens in a browser.
-  app.post("/api/connectors/google/auth/start", async (_request, reply) => {
+  app.post("/api/connectors/google/auth/start", async () => {
     const account = ctx.store.getConnectorAccount("google");
     if (!account?.client_id) {
-      return reply.code(400).send({ error: "Save your Google OAuth credentials first" });
+      throw httpError.badRequest("Save your Google OAuth credentials first");
     }
     const { verifier, challenge, state } = createPkcePair();
     pending.set(state, verifier);
@@ -133,13 +136,18 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   // Enable/disable a kind and set its sync interval, then rebuild the schedule.
   app.put<{ Params: { kind: string }; Body: { enabled?: boolean; intervalMinutes?: number } }>(
     "/api/connectors/google/:kind/config",
-    async (request, reply) => {
-      const kind = request.params.kind as ConnectorKind;
-      if (!KINDS.includes(kind)) return reply.code(400).send({ error: `Unknown kind: ${kind}` });
+    async (request) => {
+      const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
+      const kind = params.kind as ConnectorKind;
+      if (!KINDS.includes(kind)) throw httpError.badRequest(`Unknown kind: ${kind}`);
       const account = ctx.store.getConnectorAccount("google");
-      if (!account) return reply.code(400).send({ error: "Google is not connected" });
+      if (!account) throw httpError.badRequest("Google is not connected");
 
-      const { enabled, intervalMinutes } = request.body ?? {};
+      const { enabled, intervalMinutes } = parseOrThrow(
+        connectorsSchema.ConfigureKindBody,
+        request.body,
+        "body",
+      );
       ctx.store.setSyncState(account.id, kind, {
         enabled,
         intervalMinutes:
@@ -156,10 +164,11 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   app.post<{ Params: { kind: string } }>(
     "/api/connectors/google/:kind/sync",
     async (request, reply) => {
-      const kind = request.params.kind as ConnectorKind;
-      if (!KINDS.includes(kind)) return reply.code(400).send({ error: `Unknown kind: ${kind}` });
+      const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
+      const kind = params.kind as ConnectorKind;
+      if (!KINDS.includes(kind)) throw httpError.badRequest(`Unknown kind: ${kind}`);
       const account = ctx.store.getConnectorAccount("google");
-      if (!account) return reply.code(400).send({ error: "Google is not connected" });
+      if (!account) throw httpError.badRequest("Google is not connected");
       ctx.connectors.enqueueSync(kind);
       return reply.code(202).send({ syncing: true });
     },
