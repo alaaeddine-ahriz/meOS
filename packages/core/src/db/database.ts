@@ -523,6 +523,100 @@ export const migrations: readonly string[] = [
     SELECT sr.id FROM source_revisions sr WHERE sr.source_id = relationships.source_id
   ) WHERE source_id IS NOT NULL AND source_revision_id IS NULL;
   `,
+
+  // 21 — durable, resumable ingestion jobs (#13).
+  //
+  // The ingestion pipeline was best-effort and in-memory: a crash mid-ingest
+  // could leave half-written state with no record of what was in flight, and a
+  // failed extraction left no way to retry without re-reading the file. These
+  // two tables make each ingestion unit durable.
+  //
+  //   ingest_jobs — one row per logical ingestion unit (a file, an upload, a
+  //   paste). Carries the input kind, the dedicated queue it rides (`extraction`
+  //   for the full parse→embed→extract→merge flow; `embedding` reserved for the
+  //   search-only re-index #15/#18 will lean on), the current stage state, an
+  //   attempt counter for bounded retries with backoff, the resolved source_id +
+  //   source_revision_id (#16) once known, the content hash + byte size for
+  //   debugging/dedup, and the last error. `payload` holds a small JSON pointer
+  //   to the input (path or inbox item) — never raw buffers, which stay on disk.
+  //
+  //   ingest_runs — the append-only attempt history for a job: one row per run,
+  //   with the stage it reached, its outcome, timing, and any error. This is the
+  //   audit/debug trail (#18 reads per-stage timings/counts off it) and what the
+  //   retention sweep prunes once a job has long since completed.
+  //
+  // `state` lifecycle per job: pending → processing → completed | failed, with
+  // failed jobs retried (back to pending, attempts++) until `max_attempts`, then
+  // parked at `dead-letter` for a manual retry from the inbox.
+  `
+  -- The durable pipeline can leave a source searchable while its semantic
+  -- extraction failed (the index commits independently of extraction). Surface
+  -- that as a distinct, retryable inbox state ('extract-failed') so the feed
+  -- shows "searchable — extraction failed" rather than a hard 'failed'. SQLite
+  -- can't relax a CHECK in place, so rebuild inbox_items with the wider set,
+  -- copying every row and restoring the path index. Done before ingest_jobs is
+  -- created so no FK references inbox_items while it is dropped.
+  CREATE TABLE inbox_items_new (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER REFERENCES sources(id),
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+      CHECK (status IN ('queued','parsing','extracting','merging','done','failed','unsupported','extract-failed')),
+    detail TEXT,
+    path TEXT,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO inbox_items_new
+    (id, source_id, title, status, detail, path, revision, created_at, updated_at)
+    SELECT id, source_id, title, status, detail, path, revision, created_at, updated_at
+    FROM inbox_items;
+  DROP TABLE inbox_items;
+  ALTER TABLE inbox_items_new RENAME TO inbox_items;
+  CREATE INDEX idx_inbox_items_path ON inbox_items(path);
+
+  CREATE TABLE ingest_jobs (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL,
+    queue TEXT NOT NULL DEFAULT 'extraction'
+      CHECK (queue IN ('extraction','embedding')),
+    stage TEXT NOT NULL DEFAULT 'queued',
+    state TEXT NOT NULL DEFAULT 'pending'
+      CHECK (state IN ('pending','processing','completed','failed','dead-letter')),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    payload TEXT,
+    inbox_item_id INTEGER REFERENCES inbox_items(id) ON DELETE SET NULL,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+    source_revision_id INTEGER REFERENCES source_revisions(id) ON DELETE SET NULL,
+    content_hash TEXT,
+    byte_size INTEGER,
+    last_error TEXT,
+    -- When the current processing attempt began, so a stale (crashed) job is
+    -- recoverable; cleared on completion/failure.
+    leased_at TEXT,
+    -- When this job is next eligible to run, used for retry backoff.
+    run_after TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_ingest_jobs_state ON ingest_jobs(state, queue, run_after);
+  CREATE INDEX idx_ingest_jobs_source ON ingest_jobs(source_id);
+  CREATE INDEX idx_ingest_jobs_inbox ON ingest_jobs(inbox_item_id);
+
+  CREATE TABLE ingest_runs (
+    id INTEGER PRIMARY KEY,
+    job_id INTEGER NOT NULL REFERENCES ingest_jobs(id) ON DELETE CASCADE,
+    attempt INTEGER NOT NULL,
+    stage TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('processing','completed','failed','dead-letter')),
+    error TEXT,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT
+  );
+  CREATE INDEX idx_ingest_runs_job ON ingest_runs(job_id, attempt);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

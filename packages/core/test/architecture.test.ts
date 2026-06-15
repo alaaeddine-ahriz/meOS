@@ -36,7 +36,10 @@ function ruleNames(result: ReturnType<typeof cruiseSnippet>) {
   return result.summary.violations.map((v) => v.rule.name);
 }
 
-describe("package boundaries (dependency-cruiser)", () => {
+// Each case spawns `npx depcruise` (a cold dependency-cruiser run over the whole
+// graph), which routinely takes 5-6s and can exceed vitest's 5s default under
+// full-suite parallel load. Give the suite headroom so it is not flaky.
+describe("package boundaries (dependency-cruiser)", { timeout: 60_000 }, () => {
   it("flags core depending on server as an error", () => {
     const result = cruiseSnippet("packages/core/src/__arch_probe__.ts", 'import "@meos/server";\n');
     expect(ruleNames(result)).toContain("core-stays-agnostic");

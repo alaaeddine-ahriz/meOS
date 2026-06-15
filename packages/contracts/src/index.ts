@@ -33,7 +33,13 @@ export * as runtime from "./schemas/runtime.js";
 
 // --- Directly re-exported inferred TYPES, for the web client signatures. ---
 export type { EntitySummary, SourceRef, GraphNode, GraphLink } from "./schemas/common.js";
-export type { InboxItem, SourceDiff, DiffFile } from "./schemas/ingest.js";
+export type {
+  InboxItem,
+  SourceDiff,
+  DiffFile,
+  IngestJob,
+  IngestJobState,
+} from "./schemas/ingest.js";
 export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
 export type { StaleFact, StaleFacts, RevisionStatus } from "./schemas/stale-facts.js";
 export type { NoteMeta, NoteContents } from "./schemas/vault.js";
@@ -61,4 +67,4 @@ export type {
 } from "./schemas/settings.js";
 export type { ConnectorKind, ConnectorKindStatus, ConnectorStatus } from "./schemas/connectors.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
-export type { WorkerStatus, WorkerHealth, RuntimeHealth } from "./schemas/runtime.js";
+export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./schemas/runtime.js";

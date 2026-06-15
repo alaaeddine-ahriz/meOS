@@ -27,9 +27,15 @@ import {
 import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
 import { ConnectorManager } from "./connector-manager.js";
+import { DurableIngest } from "./durable-ingest.js";
 import { GitSync } from "./git.js";
 import { WorkerRegistry } from "./runtime/worker.js";
-import { ConnectorSyncWorker, QueueWorker, WatcherWorker } from "./runtime/workers.js";
+import {
+  ConnectorSyncWorker,
+  IngestQueueWorker,
+  QueueWorker,
+  WatcherWorker,
+} from "./runtime/workers.js";
 import { FolderWatcher } from "./watcher.js";
 
 /** How many documents may move through parse/embed/extract at once. */
@@ -46,6 +52,8 @@ export interface AppContext {
   vault: Vault;
   pipeline: IngestionPipeline;
   queue: JobQueue;
+  /** The durable, resumable ingestion layer (#13): persisted jobs + retries. */
+  durableIngest: DurableIngest;
   watcher: FolderWatcher;
   git: GitSync;
   events: MeosEvents;
@@ -172,7 +180,11 @@ export function createContext(rootDir = findRootDir()): AppContext {
     },
   });
   const queue = new JobQueue(INGEST_CONCURRENCY);
-  const watcher = new FolderWatcher({ store, pipeline, queue });
+  // The durable layer (#13): persists each ingestion unit, recovers crashed
+  // jobs, retries failures with backoff, and prunes old completed history. The
+  // in-memory queue above is only its concurrency executor.
+  const durableIngest = new DurableIngest({ store, pipeline, queue });
+  const watcher = new FolderWatcher({ store, pipeline, queue, durableIngest });
   const git = new GitSync(config.dataDir);
   // Background sync for connected external accounts. Pushes onto the same ingest
   // queue so connector merges serialise with file ingest. A nightly delta pass
@@ -218,7 +230,11 @@ export function createContext(rootDir = findRootDir()): AppContext {
   workers.register(
     new WatcherWorker(watcher),
     new ConnectorSyncWorker(connectors),
-    new QueueWorker("ingest", queue, "ingestion pipeline"),
+    // The durable extraction queue (#13) owns the persisted-job sweep: startAll
+    // triggers crash recovery + the periodic stale-job/retention timer. The
+    // embedding queue is surfaced for health only (it has no sweep of its own).
+    new IngestQueueWorker("ingest", store, "extraction", durableIngest),
+    new IngestQueueWorker("embedding", store, "embedding"),
     new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
   );
 
@@ -233,6 +249,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
     vault,
     pipeline,
     queue,
+    durableIngest,
     watcher,
     git,
     events,

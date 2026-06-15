@@ -1,6 +1,7 @@
-import type { JobQueue } from "@meos/core";
+import type { IngestQueueKind, JobQueue, KnowledgeStore } from "@meos/core";
 import type { Cron } from "croner";
 import type { ConnectorManager } from "../connector-manager.js";
+import type { DurableIngest } from "../durable-ingest.js";
 import type { FolderWatcher } from "../watcher.js";
 import { errorMessage, type Worker, type WorkerHealth } from "./worker.js";
 
@@ -158,6 +159,59 @@ export class QueueWorker implements Worker {
       detail: `${this.label}: ${active} processing, ${pending} pending`,
       lastError: null,
       lastRunAt: null,
+    };
+  }
+}
+
+/**
+ * The durable ingestion queue (#13), surfaced off the persisted `ingest_jobs`
+ * table rather than the in-memory queue: it reports pending/processing depth
+ * plus failed + dead-letter counts, and starts/stops the {@link DurableIngest}
+ * sweep (startup recovery + periodic stale-job reclaim + retention). One class
+ * serves both the `extraction` and `embedding` queues via `name`/`queueKind`.
+ */
+export class IngestQueueWorker implements Worker {
+  constructor(
+    readonly name: string,
+    private readonly store: KnowledgeStore,
+    private readonly queueKind: IngestQueueKind,
+    private readonly durable?: DurableIngest,
+  ) {}
+
+  start(): void {
+    // Only the worker that owns the durable sweep starts it (the extraction
+    // queue); the embedding queue is health-only for now.
+    this.durable?.start();
+  }
+
+  stop(): void {
+    this.durable?.stop();
+  }
+
+  health(): WorkerHealth {
+    const depth = this.store.ingestQueueDepths().find((d) => d.queue === this.queueKind) ?? {
+      queue: this.queueKind,
+      pending: 0,
+      processing: 0,
+      failed: 0,
+      deadLetter: 0,
+    };
+    const status: WorkerHealth["status"] =
+      depth.deadLetter > 0 ? "error" : depth.processing > 0 ? "running" : "idle";
+    return {
+      name: this.name,
+      status,
+      detail:
+        `${this.queueKind}: ${depth.processing} processing, ${depth.pending} pending, ` +
+        `${depth.failed} retrying, ${depth.deadLetter} dead-letter`,
+      lastError: depth.deadLetter > 0 ? `${depth.deadLetter} job(s) in dead-letter` : null,
+      lastRunAt: null,
+      queue: {
+        pending: depth.pending,
+        processing: depth.processing,
+        failed: depth.failed,
+        deadLetter: depth.deadLetter,
+      },
     };
   }
 }
