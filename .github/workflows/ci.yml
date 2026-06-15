@@ -1,0 +1,220 @@
+# Fast PR quality gates. This workflow is deliberately separate from
+# desktop-build.yml: that one packages native desktop bundles (slow, native
+# runners, manual/tag-triggered), while this one gives every PR quick feedback
+# on correctness — type errors, failing tests, broken workspace builds, lint
+# violations, and package-boundary (contract) drift — before any packaging.
+#
+# Job names here (build-and-test, lint, web-smoke) are intentionally stable so
+# they can be wired up as required status checks on the default branch.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# A newer push to the same PR/branch makes in-flight runs obsolete; cancel them
+# to keep feedback fast and save runner minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Correctness gate: builds the workspace, then runs typecheck and tests.
+  # build MUST precede typecheck — server/web typecheck against @meos/core's
+  # compiled dist/, which only exists after `pnpm build`.
+  #
+  # We pin to Node 22 only (not a 20+22 matrix) on purpose: the desktop bundle
+  # ships a fixed Node 22 runtime (see scripts/bundle-runtime.mjs and
+  # desktop-build.yml), and the better-sqlite3 prebuild is ABI-bound to it.
+  # Testing other majors here would validate a runtime we never ship and slow
+  # the gate down, so we keep CI consistent with the shipped payload.
+  build-and-test:
+    name: build-and-test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # Build first: typecheck depends on @meos/core's dist/ existing.
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # TODO(#21): once `pnpm test:coverage` exists, run coverage here (or in a
+      # dedicated job) and enforce a threshold. Left out now because the script
+      # does not exist yet and would fail the run.
+      # - name: Test with coverage
+      #   run: pnpm test:coverage
+
+  # Style/quality gate: lint + formatting. Independent of build output, so it
+  # runs in parallel with build-and-test for faster overall feedback.
+  lint:
+    name: lint
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Check formatting
+        run: pnpm format:check
+
+  # Contract gate: enforces package-boundary rules (dependency-cruiser) so
+  # cross-package imports don't drift from the intended architecture.
+  boundaries:
+    name: boundaries
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      - name: Check package boundaries
+        run: pnpm boundaries
+
+      # TODO(#23): once the API contract check lands, run it here to catch
+      # request/response drift between server and web. Commented out until the
+      # script exists so this job doesn't fail on a missing command.
+      # - name: Check API contract
+      #   run: pnpm contract:check
+
+  # Smoke gate: proves the built UI can actually be served by the production
+  # Fastify server end to end. `pnpm build` produces packages/web/dist; we boot
+  # the real server (dist/main.js) pointed at it, then assert /api/health is ok
+  # and / returns the SPA's index.html.
+  #
+  # The server boots without real API keys: MEOS_LLM_PROVIDER=stub selects a
+  # provider that needs no key, MEOS_DATA_DIR points at a throwaway dir, and the
+  # on-device embedder loads lazily (never invoked by a health check), so no
+  # model download happens. If a future change makes booting require secrets we
+  # can't stub, fall back to the static check at the end of this job.
+  web-smoke:
+    name: web-smoke
+    runs-on: ubuntu-22.04
+    env:
+      MEOS_LLM_PROVIDER: stub
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # Builds web (Vite -> packages/web/dist) and server (tsc -> dist/main.js).
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Serve built UI and smoke-test health + index
+        run: |
+          set -euo pipefail
+          MEOS_DATA_DIR="$(mktemp -d)/meos-ci-data"
+          export MEOS_DATA_DIR
+          export MEOS_WEB_DIST="$GITHUB_WORKSPACE/packages/web/dist"
+          mkdir -p "$MEOS_DATA_DIR"
+
+          node packages/server/dist/main.js > /tmp/meos-server.log 2>&1 &
+          SERVER_PID=$!
+
+          # Always stop the server and surface its log, whatever happens next.
+          cleanup() {
+            kill "$SERVER_PID" 2>/dev/null || true
+            echo "----- server log -----"
+            cat /tmp/meos-server.log || true
+          }
+          trap cleanup EXIT
+
+          # main.ts listens on 127.0.0.1:4321 (ctx.config.server.port default).
+          BASE="http://127.0.0.1:4321"
+
+          # Poll /api/health (returns {"ok":true,...}) with a timeout.
+          ok=""
+          for _ in $(seq 1 30); do
+            if curl -fsS "$BASE/api/health" 2>/dev/null | grep -q '"ok":true'; then
+              ok=1
+              break
+            fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::server did not become healthy within timeout"
+            exit 1
+          fi
+          echo "health ok: $(curl -fsS "$BASE/api/health")"
+
+          # The SPA fallback should serve the web index.html at /.
+          if ! curl -fsS "$BASE/" | grep -qi '<!doctype html>'; then
+            echo "::error::/ did not return the web index.html"
+            exit 1
+          fi
+          echo "root serves index.html"
+
+      # Fallback (kept for resilience): if the live boot above ever stops being
+      # feasible in CI (e.g. it grows a hard secret dependency), the live step
+      # can be disabled and this static check still guards that the web build
+      # produced a usable, non-empty index.html.
+      - name: Assert built index.html exists and is non-empty
+        run: |
+          set -euo pipefail
+          INDEX="packages/web/dist/index.html"
+          test -s "$INDEX"
+          echo "built web index present: $INDEX"
