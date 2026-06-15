@@ -2,8 +2,6 @@
 
 A personal second brain: capture everything, organise nothing. An LLM ingests what you feed it, maintains a compounding knowledge base (entities, relationships, facts with confidence), writes a wiki you never edit, and answers questions about your own life and work through chat.
 
-This implements **Phases 1 + 2** of the [intent document](./MeOS_Intent_Document.docx): the working core (ingestion → memory → wiki → chat) plus self-maintaining memory (confidence decay, supersession, contradiction detection, nightly consolidation, daily digest).
-
 ## Quick start
 
 ```sh
