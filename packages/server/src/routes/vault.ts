@@ -1,5 +1,7 @@
+import { vault } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 /**
  * The user's note vault: free-form markdown the user writes by hand, stored
@@ -16,65 +18,58 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
 
   app.get("/api/vault", async () => ({ notes: ctx.vault.list() }));
 
-  app.get<{ Querystring: { path?: string } }>("/api/vault/note", async (request, reply) => {
-    const relPath = request.query.path;
-    if (!relPath) return reply.code(400).send({ error: "Query param 'path' is required" });
+  app.get<{ Querystring: { path?: string } }>("/api/vault/note", async (request) => {
+    const { path: relPath } = parseOrThrow(vault.NotePathQuery, request.query, "query");
     try {
       return ctx.vault.read(relPath);
     } catch {
-      return reply.code(404).send({ error: "No such note" });
+      throw httpError.notFound("No such note");
     }
   });
 
   // Create an empty, titled note. 409 if the path is already taken so the UI
   // can fall back to opening the existing note instead of clobbering it.
   app.post<{ Body: { path?: string } }>("/api/vault/note", async (request, reply) => {
-    const relPath = request.body?.path;
-    if (!relPath) return reply.code(400).send({ error: "Field 'path' is required" });
+    const { path: relPath } = parseOrThrow(vault.CreateNoteBody, request.body, "body");
     try {
       const note = ctx.vault.create(relPath);
       commit([note.path], `notes: create ${note.title}`);
       return reply.code(201).send(note);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not create note" });
+      throw httpError.badRequest(error instanceof Error ? error.message : "Could not create note");
     }
   });
 
-  app.put<{ Body: { path?: string; markdown?: string } }>("/api/vault/note", async (request, reply) => {
-    const { path: relPath, markdown } = request.body ?? {};
-    if (!relPath || typeof markdown !== "string") {
-      return reply.code(400).send({ error: "Fields 'path' (string) and 'markdown' (string) are required" });
-    }
+  app.put<{ Body: { path?: string; markdown?: string } }>("/api/vault/note", async (request) => {
+    const { path: relPath, markdown } = parseOrThrow(vault.SaveNoteBody, request.body, "body");
     try {
       const note = ctx.vault.write(relPath, markdown);
       commit([note.path], `notes: edit ${note.title}`);
       return note;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not save note" });
+      throw httpError.badRequest(error instanceof Error ? error.message : "Could not save note");
     }
   });
 
-  app.delete<{ Querystring: { path?: string } }>("/api/vault/note", async (request, reply) => {
-    const relPath = request.query.path;
-    if (!relPath) return reply.code(400).send({ error: "Query param 'path' is required" });
+  app.delete<{ Querystring: { path?: string } }>("/api/vault/note", async (request) => {
+    const { path: relPath } = parseOrThrow(vault.NotePathQuery, request.query, "query");
     try {
       ctx.vault.remove(relPath);
       commit([relPath], `notes: delete ${relPath}`);
       return { deleted: true };
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not delete note" });
+      throw httpError.badRequest(error instanceof Error ? error.message : "Could not delete note");
     }
   });
 
-  app.post<{ Body: { from?: string; to?: string } }>("/api/vault/note/rename", async (request, reply) => {
-    const { from, to } = request.body ?? {};
-    if (!from || !to) return reply.code(400).send({ error: "Fields 'from' and 'to' are required" });
+  app.post<{ Body: { from?: string; to?: string } }>("/api/vault/note/rename", async (request) => {
+    const { from, to } = parseOrThrow(vault.RenameNoteBody, request.body, "body");
     try {
       const note = ctx.vault.rename(from, to);
       commit([from, note.path], `notes: rename ${from} → ${note.path}`);
       return note;
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not rename note" });
+      throw httpError.badRequest(error instanceof Error ? error.message : "Could not rename note");
     }
   });
 }
