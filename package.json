@@ -3,8 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@10.20.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "pnpm": ">=10"
   },
   "scripts": {
     "dev": "pnpm --filter @meos/core build && pnpm --parallel --filter @meos/core --filter @meos/server --filter @meos/web dev",
@@ -17,6 +19,7 @@
     "format:check": "prettier --check .",
     "desktop": "pnpm --filter @meos/desktop dev",
     "desktop:build": "pnpm --filter @meos/desktop bundle",
+    "dev:container": "docker compose -f docker/docker-compose.dev.yml up",
     "prepare": "simple-git-hooks"
   },
   "lint-staged": {

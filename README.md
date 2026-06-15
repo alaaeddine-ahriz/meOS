@@ -18,6 +18,19 @@ pnpm build
 node packages/server/dist/main.js     # serves API + UI on :4321
 ```
 
+## Run in a container
+
+Prefer not to install Node and native build tools? Start the server + web dev
+loop in a Node 22 container with one command:
+
+```sh
+pnpm dev:container
+```
+
+Then open <http://localhost:5173>. This is the non-desktop path — the Tauri
+desktop build, Rust toolchain, and Linux WebKit deps stay host-native. See
+[`docker/README.md`](docker/README.md) for the smoke check and details.
+
 ### Desktop app (Tauri)
 
 Prerequisites: the [Rust toolchain](https://rustup.rs).
@@ -101,24 +114,13 @@ Everything lives in `data/` in portable formats: wiki pages, digests, and your h
 
 ## Architecture
 
-```
-packages/
-├── core/    domain logic, no HTTP — ingestion pipeline, knowledge store,
-│            extraction, agentic wiki writer, memory maintenance, Google
-│            connectors (Contacts / Calendar / Gmail, read-only), LLM (Vercel
-│            AI SDK: Anthropic / OpenAI / Google / local OpenAI-compatible / test stub) +
-│            on-device embeddings
-├── server/  Fastify API, background job queue, watch folder, cron scheduler,
-│            git sync of the data dir, Google connector sync manager
-├── web/     React + Vite UI (chat, notes, wiki + graph, activity hub) — shadcn/ui + ai-elements
-└── desktop/ Tauri 2 shell: native window + server lifecycle (Rust)
-```
+A pnpm monorepo of four packages: `core` (runtime-agnostic domain logic — ingestion, knowledge store, extraction, memory, wiki writer, retrieval/chat, connectors, vault), `server` (Fastify API + background workers that wire `core` into one local process), `web` (React + Vite UI that talks to the server over a typed HTTP boundary), and `desktop` (a Tauri 2 shell owning the native window and server lifecycle). MeOS runs local-first and essentially single-process, with strict one-directional package boundaries (`desktop → server → core`, `web → HTTP → server`). Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind the `LlmClient` interface).
 
-The ingestion pipeline: parse (images are read by the LLM: OCR + description) → chunk + embed (locally) → structured LLM extraction → entity resolution & merge (near-duplicate facts reinforce confidence instead of duplicating) → contradiction check (supersede or flag, never silently keep). Several documents move through this concurrently (merges are serialized), and wiki regeneration runs decoupled in the background — a batch of files triggers one coalesced regen pass, a few pages at a time in parallel, instead of one pass per file.
+For the full picture, see:
 
-Wiki pages are maintained agentically: each regeneration gives the model a sandboxed copy of the wiki (via `bash-tool`) with `bash`/`readFile`/`writeFile` tools, so it greps sibling pages for exact `[[wiki-link]]` names and **edits the existing page in place** — merging new facts into prose that's still accurate rather than rewriting every page from scratch. The deterministic frontmatter (confidence, counts, timestamps) stays owned by code.
-
-Tests run without any LLM or network: `pnpm test` (LLM calls are stubbed behind the `LlmClient` interface).
+- [`docs/architecture.md`](docs/architecture.md) — the bounded contexts (ingestion, knowledge store, retrieval/chat, wiki writer, connectors, vault, desktop shell, sync) and how they fit together.
+- [`docs/repo-map.md`](docs/repo-map.md) — where new code goes, the package ownership table, and the cross-package dependency rule.
+- [`docs/adr/0001-local-first-single-process.md`](docs/adr/0001-local-first-single-process.md) — why MeOS stays local-first and mostly single-process.
 
 ## Dependencies, deliberately
 
