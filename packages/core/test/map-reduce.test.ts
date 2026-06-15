@@ -278,7 +278,7 @@ describe("reduceExtractions (#15) is pure and deterministic", () => {
 
 describe("migration 22 (extraction cache)", () => {
   it("migrates a v21-shape DB cleanly, preserving data", () => {
-    expect(migrations.length).toBe(22);
+    expect(migrations.length).toBe(23);
 
     const file = path.join(os.tmpdir(), `meos-mig22-${Date.now()}-${Math.random()}.db`);
     try {
@@ -288,9 +288,10 @@ describe("migration 22 (extraction cache)", () => {
       const sourceId = store.createSource({ type: "file", title: "Legacy", content: "old text" });
       const revisionId = store.createSourceRevision({ sourceId });
 
-      // Drop the migration-22 artifact and reset user_version, simulating a DB
-      // created before #15 shipped.
+      // Drop the migration-22/23 artifacts and reset user_version, simulating a
+      // DB created before #15 shipped.
       db.exec(`DROP TABLE IF EXISTS extraction_cache;`);
+      db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
       db.pragma("user_version = 21");
       db.close();
 

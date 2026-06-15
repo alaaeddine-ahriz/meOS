@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { openDatabase, type MeosDatabase } from "../src/db/database.js";
+import { describe, expect, it } from "vitest";
+import { migrations, openDatabase } from "../src/db/database.js";
 import { HashEmbedder } from "../src/embedding/embedder.js";
 import { IngestionPipeline } from "../src/ingest/pipeline.js";
 import { KnowledgeStore } from "../src/knowledge/store.js";
@@ -192,5 +192,265 @@ describe("connector store ledger", () => {
 
     db.close();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("connector materialization (#19)", () => {
+  function setup() {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-mat-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+    });
+    const accountId = store.upsertConnectorAccount({
+      provider: "google",
+      clientId: "id",
+      clientSecret: "secret",
+      accessToken: "tok",
+      refreshToken: "refresh",
+    });
+    const cleanup = () => {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    };
+    return { db, store, embedder, pipeline, accountId, cleanup };
+  }
+
+  const contact: ContactItem = {
+    externalId: "people/c9",
+    displayName: "Charles Babbage",
+    nicknames: ["Charlie"],
+    emails: ["charles@example.com"],
+    phones: ["+44 20 7946 0000"],
+    organisation: "Analytical Engine Co",
+    deepLink: "https://contacts.google.com/person/c9",
+  };
+
+  it("materializes a connector item as a searchable source + revision with chunks", async () => {
+    const { store, pipeline, cleanup } = setup();
+    const out = await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: `Contact: ${contact.displayName}\nEmail: ${contact.emails[0]}`,
+      extraction: mapContact(contact),
+    });
+
+    expect(out.status).toBe("done");
+    const source = store.getSource(out.sourceId)!;
+    expect(source.type).toBe("google:contacts");
+    // Connector visibility default (#11): searchable but not synced/exported.
+    const vis = store.sourceVisibility(out.sourceId);
+    expect(vis.searchable).toBe(true);
+    expect(vis.syncable).toBe(false);
+    expect(vis.exportable).toBe(false);
+    // Searchable even before/independent of extraction: chunks landed on the revision.
+    const chunks = store.chunksForSource(out.sourceId);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks[0]!.source_revision_id).toBe(out.sourceRevisionId);
+    // Raw payload stored apart from the normalized indexed text.
+    expect(store.getSourceRawContent(out.sourceId)).toContain("people/c9");
+    expect(store.getSourceContent(out.sourceId)).toContain("Contact: Charles Babbage");
+    // The derived extraction reached the graph linked to the revision.
+    expect(store.findEntityByName("Charles Babbage")).toBeTruthy();
+    expect(store.activeRevision(out.sourceId)?.id).toBe(out.sourceRevisionId);
+
+    cleanup();
+  });
+
+  it("advances the same logical source's revision when a changed item re-syncs", async () => {
+    const { store, pipeline, cleanup } = setup();
+    const first = await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: "Contact: Charles Babbage\nRole: Inventor",
+      extraction: mapContact(contact),
+    });
+
+    const changed: ContactItem = { ...contact, jobTitle: "Chief Engineer" };
+    const second = await pipeline.materialize({
+      type: "google:contacts",
+      title: changed.displayName,
+      path: changed.deepLink,
+      rawContent: JSON.stringify(changed),
+      normalizedContent: "Contact: Charles Babbage\nRole: Chief Engineer",
+      extraction: mapContact(changed),
+      existingSourceId: first.sourceId,
+    });
+
+    // Same source row, new revision — provenance is not overwritten.
+    expect(second.sourceId).toBe(first.sourceId);
+    expect(second.sourceRevisionId).not.toBe(first.sourceRevisionId);
+    const revisions = store.revisionsForSource(first.sourceId);
+    expect(revisions).toHaveLength(2);
+    expect(store.getRevision(first.sourceRevisionId)!.status).toBe("superseded");
+    expect(store.activeRevision(first.sourceId)!.id).toBe(second.sourceRevisionId);
+    // Re-indexed: chunks now belong to the new revision (old ones cleared).
+    const chunks = store.chunksForSource(first.sourceId);
+    expect(chunks.every((c) => c.source_revision_id === second.sourceRevisionId)).toBe(true);
+
+    cleanup();
+  });
+
+  it("skips an unchanged item by content hash via the ledger", () => {
+    const { store, accountId, cleanup } = setup();
+    const sourceId = store.createSource({
+      type: "google:contacts",
+      title: "Charles Babbage",
+      content: "Contact: Charles Babbage",
+    });
+    const revisionId = store.createSourceRevision({ sourceId });
+    const hash = "hashX";
+    expect(store.connectorItemUnchanged(accountId, "contacts", "people/c9", hash)).toBe(false);
+    store.recordConnectorItem(accountId, "contacts", "people/c9", hash, sourceId, revisionId);
+    expect(store.connectorItemUnchanged(accountId, "contacts", "people/c9", hash)).toBe(true);
+    // The ledger remembers the materialized source + revision for the next sync.
+    const ledger = store.getConnectorItem(accountId, "contacts", "people/c9")!;
+    expect(ledger.source_id).toBe(sourceId);
+    expect(ledger.source_revision_id).toBe(revisionId);
+    cleanup();
+  });
+
+  it("marks the revision inactive on a connector deletion without losing history", async () => {
+    const { store, pipeline, accountId, cleanup } = setup();
+    const out = await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: "Contact: Charles Babbage",
+      extraction: mapContact(contact),
+    });
+    store.recordConnectorItem(
+      accountId,
+      "contacts",
+      contact.externalId,
+      "h",
+      out.sourceId,
+      out.sourceRevisionId,
+    );
+
+    // A delta deletion: locate the materialized source via the ledger and retire
+    // its latest revision (soft delete) — exactly what sync.ts does.
+    const ledger = store.getConnectorItem(accountId, "contacts", contact.externalId)!;
+    store.markSourceGone(ledger.source_id!, "deleted");
+
+    expect(store.getRevision(out.sourceRevisionId)!.status).toBe("deleted");
+    // Audit history survives: the source row and revision are still there.
+    expect(store.getSource(out.sourceId)).toBeTruthy();
+    expect(store.revisionsForSource(out.sourceId)).toHaveLength(1);
+    // Facts it backed are now flagged stale.
+    expect(store.staleBackedObservations().length).toBeGreaterThan(0);
+    cleanup();
+  });
+
+  it("leaves the item searchable when the derived extraction fails", async () => {
+    const { store, embedder, cleanup } = setup();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-mat-fail-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    // A pipeline whose merge stage throws — the search index must still land.
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+      events: {
+        emit: async () => {
+          throw new Error("extraction boom");
+        },
+      } as never,
+    });
+
+    const out = await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: "Contact: Charles Babbage",
+      extraction: mapContact(contact),
+    });
+
+    expect(out.status).toBe("indexed");
+    // Searchable: chunks committed before the failing extraction stage.
+    expect(store.chunksForSource(out.sourceId).length).toBeGreaterThan(0);
+    // Revision parked incomplete so it doesn't look fully ingested — retryable.
+    expect(store.getRevision(out.sourceRevisionId)!.status).toBe("incomplete");
+    cleanup();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("migration 23 (connector materialization)", () => {
+  it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
+    expect(migrations.length).toBe(23);
+
+    const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
+    try {
+      const db = openDatabase(file);
+      const store = new KnowledgeStore(db);
+      const accountId = store.upsertConnectorAccount({
+        provider: "google",
+        clientId: "id",
+        clientSecret: "secret",
+        accessToken: "tok",
+        refreshToken: "refresh",
+      });
+      const sourceId = store.createSource({
+        type: "google:contacts",
+        title: "Legacy contact",
+        content: "old text",
+      });
+      store.recordConnectorItem(accountId, "contacts", "people/legacy", "hash0", sourceId);
+
+      // Rewind to v22: drop the migration-23 column and reset user_version,
+      // simulating a DB created before #19 shipped.
+      db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
+      db.pragma("user_version = 22");
+      db.close();
+
+      // Re-open through the real migrator: migration 23 must apply cleanly.
+      const upgraded = openDatabase(file);
+      expect(upgraded.pragma("user_version", { simple: true })).toBe(migrations.length);
+      const upStore = new KnowledgeStore(upgraded);
+      // Legacy ledger row survived, with the new column back-filled to null.
+      const ledger = upStore.getConnectorItem(accountId, "contacts", "people/legacy")!;
+      expect(ledger.source_id).toBe(sourceId);
+      expect(ledger.source_revision_id).toBeNull();
+      // And the new revision link is now writable.
+      const revisionId = upStore.createSourceRevision({ sourceId });
+      upStore.recordConnectorItem(
+        accountId,
+        "contacts",
+        "people/legacy",
+        "hash1",
+        sourceId,
+        revisionId,
+      );
+      expect(
+        upStore.getConnectorItem(accountId, "contacts", "people/legacy")!.source_revision_id,
+      ).toBe(revisionId);
+      upgraded.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          fs.rmSync(file + suffix);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   });
 });
