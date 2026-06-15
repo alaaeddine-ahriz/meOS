@@ -58,8 +58,50 @@ function run(cmd, args, opts = {}) {
   execFileSync(cmd, args, { stdio: "inherit", ...opts });
 }
 
+function npmCmd() {
+  return hostIsWin ? "npm.cmd" : "npm";
+}
+
 async function readJson(p) {
   return JSON.parse(await fs.readFile(p, "utf-8"));
+}
+
+function resolveFromApp(app, specifier) {
+  return require.resolve(specifier, { paths: [app] });
+}
+
+async function ensureOnnxRuntimeNativeBinary(app) {
+  // onnxruntime-node officially ships a macOS x64 prebuilt binary, but its
+  // optional postinstall download can occasionally leave the package present
+  // without bin/napi-v6/darwin/x64/onnxruntime_binding.node. That breaks the
+  // model pre-seed step and would also break local embeddings at runtime.
+  if (platform !== "darwin" || arch !== "x64") return;
+
+  const packageJson = resolveFromApp(app, "onnxruntime-node/package.json");
+  const packageDir = path.dirname(packageJson);
+  const pkg = await readJson(packageJson);
+  const binding = path.join(packageDir, "bin", "napi-v6", "darwin", "x64", "onnxruntime_binding.node");
+
+  async function hasBinding() {
+    return fs.access(binding).then(() => true, () => false);
+  }
+
+  if (await hasBinding()) return;
+
+  console.warn(`onnxruntime-node native binary missing at ${binding}; rebuilding ${pkg.name}@${pkg.version}.`);
+  run(npmCmd(), ["rebuild", "onnxruntime-node", "--foreground-scripts"], { cwd: app });
+  if (await hasBinding()) return;
+
+  console.warn(`onnxruntime-node rebuild did not restore the native binary; reinstalling ${pkg.name}@${pkg.version}.`);
+  run(
+    npmCmd(),
+    ["install", `${pkg.name}@${pkg.version}`, "--no-audit", "--no-fund", "--foreground-scripts"],
+    { cwd: app },
+  );
+
+  if (!(await hasBinding())) {
+    throw new Error(`onnxruntime-node native binary is still missing after rebuild/reinstall: ${binding}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +143,8 @@ async function installRuntimeDeps() {
         `Run under Node ${bundleMajor}.x or set MEOS_BUNDLE_NODE_VERSION to ${hostMajor}.x.`,
     );
   }
-  run(hostIsWin ? "npm.cmd" : "npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
+  run(npmCmd(), ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
+  await ensureOnnxRuntimeNativeBinary(app);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,9 +194,7 @@ async function bundleNode() {
 async function seedModel() {
   const models = path.join(payload, "models");
   await fs.mkdir(models, { recursive: true });
-  const transformers = require.resolve("@huggingface/transformers", {
-    paths: [path.join(payload, "app")],
-  });
+  const transformers = resolveFromApp(path.join(payload, "app"), "@huggingface/transformers");
   const transformersSpecifier = pathToFileURL(transformers).href;
   const script = `
     import { pipeline, env } from ${JSON.stringify(transformersSpecifier)};
