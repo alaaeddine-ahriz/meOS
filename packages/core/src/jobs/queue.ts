@@ -1,6 +1,30 @@
+/**
+ * Work-type priority classes for ingest scheduling (#18). A higher number drains
+ * first; within a class the queue stays strictly FIFO, so ordering is
+ * deterministic. The ladder mirrors the issue's intent: a user-uploaded note
+ * outranks a watched file, which outranks a connector background sync, which
+ * outranks nightly maintenance.
+ */
+export const JobPriority = {
+  /** User-typed note / direct upload — the user is waiting on it. */
+  USER: 40,
+  /** A watched file landed on disk. */
+  WATCH: 30,
+  /** Background connector sync (Gmail/Calendar/Contacts). */
+  CONNECTOR: 20,
+  /** Nightly maintenance / consolidation / backfill. */
+  NIGHTLY: 10,
+} as const;
+
+/** The default priority for jobs pushed without an explicit class. */
+export const DEFAULT_PRIORITY = JobPriority.WATCH;
+
 interface QueuedJob {
   job: () => Promise<void>;
   exclusive: boolean;
+  priority: number;
+  /** Insertion order, so ties within a priority class stay strictly FIFO. */
+  seq: number;
 }
 
 /**
@@ -12,6 +36,11 @@ interface QueuedJob {
  *
  * Jobs pushed with `exclusive: true` (e.g. nightly consolidation) wait for
  * everything in flight to finish, run alone, and hold the queue until done.
+ *
+ * Jobs carry a `priority` class (#18): higher priority work is dequeued first
+ * so a large low-priority import cannot starve a user note or manual action.
+ * Within a class the queue is strictly FIFO (insertion order breaks ties), so
+ * scheduling stays deterministic and testable.
  */
 export class JobQueue {
   private readonly waiting: QueuedJob[] = [];
@@ -19,12 +48,30 @@ export class JobQueue {
   private exclusiveActive = false;
   private pendingCount = 0;
   private idleResolvers: Array<() => void> = [];
+  /** Monotonic insertion counter for stable FIFO tie-breaking within a class. */
+  private seqCounter = 0;
 
   constructor(private readonly concurrency = 1) {}
 
-  push(job: () => Promise<void>, options?: { exclusive?: boolean }): void {
+  push(job: () => Promise<void>, options?: { exclusive?: boolean; priority?: number }): void {
     this.pendingCount++;
-    this.waiting.push({ job, exclusive: options?.exclusive ?? false });
+    const entry: QueuedJob = {
+      job,
+      exclusive: options?.exclusive ?? false,
+      priority: options?.priority ?? DEFAULT_PRIORITY,
+      seq: this.seqCounter++,
+    };
+    // Insertion-sort by (priority desc, seq asc) so dequeue is a cheap shift and
+    // ordering is fully deterministic. An exclusive job keeps its arrival slot
+    // among its peers — it still waits for in-flight work to clear at drain time.
+    let i = this.waiting.length;
+    while (i > 0) {
+      const prev = this.waiting[i - 1]!;
+      if (prev.priority > entry.priority) break;
+      if (prev.priority === entry.priority && prev.seq < entry.seq) break;
+      i--;
+    }
+    this.waiting.splice(i, 0, entry);
     this.drain();
   }
 

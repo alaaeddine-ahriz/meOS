@@ -208,6 +208,20 @@ export type IngestQueueKind = "extraction" | "embedding";
 /** The durable lifecycle state of an ingest job (#13). */
 export type IngestJobState = "pending" | "processing" | "completed" | "failed" | "dead-letter";
 
+/**
+ * Work-type priority classes for the durable extraction queue (#18). Mirrors the
+ * in-memory {@link JobQueue}'s ladder so the two scheduling paths agree: a
+ * user-uploaded note outranks a watched file, which outranks a connector sync,
+ * which outranks nightly maintenance. `claimIngestJob` orders by
+ * (priority DESC, id ASC), so within a class the queue stays strictly FIFO.
+ */
+export const IngestPriority = {
+  USER: 40,
+  WATCH: 30,
+  CONNECTOR: 20,
+  NIGHTLY: 10,
+} as const;
+
 /** One durable ingestion unit — a file/upload/paste tracked across crashes (#13). */
 export interface IngestJobRow {
   id: number;
@@ -215,6 +229,8 @@ export interface IngestJobRow {
   queue: IngestQueueKind;
   stage: string;
   state: IngestJobState;
+  /** Work-type priority class (#18): higher drains first. See {@link IngestPriority}. */
+  priority: number;
   attempts: number;
   max_attempts: number;
   payload: string | null;
@@ -249,6 +265,76 @@ export interface IngestQueueDepth {
   processing: number;
   failed: number;
   deadLetter: number;
+}
+
+/**
+ * Extended per-queue metrics for the observability surface (#18): the #13 depth
+ * counters plus the diagnostics the issue calls for — how many jobs are mid-
+ * retry, completed, the average completed-run duration, and the age of the
+ * oldest still-queued job. Aggregated from `ingest_jobs` + `ingest_runs`.
+ */
+export interface IngestQueueMetrics extends IngestQueueDepth {
+  /** Jobs that have failed at least once but are still under their retry budget. */
+  retrying: number;
+  /** Jobs that finished successfully (and survive retention). */
+  completed: number;
+  /** Mean wall-clock seconds of completed runs on this queue (0 if none). */
+  avgDurationSeconds: number;
+  /** ISO timestamp of the oldest job still `pending`, or null if the queue is drained. */
+  oldestQueuedAt: string | null;
+}
+
+/**
+ * Per-stage timing + outcome counts aggregated from `ingest_runs` (#18). One row
+ * per distinct stage (e.g. `indexing`, `extraction`, `merge`), summarising how
+ * many attempts of that stage succeeded vs failed and how long they took — the
+ * "where is ingestion slow / failing?" view.
+ */
+export interface IngestStageMetric {
+  stage: string;
+  /** Runs of this stage that completed successfully. */
+  completed: number;
+  /** Runs that failed (retryable failure). */
+  failed: number;
+  /** Runs that exhausted retries on this stage. */
+  deadLetter: number;
+  /** Runs still in flight (open `processing` row). */
+  processing: number;
+  /** Mean wall-clock seconds across this stage's finished runs (0 if none). */
+  avgDurationSeconds: number;
+  /** Total wall-clock seconds across this stage's finished runs. */
+  totalDurationSeconds: number;
+}
+
+/**
+ * Stale-job recovery counters (#18): how many jobs the durable layer has
+ * reclaimed from a crashed `processing` state, and how many ultimately
+ * dead-lettered. Derived from `ingest_runs` (recovery closes a run with a
+ * recognizable error) + `ingest_jobs`.
+ */
+export interface IngestRecoveryMetrics {
+  /** Runs closed by stale-`processing` recovery (worker crashed mid-run). */
+  recovered: number;
+  /** Jobs currently parked in dead-letter (retries exhausted). */
+  deadLettered: number;
+}
+
+/**
+ * Per-extraction cost telemetry (#15/#18): the model, prompt version, strategy,
+ * token usage, and best-effort estimated cost of cached extractions, grouped by
+ * (model, prompt version, strategy). Token usage is currently plumbed-but-zero
+ * upstream; the shape surfaces it so it lights up the moment it is populated.
+ */
+export interface IngestCostMetric {
+  modelId: string;
+  promptVersion: string;
+  strategy: ExtractionStrategy;
+  /** How many cached extraction partials this group covers. */
+  extractions: number;
+  /** Total tokens recorded across the group (0 until token_usage is populated). */
+  tokenUsage: number;
+  /** Best-effort estimated USD cost, or null when no rate is known for the model. */
+  estimatedCostUsd: number | null;
 }
 
 export interface SourceRef {
@@ -1109,12 +1195,15 @@ export class KnowledgeStore {
     contentHash?: string | null;
     byteSize?: number | null;
     maxAttempts?: number;
+    /** Work-type priority class (#18); defaults to the watched-file class. */
+    priority?: number;
   }): number {
     const result = this.db
       .prepare(
         `INSERT INTO ingest_jobs
-           (kind, queue, payload, inbox_item_id, source_id, content_hash, byte_size, max_attempts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (kind, queue, payload, inbox_item_id, source_id, content_hash, byte_size,
+            max_attempts, priority)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.kind,
@@ -1125,6 +1214,7 @@ export class KnowledgeStore {
         input.contentHash ?? null,
         input.byteSize ?? null,
         input.maxAttempts ?? 3,
+        input.priority ?? IngestPriority.WATCH,
       );
     return Number(result.lastInsertRowid);
   }
@@ -1142,10 +1232,13 @@ export class KnowledgeStore {
   }
 
   /**
-   * Atomically claim the oldest runnable job on a queue: a `pending` row whose
-   * backoff window (`run_after`) has elapsed, flipped to `processing` and
-   * stamped `leased_at` so a crash leaves it recoverable. Opens an `ingest_runs`
-   * row for this attempt. Returns the claimed job, or undefined if none is ready.
+   * Atomically claim the highest-priority runnable job on a queue: a `pending`
+   * row whose backoff window (`run_after`) has elapsed, flipped to `processing`
+   * and stamped `leased_at` so a crash leaves it recoverable. Opens an
+   * `ingest_runs` row for this attempt. Returns the claimed job, or undefined if
+   * none is ready. Ordering is (priority DESC, id ASC) so high-value work (a user
+   * upload) drains ahead of a bulk import (#18) while staying strictly FIFO
+   * within a priority class — deterministic and testable.
    */
   claimIngestJob(queue: IngestQueueKind): IngestJobRow | undefined {
     const claim = this.db.transaction(() => {
@@ -1153,7 +1246,7 @@ export class KnowledgeStore {
         .prepare(
           `SELECT * FROM ingest_jobs
            WHERE queue = ? AND state = 'pending' AND run_after <= datetime('now')
-           ORDER BY id LIMIT 1`,
+           ORDER BY priority DESC, id ASC LIMIT 1`,
         )
         .get(queue) as IngestJobRow | undefined;
       if (!row) return undefined;
@@ -1346,6 +1439,160 @@ export class KnowledgeStore {
     return this.db
       .prepare("SELECT * FROM ingest_runs WHERE job_id = ? ORDER BY attempt, id")
       .all(jobId) as IngestRunRow[];
+  }
+
+  // --- observability aggregates (#18) ----------------------------------
+
+  /**
+   * Extended per-queue metrics for the observability surface (#18): the depth
+   * counters {@link ingestQueueDepths} reports, plus retrying/completed counts,
+   * the mean duration of completed runs, and the age of the oldest queued job.
+   * Read-only aggregate over `ingest_jobs` + `ingest_runs`.
+   */
+  ingestQueueMetrics(): IngestQueueMetrics[] {
+    const jobRows = this.db
+      .prepare(
+        `SELECT queue,
+                SUM(state = 'pending')                          AS pending,
+                SUM(state = 'processing')                       AS processing,
+                SUM(state = 'failed')                           AS failed,
+                SUM(state = 'dead-letter')                      AS deadLetter,
+                SUM(state = 'completed')                        AS completed,
+                SUM(state = 'pending' AND attempts > 0)         AS retrying,
+                MIN(CASE WHEN state = 'pending' THEN created_at END) AS oldestQueuedAt
+         FROM ingest_jobs GROUP BY queue`,
+      )
+      .all() as Array<{
+      queue: IngestQueueKind;
+      pending: number | null;
+      processing: number | null;
+      failed: number | null;
+      deadLetter: number | null;
+      completed: number | null;
+      retrying: number | null;
+      oldestQueuedAt: string | null;
+    }>;
+    // Average completed-run duration per queue, joined via the run's owning job.
+    const durRows = this.db
+      .prepare(
+        `SELECT j.queue AS queue,
+                AVG(strftime('%s', r.finished_at) - strftime('%s', r.started_at)) AS avgSec
+         FROM ingest_runs r JOIN ingest_jobs j ON j.id = r.job_id
+         WHERE r.state = 'completed' AND r.finished_at IS NOT NULL
+         GROUP BY j.queue`,
+      )
+      .all() as Array<{ queue: IngestQueueKind; avgSec: number | null }>;
+    const avgByQueue = new Map(durRows.map((r) => [r.queue, r.avgSec ?? 0]));
+    return jobRows.map((r) => ({
+      queue: r.queue,
+      pending: r.pending ?? 0,
+      processing: r.processing ?? 0,
+      failed: r.failed ?? 0,
+      deadLetter: r.deadLetter ?? 0,
+      completed: r.completed ?? 0,
+      retrying: r.retrying ?? 0,
+      avgDurationSeconds: Math.round((avgByQueue.get(r.queue) ?? 0) * 1000) / 1000,
+      oldestQueuedAt: r.oldestQueuedAt ?? null,
+    }));
+  }
+
+  /**
+   * Per-stage timing + outcome counts from `ingest_runs` (#18) — the
+   * parse/index/extract/merge breakdown the issue calls for. One row per stage,
+   * with completed/failed/dead-letter/processing counts and mean+total finished
+   * duration, so a slow or failure-prone stage is diagnosable from the UI.
+   */
+  ingestStageMetrics(): IngestStageMetric[] {
+    const rows = this.db
+      .prepare(
+        `SELECT stage,
+                SUM(state = 'completed')   AS completed,
+                SUM(state = 'failed')      AS failed,
+                SUM(state = 'dead-letter') AS deadLetter,
+                SUM(state = 'processing')  AS processing,
+                AVG(CASE WHEN finished_at IS NOT NULL
+                         THEN strftime('%s', finished_at) - strftime('%s', started_at) END) AS avgSec,
+                SUM(CASE WHEN finished_at IS NOT NULL
+                         THEN strftime('%s', finished_at) - strftime('%s', started_at) ELSE 0 END) AS totalSec
+         FROM ingest_runs GROUP BY stage ORDER BY stage`,
+      )
+      .all() as Array<{
+      stage: string;
+      completed: number | null;
+      failed: number | null;
+      deadLetter: number | null;
+      processing: number | null;
+      avgSec: number | null;
+      totalSec: number | null;
+    }>;
+    return rows.map((r) => ({
+      stage: r.stage,
+      completed: r.completed ?? 0,
+      failed: r.failed ?? 0,
+      deadLetter: r.deadLetter ?? 0,
+      processing: r.processing ?? 0,
+      avgDurationSeconds: Math.round((r.avgSec ?? 0) * 1000) / 1000,
+      totalDurationSeconds: r.totalSec ?? 0,
+    }));
+  }
+
+  /**
+   * Stale-job recovery counters (#18). Recovery closes the interrupted run with
+   * a recognizable error ({@link recoverStaleIngestJobs}), so counting those rows
+   * gives how many jobs were reclaimed from a crashed `processing` state;
+   * dead-lettered is the live count of jobs that exhausted their retries.
+   */
+  ingestRecoveryMetrics(): IngestRecoveryMetrics {
+    const recovered = (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM ingest_runs
+           WHERE state = 'failed' AND error = 'recovered from stale processing state'`,
+        )
+        .get() as { n: number }
+    ).n;
+    const deadLettered = (
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM ingest_jobs WHERE state = 'dead-letter'")
+        .get() as { n: number }
+    ).n;
+    return { recovered, deadLettered };
+  }
+
+  /**
+   * Per-extraction cost telemetry (#15/#18): groups the extraction cache by
+   * (model, prompt version, strategy) and sums token usage, applying a best-
+   * effort per-model USD rate when one is known. Token usage is plumbed-but-zero
+   * upstream today, so this surfaces 0 cost until that lands — the shape is ready.
+   */
+  ingestCostMetrics(rateUsdPerKToken?: (modelId: string) => number | null): IngestCostMetric[] {
+    const rows = this.db
+      .prepare(
+        `SELECT model_id AS modelId, prompt_version AS promptVersion, strategy,
+                COUNT(*) AS extractions, COALESCE(SUM(token_usage), 0) AS tokenUsage
+         FROM extraction_cache
+         GROUP BY model_id, prompt_version, strategy
+         ORDER BY model_id, prompt_version, strategy`,
+      )
+      .all() as Array<{
+      modelId: string;
+      promptVersion: string;
+      strategy: ExtractionStrategy;
+      extractions: number;
+      tokenUsage: number;
+    }>;
+    return rows.map((r) => {
+      const rate = rateUsdPerKToken?.(r.modelId) ?? null;
+      return {
+        modelId: r.modelId,
+        promptVersion: r.promptVersion,
+        strategy: r.strategy,
+        extractions: r.extractions,
+        tokenUsage: r.tokenUsage,
+        estimatedCostUsd:
+          rate === null ? null : Math.round((r.tokenUsage / 1000) * rate * 1e6) / 1e6,
+      };
+    });
   }
 
   /**

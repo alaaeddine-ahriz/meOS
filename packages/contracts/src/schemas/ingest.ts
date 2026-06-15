@@ -83,8 +83,74 @@ export const IngestJobsResponse = z.object({ jobs: z.array(IngestJobSchema) });
 export const RetryJobParams = NumericIdParam;
 export const RetryJobResponse = z.object({ retried: z.boolean() });
 
+// --- ingestion observability metrics (#18) ---------------------------
+
+/** Extended per-queue metrics: #13 depth counters + retry/throughput diagnostics. */
+export const IngestQueueMetricsSchema = z.object({
+  queue: z.enum(["extraction", "embedding"]),
+  pending: z.number(),
+  processing: z.number(),
+  failed: z.number(),
+  deadLetter: z.number(),
+  /** Jobs that have failed at least once but are still under their retry budget. */
+  retrying: z.number(),
+  /** Jobs that finished successfully (and survive retention). */
+  completed: z.number(),
+  /** Mean wall-clock seconds of completed runs on this queue. */
+  avgDurationSeconds: z.number(),
+  /** ISO timestamp of the oldest still-pending job, or null when drained. */
+  oldestQueuedAt: z.string().nullable(),
+});
+
+/** Per-stage timing + outcome counts aggregated from the run history. */
+export const IngestStageMetricSchema = z.object({
+  /** The pipeline stage (e.g. "indexing", "extraction", "merge"). */
+  stage: z.string(),
+  completed: z.number(),
+  failed: z.number(),
+  deadLetter: z.number(),
+  processing: z.number(),
+  avgDurationSeconds: z.number(),
+  totalDurationSeconds: z.number(),
+});
+
+/** Stale-job recovery counters: reclaimed-from-crash and currently dead-lettered. */
+export const IngestRecoveryMetricsSchema = z.object({
+  recovered: z.number(),
+  deadLettered: z.number(),
+});
+
+/** Per-extraction cost telemetry, grouped by (model, prompt version, strategy). */
+export const IngestCostMetricSchema = z.object({
+  modelId: z.string(),
+  promptVersion: z.string(),
+  strategy: z.enum(["single", "map-reduce"]),
+  extractions: z.number(),
+  /** Total tokens recorded (0 until token usage is populated upstream). */
+  tokenUsage: z.number(),
+  /** Best-effort estimated USD cost, or null when no rate is known for the model. */
+  estimatedCostUsd: z.number().nullable(),
+});
+
+/** GET /api/ingest/metrics — the read-only ingestion observability surface (#18). */
+export const IngestMetricsResponse = z.object({
+  queues: z.array(IngestQueueMetricsSchema),
+  stages: z.array(IngestStageMetricSchema),
+  recovery: IngestRecoveryMetricsSchema,
+  costs: z.array(IngestCostMetricSchema),
+  /** Backpressure config in effect: the per-pump batch admission cap. */
+  backpressure: z.object({ maxBatchesPerPump: z.number() }),
+  /** When this snapshot was taken (ISO). */
+  generatedAt: z.string(),
+});
+
 export type InboxItem = z.infer<typeof InboxItemSchema>;
 export type SourceDiff = z.infer<typeof SourceDiffResponse>;
 export type DiffFile = z.infer<typeof DiffFileSchema>;
 export type IngestJob = z.infer<typeof IngestJobSchema>;
 export type IngestJobState = z.infer<typeof IngestJobStateSchema>;
+export type IngestQueueMetrics = z.infer<typeof IngestQueueMetricsSchema>;
+export type IngestStageMetric = z.infer<typeof IngestStageMetricSchema>;
+export type IngestRecoveryMetrics = z.infer<typeof IngestRecoveryMetricsSchema>;
+export type IngestCostMetric = z.infer<typeof IngestCostMetricSchema>;
+export type IngestMetrics = z.infer<typeof IngestMetricsResponse>;

@@ -82,6 +82,35 @@ describe("durable ingest jobs (#13)", () => {
     expect(ErrorEnvelopeSchema.parse(res.json()).code).toBe(ErrorCode.NOT_FOUND);
   });
 
+  it("GET /api/ingest/metrics returns the observability envelope/shape (#18)", async () => {
+    const { store } = server.ctx;
+    // Seed a completed run and a dead-lettered one so the aggregates are non-trivial.
+    const ok = store.createIngestJob({ kind: "file" });
+    let claimed = store.claimIngestJob("extraction");
+    while (claimed && claimed.id !== ok) claimed = store.claimIngestJob("extraction");
+    store.completeIngestJob(ok);
+
+    const dead = store.createIngestJob({ kind: "file", maxAttempts: 1 });
+    claimed = store.claimIngestJob("extraction");
+    while (claimed && claimed.id !== dead) claimed = store.claimIngestJob("extraction");
+    store.failIngestJob(dead, "boom", 0);
+
+    const res = await server.app.inject({ method: "GET", url: "/api/ingest/metrics" });
+    expect(res.statusCode).toBe(200);
+    const parsed = ingest.IngestMetricsResponse.parse(res.json());
+
+    // The extraction queue surfaces backlog + throughput counters.
+    const ext = parsed.queues.find((q) => q.queue === "extraction");
+    expect(ext).toBeDefined();
+    expect(ext!.completed).toBeGreaterThanOrEqual(1);
+    // Per-stage aggregation has at least the terminal outcomes we drove.
+    expect(parsed.stages.reduce((s, r) => s + r.completed, 0)).toBeGreaterThanOrEqual(1);
+    expect(parsed.recovery.deadLettered).toBeGreaterThanOrEqual(1);
+    // The active backpressure cap is reported.
+    expect(parsed.backpressure.maxBatchesPerPump).toBeGreaterThan(0);
+    expect(typeof parsed.generatedAt).toBe("string");
+  });
+
   it("400s with the BAD_REQUEST envelope retrying a job that is not retryable", async () => {
     const { store } = server.ctx;
     // A fresh pending job has nothing to retry.

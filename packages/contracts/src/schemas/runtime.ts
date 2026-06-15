@@ -21,6 +21,10 @@ export const QueueDepthSchema = z.object({
   failed: z.number(),
   /** Jobs that exhausted their retries and need a manual retry. */
   deadLetter: z.number(),
+  /** Jobs that have failed at least once but are still under their retry budget (#18). */
+  retrying: z.number().optional(),
+  /** ISO timestamp of the oldest still-pending job, or null when drained (#18). */
+  oldestQueuedAt: z.string().nullable().optional(),
 });
 
 /** One worker's introspected health, as surfaced by GET /api/runtime. */

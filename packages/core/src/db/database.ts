@@ -682,6 +682,26 @@ export const migrations: readonly string[] = [
   ALTER TABLE connector_items ADD COLUMN source_revision_id INTEGER
     REFERENCES source_revisions(id) ON DELETE SET NULL;
   `,
+
+  // 24 — ingest job priority class for budgets/backpressure (#18).
+  //
+  // Until now the durable extraction queue claimed jobs strictly by id (FIFO by
+  // creation), so a 1000-file bulk import could sit ahead of a just-uploaded
+  // note the user is waiting on. #18 adds a `priority` class so high-value work
+  // drains first: a user upload (40) outranks a watched file (30), which
+  // outranks a connector background sync (20), which outranks nightly
+  // maintenance (10). `claimIngestJob` now orders by (priority DESC, id ASC), so
+  // within a class the queue stays strictly FIFO and scheduling is deterministic.
+  //
+  // The column is backfilled to 30 (the watched-file default) for every existing
+  // row — the historical behaviour for durable jobs, which were only ever files
+  // and uploads — and defaults to 30 for new rows so a caller that omits it is
+  // unchanged. A new composite index keys the priority-aware claim scan.
+  `
+  ALTER TABLE ingest_jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 30;
+  CREATE INDEX idx_ingest_jobs_claim
+    ON ingest_jobs(queue, state, priority, run_after);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

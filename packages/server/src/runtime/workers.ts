@@ -189,12 +189,18 @@ export class IngestQueueWorker implements Worker {
   }
 
   health(): WorkerHealth {
-    const depth = this.store.ingestQueueDepths().find((d) => d.queue === this.queueKind) ?? {
+    // Read the extended metrics (#18) so the surface also carries retry depth and
+    // the oldest-queued age, not just the #13 depth counters.
+    const depth = this.store.ingestQueueMetrics().find((d) => d.queue === this.queueKind) ?? {
       queue: this.queueKind,
       pending: 0,
       processing: 0,
       failed: 0,
       deadLetter: 0,
+      retrying: 0,
+      completed: 0,
+      avgDurationSeconds: 0,
+      oldestQueuedAt: null,
     };
     const status: WorkerHealth["status"] =
       depth.deadLetter > 0 ? "error" : depth.processing > 0 ? "running" : "idle";
@@ -203,7 +209,7 @@ export class IngestQueueWorker implements Worker {
       status,
       detail:
         `${this.queueKind}: ${depth.processing} processing, ${depth.pending} pending, ` +
-        `${depth.failed} retrying, ${depth.deadLetter} dead-letter`,
+        `${depth.retrying} retrying, ${depth.deadLetter} dead-letter`,
       lastError: depth.deadLetter > 0 ? `${depth.deadLetter} job(s) in dead-letter` : null,
       lastRunAt: null,
       queue: {
@@ -211,6 +217,8 @@ export class IngestQueueWorker implements Worker {
         processing: depth.processing,
         failed: depth.failed,
         deadLetter: depth.deadLetter,
+        retrying: depth.retrying,
+        oldestQueuedAt: depth.oldestQueuedAt,
       },
     };
   }
