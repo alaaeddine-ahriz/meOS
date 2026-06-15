@@ -1,5 +1,5 @@
-@import './styles/_variables.scss';
-@import './styles/_keyframe-animations.scss';
+@import "./styles/_variables.scss";
+@import "./styles/_keyframe-animations.scss";
 
 @import "@fontsource-variable/newsreader";
 @import "@fontsource-variable/ibm-plex-sans";
@@ -208,12 +208,14 @@
 /* shadcn locks to the stock Tailwind/shadcn font stack regardless of the
    typeface picker — selector is more specific than [data-font] so it wins. */
 :root[data-palette="shadcn"] {
-  --font-display: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  --font-body: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
-  --font-mono-set: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-display:
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+  --font-body:
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+  --font-mono-set:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 /* ── density presets ──────────────────────────────────────── */
@@ -338,9 +340,15 @@ body::after {
 .rise {
   animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
 }
-.rise-1 { animation-delay: 0.05s; }
-.rise-2 { animation-delay: 0.12s; }
-.rise-3 { animation-delay: 0.19s; }
+.rise-1 {
+  animation-delay: 0.05s;
+}
+.rise-2 {
+  animation-delay: 0.12s;
+}
+.rise-3 {
+  animation-delay: 0.19s;
+}
 
 /* ── reduced motion ───────────────────────────────────────────
    When the user turns animation off, collapse entrance animations,
@@ -356,8 +364,13 @@ body::after {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 .working-dot {
   animation: pulse-dot 1.2s ease-in-out infinite;
@@ -377,18 +390,32 @@ body::after {
   margin: 1.4em 0 0.5em;
   line-height: 1.25;
 }
-.prose-meos h1 { font-size: 1.7rem; }
-.prose-meos h2 { font-size: 1.25rem; }
-.prose-meos h3 { font-size: 1.05rem; }
-.prose-meos p { margin: 0.7em 0; }
+.prose-meos h1 {
+  font-size: 1.7rem;
+}
+.prose-meos h2 {
+  font-size: 1.25rem;
+}
+.prose-meos h3 {
+  font-size: 1.05rem;
+}
+.prose-meos p {
+  margin: 0.7em 0;
+}
 .prose-meos ul,
 .prose-meos ol {
   margin: 0.7em 0;
   padding-left: 1.4em;
 }
-.prose-meos ul { list-style: disc; }
-.prose-meos ol { list-style: decimal; }
-.prose-meos li { margin: 0.25em 0; }
+.prose-meos ul {
+  list-style: disc;
+}
+.prose-meos ol {
+  list-style: decimal;
+}
+.prose-meos li {
+  margin: 0.25em 0;
+}
 .prose-meos a {
   color: var(--lamp);
   text-decoration: none;
@@ -424,7 +451,10 @@ body::after {
   font-style: italic;
   margin: 0.9em 0;
 }
-.prose-meos strong { color: var(--paper); font-weight: 600; }
+.prose-meos strong {
+  color: var(--paper);
+  font-weight: 600;
+}
 .prose-meos hr {
   border: none;
   border-top: 1px solid var(--line);

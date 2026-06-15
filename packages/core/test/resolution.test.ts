@@ -39,8 +39,18 @@ describe("contradiction resolution", () => {
   it("applies a supersede resolution: loser retired, contradiction closed", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });
-    const a = s.insertObservation({ entityId: dana.id, text: "Dana lives in Paris.", confidence: 0.6, validFrom: "2019-01-01" });
-    const b = s.insertObservation({ entityId: dana.id, text: "Dana lives in Berlin.", confidence: 0.8, validFrom: "2024-01-01" });
+    const a = s.insertObservation({
+      entityId: dana.id,
+      text: "Dana lives in Paris.",
+      confidence: 0.6,
+      validFrom: "2019-01-01",
+    });
+    const b = s.insertObservation({
+      entityId: dana.id,
+      text: "Dana lives in Berlin.",
+      confidence: 0.8,
+      validFrom: "2024-01-01",
+    });
     const cId = s.createContradiction(a, b);
 
     expect(applyResolution(s, cId, "supersede_a")).toBe(true);
@@ -68,8 +78,18 @@ describe("contradiction resolution", () => {
   it("suggests keep_both when the two claims are too close to call", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });
-    const a = s.insertObservation({ entityId: dana.id, text: "A", confidence: 0.7, validFrom: "2024-01-01" });
-    const b = s.insertObservation({ entityId: dana.id, text: "B", confidence: 0.7, validFrom: "2024-01-01" });
+    const a = s.insertObservation({
+      entityId: dana.id,
+      text: "A",
+      confidence: 0.7,
+      validFrom: "2024-01-01",
+    });
+    const b = s.insertObservation({
+      entityId: dana.id,
+      text: "B",
+      confidence: 0.7,
+      validFrom: "2024-01-01",
+    });
     const cId = s.createContradiction(a, b);
 
     expect(proposeResolution(s, cId)!.suggested).toBe("keep_both");

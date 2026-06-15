@@ -52,7 +52,12 @@ describe("graph-aware retrieval", () => {
     s.upsertRelationship(project.id, ai.id, "depends on");
     const src = s.createSource({ type: "file", title: "Atlas", content: "." });
     const [vec] = await embedder.embed(["Project Atlas ships in Q3."]);
-    s.insertObservation({ entityId: project.id, text: "Project Atlas ships in Q3.", sourceId: src, embedding: vec! });
+    s.insertObservation({
+      entityId: project.id,
+      text: "Project Atlas ships in Q3.",
+      sourceId: src,
+      embedding: vec!,
+    });
 
     const pack = await buildContextPack(s, embedder, "what depends on the AI Service?");
 

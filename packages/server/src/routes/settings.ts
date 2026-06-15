@@ -60,44 +60,60 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // because the desktop shell calls our API anyway. `baseUrl` defaults to the
   // saved endpoint but the UI passes its live input so models can be detected
   // before saving.
-  app.get<{ Querystring: { baseUrl?: string } }>("/api/settings/llm/local/models", async (request, reply) => {
-    const base = normalizeLocalBaseUrl(request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl);
-    if (!base) {
-      return reply.code(400).send({ error: "No local endpoint configured" });
-    }
-    try {
-      const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
-      // LM Studio answers an unknown route with HTTP 200 and an { error } body,
-      // so a real model list is the one with a `data` array — not just an ok status.
-      const body = (await response.json().catch(() => ({}))) as { data?: Array<{ id?: string }>; error?: string };
-      if (!response.ok || !Array.isArray(body.data)) {
-        return reply.code(502).send({
-          error: `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
-        });
+  app.get<{ Querystring: { baseUrl?: string } }>(
+    "/api/settings/llm/local/models",
+    async (request, reply) => {
+      const base = normalizeLocalBaseUrl(
+        request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl,
+      );
+      if (!base) {
+        return reply.code(400).send({ error: "No local endpoint configured" });
       }
-      const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
-      return { models };
-    } catch {
-      return reply.code(502).send({ error: "Couldn't reach the local server — is it running at that endpoint?" });
-    }
-  });
+      try {
+        const response = await fetch(`${base}/models`, { signal: AbortSignal.timeout(5000) });
+        // LM Studio answers an unknown route with HTTP 200 and an { error } body,
+        // so a real model list is the one with a `data` array — not just an ok status.
+        const body = (await response.json().catch(() => ({}))) as {
+          data?: Array<{ id?: string }>;
+          error?: string;
+        };
+        if (!response.ok || !Array.isArray(body.data)) {
+          return reply.code(502).send({
+            error: `No models at ${base}/models — check the endpoint points at an OpenAI-compatible server.`,
+          });
+        }
+        const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
+        return { models };
+      } catch {
+        return reply
+          .code(502)
+          .send({ error: "Couldn't reach the local server — is it running at that endpoint?" });
+      }
+    },
+  );
 
   // Discover the models a cloud provider's key can actually use, so the picker
   // reflects the account's catalogue instead of a list we hard-code. The key is
   // read from the `x-llm-api-key` header (the UI's unsaved input) or, absent
   // that, the saved/env key — keeping it out of the URL and the logs. Discovery
   // falls back to the curated list on any failure, so this never 500s.
-  app.get<{ Params: { provider: string } }>("/api/settings/llm/:provider/models", async (request, reply) => {
-    const provider = request.params.provider;
-    if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
-      return reply.code(400).send({ error: `Unknown cloud provider: ${provider}` });
-    }
-    const cloud = provider as CloudProvider;
-    const header = request.headers["x-llm-api-key"];
-    const typedKey = (Array.isArray(header) ? header[0] : header)?.trim();
-    const apiKey = typedKey || ctx.config.llm[cloud].apiKey || ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
-    return listProviderModels(cloud, apiKey);
-  });
+  app.get<{ Params: { provider: string } }>(
+    "/api/settings/llm/:provider/models",
+    async (request, reply) => {
+      const provider = request.params.provider;
+      if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
+        return reply.code(400).send({ error: `Unknown cloud provider: ${provider}` });
+      }
+      const cloud = provider as CloudProvider;
+      const header = request.headers["x-llm-api-key"];
+      const typedKey = (Array.isArray(header) ? header[0] : header)?.trim();
+      const apiKey =
+        typedKey ||
+        ctx.config.llm[cloud].apiKey ||
+        ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
+      return listProviderModels(cloud, apiKey);
+    },
+  );
 
   app.put<{ Body: { provider?: string; model?: string; apiKey?: string; baseUrl?: string } }>(
     "/api/settings/llm",
@@ -105,7 +121,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       const { provider, model, apiKey, baseUrl } = request.body ?? {};
       const validProviders: LlmProvider[] = ["anthropic", "openai", "google", "local"];
       if (!provider || !validProviders.includes(provider as LlmProvider)) {
-        return reply.code(400).send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
+        return reply
+          .code(400)
+          .send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
       }
       const llm = ctx.config.llm;
       llm.provider = provider as LlmProvider;
@@ -116,7 +134,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         // UI reflects the corrected URL after saving.
         if (baseUrl?.trim()) llm.local.baseUrl = normalizeLocalBaseUrl(baseUrl.trim());
         if (!llm.local.baseUrl.trim()) {
-          return reply.code(400).send({ error: "A local endpoint URL is required (e.g. http://localhost:1234/v1)" });
+          return reply
+            .code(400)
+            .send({ error: "A local endpoint URL is required (e.g. http://localhost:1234/v1)" });
         }
       } else {
         const cloud = provider as CloudProvider;
@@ -128,14 +148,18 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         }
         if (apiKey?.trim()) llm[cloud].apiKey = apiKey.trim();
         if (!hasKey(ctx, cloud)) {
-          return reply.code(400).send({ error: `No API key configured for ${cloud} — paste one first` });
+          return reply
+            .code(400)
+            .send({ error: `No API key configured for ${cloud} — paste one first` });
         }
       }
 
       try {
         ctx.llm.swap(createLlmClient(ctx.config));
       } catch (error) {
-        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+        return reply
+          .code(400)
+          .send({ error: error instanceof Error ? error.message : String(error) });
       }
       // Persisted in the DB — never write near source files: the dev server
       // watches the tree and a config write would restart it mid-request.
@@ -159,7 +183,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         const validProviders: LlmProvider[] = ["anthropic", "openai", "google", "local"];
         const chosen = (provider?.trim() as LlmProvider | undefined) ?? llm.provider;
         if (!validProviders.includes(chosen)) {
-          return reply.code(400).send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
+          return reply
+            .code(400)
+            .send({ error: `Field 'provider' must be one of: ${validProviders.join(", ")}` });
         }
         llm.maintainer = { provider: chosen, model: next };
       }
@@ -167,7 +193,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       try {
         ctx.llm.swap(createLlmClient(ctx.config));
       } catch (error) {
-        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+        return reply
+          .code(400)
+          .send({ error: error instanceof Error ? error.message : String(error) });
       }
       ctx.store.setSetting("llm", llm);
       return llmSettingsView(ctx);
@@ -232,7 +260,9 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
 
       return { ok: true };
     } catch (error) {
-      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(500)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 }

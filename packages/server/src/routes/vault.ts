@@ -9,9 +9,14 @@ import type { AppContext } from "../context.js";
  */
 export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void {
   const commit = (paths: string[], message: string): void => {
-    ctx.git.commitPaths(paths.map((p) => `vault/${p}`), message).catch((error) => {
-      app.log.warn({ error: String(error) }, "vault commit failed");
-    });
+    ctx.git
+      .commitPaths(
+        paths.map((p) => `vault/${p}`),
+        message,
+      )
+      .catch((error) => {
+        app.log.warn({ error: String(error) }, "vault commit failed");
+      });
   };
 
   app.get("/api/vault", async () => ({ notes: ctx.vault.list() }));
@@ -36,23 +41,32 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
       commit([note.path], `notes: create ${note.title}`);
       return reply.code(201).send(note);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not create note" });
+      return reply
+        .code(400)
+        .send({ error: error instanceof Error ? error.message : "Could not create note" });
     }
   });
 
-  app.put<{ Body: { path?: string; markdown?: string } }>("/api/vault/note", async (request, reply) => {
-    const { path: relPath, markdown } = request.body ?? {};
-    if (!relPath || typeof markdown !== "string") {
-      return reply.code(400).send({ error: "Fields 'path' (string) and 'markdown' (string) are required" });
-    }
-    try {
-      const note = ctx.vault.write(relPath, markdown);
-      commit([note.path], `notes: edit ${note.title}`);
-      return note;
-    } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not save note" });
-    }
-  });
+  app.put<{ Body: { path?: string; markdown?: string } }>(
+    "/api/vault/note",
+    async (request, reply) => {
+      const { path: relPath, markdown } = request.body ?? {};
+      if (!relPath || typeof markdown !== "string") {
+        return reply
+          .code(400)
+          .send({ error: "Fields 'path' (string) and 'markdown' (string) are required" });
+      }
+      try {
+        const note = ctx.vault.write(relPath, markdown);
+        commit([note.path], `notes: edit ${note.title}`);
+        return note;
+      } catch (error) {
+        return reply
+          .code(400)
+          .send({ error: error instanceof Error ? error.message : "Could not save note" });
+      }
+    },
+  );
 
   app.delete<{ Querystring: { path?: string } }>("/api/vault/note", async (request, reply) => {
     const relPath = request.query.path;
@@ -62,19 +76,27 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
       commit([relPath], `notes: delete ${relPath}`);
       return { deleted: true };
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not delete note" });
+      return reply
+        .code(400)
+        .send({ error: error instanceof Error ? error.message : "Could not delete note" });
     }
   });
 
-  app.post<{ Body: { from?: string; to?: string } }>("/api/vault/note/rename", async (request, reply) => {
-    const { from, to } = request.body ?? {};
-    if (!from || !to) return reply.code(400).send({ error: "Fields 'from' and 'to' are required" });
-    try {
-      const note = ctx.vault.rename(from, to);
-      commit([from, note.path], `notes: rename ${from} → ${note.path}`);
-      return note;
-    } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : "Could not rename note" });
-    }
-  });
+  app.post<{ Body: { from?: string; to?: string } }>(
+    "/api/vault/note/rename",
+    async (request, reply) => {
+      const { from, to } = request.body ?? {};
+      if (!from || !to)
+        return reply.code(400).send({ error: "Fields 'from' and 'to' are required" });
+      try {
+        const note = ctx.vault.rename(from, to);
+        commit([from, note.path], `notes: rename ${from} → ${note.path}`);
+        return note;
+      } catch (error) {
+        return reply
+          .code(400)
+          .send({ error: error instanceof Error ? error.message : "Could not rename note" });
+      }
+    },
+  );
 }

@@ -20,7 +20,9 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     try {
       return await ctx.git.init();
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(400)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -33,7 +35,9 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
       await ctx.git.setRemote(url);
       return await ctx.git.status();
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(400)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -49,7 +53,9 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     try {
       return await ctx.git.sync();
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(400)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -58,11 +64,16 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     return { commits: await ctx.git.log(limit) };
   });
 
-  app.get<{ Params: { hash: string } }>("/api/settings/git/commit/:hash", async (request, reply) => {
-    try {
-      return await ctx.git.show(request.params.hash);
-    } catch (error) {
-      return reply.code(404).send({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
+  app.get<{ Params: { hash: string } }>(
+    "/api/settings/git/commit/:hash",
+    async (request, reply) => {
+      try {
+        return await ctx.git.show(request.params.hash);
+      } catch (error) {
+        return reply
+          .code(404)
+          .send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    },
+  );
 }

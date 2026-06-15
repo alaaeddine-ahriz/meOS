@@ -28,7 +28,10 @@ describe("database", () => {
     const store = new KnowledgeStore(db);
 
     const entity = store.createEntity({ type: "person", name: "Ada Lovelace" });
-    db.prepare("INSERT INTO observations (entity_id, text) VALUES (?, ?)").run(entity.id, "writes programs");
+    db.prepare("INSERT INTO observations (entity_id, text) VALUES (?, ?)").run(
+      entity.id,
+      "writes programs",
+    );
     store.setSetting("llm", { provider: "anthropic" });
     store.addWatchedFolder("/tmp/notes");
     store.recordIngestedFile("/tmp/notes/a.md", 1, 1);

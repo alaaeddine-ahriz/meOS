@@ -9,33 +9,43 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     duplicates: findDuplicateEntities(ctx.store),
   }));
 
-  app.post<{ Body: { loserId?: number; winnerId?: number } }>("/api/entities/merge", async (request, reply) => {
-    const { loserId, winnerId } = request.body ?? {};
-    if (typeof loserId !== "number" || typeof winnerId !== "number") {
-      return reply.code(400).send({ error: "Fields 'loserId' and 'winnerId' (numbers) are required" });
-    }
-    if (!ctx.store.mergeEntities(loserId, winnerId)) {
-      return reply.code(400).send({ error: "Merge failed (unknown entity or self-merge)" });
-    }
-    // The survivor's page needs rewriting around the merged knowledge.
-    ctx.queue.push(async () => {
-      const changes = await ctx.wiki.regenerateStale();
-      await commitWikiChanges(ctx, changes, "Entity merge");
-    });
-    return reply.send({ merged: true });
-  });
+  app.post<{ Body: { loserId?: number; winnerId?: number } }>(
+    "/api/entities/merge",
+    async (request, reply) => {
+      const { loserId, winnerId } = request.body ?? {};
+      if (typeof loserId !== "number" || typeof winnerId !== "number") {
+        return reply
+          .code(400)
+          .send({ error: "Fields 'loserId' and 'winnerId' (numbers) are required" });
+      }
+      if (!ctx.store.mergeEntities(loserId, winnerId)) {
+        return reply.code(400).send({ error: "Merge failed (unknown entity or self-merge)" });
+      }
+      // The survivor's page needs rewriting around the merged knowledge.
+      ctx.queue.push(async () => {
+        const changes = await ctx.wiki.regenerateStale();
+        await commitWikiChanges(ctx, changes, "Entity merge");
+      });
+      return reply.send({ merged: true });
+    },
+  );
 
   // The "no" branch of dedup: remember a rejected pair so it stops resurfacing.
-  app.post<{ Body: { aId?: number; bId?: number } }>("/api/entities/dismiss-duplicate", async (request, reply) => {
-    const { aId, bId } = request.body ?? {};
-    if (typeof aId !== "number" || typeof bId !== "number") {
-      return reply.code(400).send({ error: "Fields 'aId' and 'bId' (numbers) are required" });
-    }
-    if (!ctx.store.dismissDuplicate(aId, bId)) {
-      return reply.code(400).send({ error: "Dismiss failed (a pair must be two distinct entities)" });
-    }
-    return reply.send({ dismissed: true });
-  });
+  app.post<{ Body: { aId?: number; bId?: number } }>(
+    "/api/entities/dismiss-duplicate",
+    async (request, reply) => {
+      const { aId, bId } = request.body ?? {};
+      if (typeof aId !== "number" || typeof bId !== "number") {
+        return reply.code(400).send({ error: "Fields 'aId' and 'bId' (numbers) are required" });
+      }
+      if (!ctx.store.dismissDuplicate(aId, bId)) {
+        return reply
+          .code(400)
+          .send({ error: "Dismiss failed (a pair must be two distinct entities)" });
+      }
+      return reply.send({ dismissed: true });
+    },
+  );
 
   // Rebuild the compiled-prose retrieval index from pages on disk (no LLM).
   app.post("/api/jobs/backfill-wiki", async (_request, reply) => {

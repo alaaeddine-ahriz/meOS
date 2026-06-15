@@ -2,7 +2,11 @@ import { APICallError, LoadAPIKeyError, NoSuchModelError, RetryError } from "ai"
 import { describe, expect, it } from "vitest";
 import { LlmError, normalizeLlmError } from "../src/llm/errors.js";
 
-function apiError(opts: { statusCode?: number; message?: string; responseBody?: string }): APICallError {
+function apiError(opts: {
+  statusCode?: number;
+  message?: string;
+  responseBody?: string;
+}): APICallError {
   return new APICallError({
     message: opts.message ?? "request failed",
     url: "https://api.example.com/v1",
@@ -15,10 +19,7 @@ function apiError(opts: { statusCode?: number; message?: string; responseBody?: 
 
 describe("normalizeLlmError", () => {
   it("maps a missing key to an auth error pointing at Settings", () => {
-    const error = normalizeLlmError(
-      new LoadAPIKeyError({ message: "key missing" }),
-      "anthropic",
-    );
+    const error = normalizeLlmError(new LoadAPIKeyError({ message: "key missing" }), "anthropic");
     expect(error.kind).toBe("auth");
     expect(error.message).toMatch(/Anthropic/);
     expect(error.message).toMatch(/Settings/);
@@ -62,7 +63,11 @@ describe("normalizeLlmError", () => {
 
   it("unwraps RetryError to classify the underlying failure", () => {
     const inner = apiError({ statusCode: 401 });
-    const retry = new RetryError({ message: "failed after retries", reason: "errors", errors: [inner] });
+    const retry = new RetryError({
+      message: "failed after retries",
+      reason: "errors",
+      errors: [inner],
+    });
     const error = normalizeLlmError(retry, "openai");
     expect(error.kind).toBe("auth");
   });

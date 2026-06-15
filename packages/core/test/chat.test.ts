@@ -17,9 +17,14 @@ async function seededStore() {
     title: "Project notes",
     content: "Orion is the new search infrastructure project led by Dana.",
   });
-  const [chunkVector] = await embedder.embed(["Orion is the new search infrastructure project led by Dana."]);
+  const [chunkVector] = await embedder.embed([
+    "Orion is the new search infrastructure project led by Dana.",
+  ]);
   store.addChunks(sourceId, [
-    { text: "Orion is the new search infrastructure project led by Dana.", embedding: chunkVector! },
+    {
+      text: "Orion is the new search infrastructure project led by Dana.",
+      embedding: chunkVector!,
+    },
   ]);
 
   const orion = store.createEntity({ type: "project", name: "Orion" });
@@ -55,7 +60,12 @@ describe("ChatService", () => {
     const llm = new StubLlmClient({
       onAgentStream: () => [
         { type: "reasoning", text: "Let me look up Orion." },
-        { type: "tool-call", toolCallId: "t1", toolName: "search_knowledge", input: { query: "Orion lead" } },
+        {
+          type: "tool-call",
+          toolCallId: "t1",
+          toolName: "search_knowledge",
+          input: { query: "Orion lead" },
+        },
         { type: "text", text: "Orion is led by Dana." },
       ],
     });

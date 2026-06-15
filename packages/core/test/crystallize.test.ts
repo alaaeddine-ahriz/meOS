@@ -48,12 +48,19 @@ describe("crystallizeSession", () => {
     store.addMessage(convo, "user", "Which backend should we use?");
     store.addMessage(convo, "assistant", "Appwrite fits the local-first requirement.");
 
-    const crystal = await crystallizeSession({ store, llm: stub(), embedder: new HashEmbedder(), conversationId: convo });
+    const crystal = await crystallizeSession({
+      store,
+      llm: stub(),
+      embedder: new HashEmbedder(),
+      conversationId: convo,
+    });
 
     expect(crystal).toBeDefined();
     // a first-class "session" source was created from the digest
     expect(store.getSourceType(crystal!.sourceId)).toBe("session");
-    expect(store.getSourceContent(crystal!.sourceId)).toContain("Appwrite, for the local-first path.");
+    expect(store.getSourceContent(crystal!.sourceId)).toContain(
+      "Appwrite, for the local-first path.",
+    );
     // the decision was merged as a typed claim
     const appwrite = store.findEntityByName("Appwrite")!;
     const obs = store.activeObservations(appwrite.id);
@@ -64,7 +71,12 @@ describe("crystallizeSession", () => {
   it("returns undefined for an empty conversation", async () => {
     const store = new KnowledgeStore(openDatabase(":memory:"));
     const convo = store.createConversation();
-    const crystal = await crystallizeSession({ store, llm: stub(), embedder: new HashEmbedder(), conversationId: convo });
+    const crystal = await crystallizeSession({
+      store,
+      llm: stub(),
+      embedder: new HashEmbedder(),
+      conversationId: convo,
+    });
     expect(crystal).toBeUndefined();
   });
 });

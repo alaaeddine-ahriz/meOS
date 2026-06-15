@@ -87,13 +87,16 @@ export class LocalEmbedder implements Embedder {
         },
       });
       worker.unref();
-      worker.on("message", ({ id, vectors, error }: { id: number; vectors?: number[][]; error?: string }) => {
-        const entry = this.pending.get(id);
-        if (!entry) return;
-        this.pending.delete(id);
-        if (vectors) entry.resolve(vectors.map((vector) => Float32Array.from(vector)));
-        else entry.reject(new Error(error ?? "embedding worker returned no output"));
-      });
+      worker.on(
+        "message",
+        ({ id, vectors, error }: { id: number; vectors?: number[][]; error?: string }) => {
+          const entry = this.pending.get(id);
+          if (!entry) return;
+          this.pending.delete(id);
+          if (vectors) entry.resolve(vectors.map((vector) => Float32Array.from(vector)));
+          else entry.reject(new Error(error ?? "embedding worker returned no output"));
+        },
+      );
       worker.on("error", (error) => {
         const failure = error instanceof Error ? error : new Error(String(error));
         for (const { reject } of this.pending.values()) reject(failure);

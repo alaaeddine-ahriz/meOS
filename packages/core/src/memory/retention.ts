@@ -23,7 +23,11 @@ export interface RetentionReport {
  */
 export function runRetention(store: KnowledgeStore): RetentionReport {
   const expired = expireStaleValidity(store);
-  const decayed = store.decayStaleConfidenceByKind(STALE_AFTER_DAYS, DEFAULT_STALE_AFTER_DAYS, DECAY_STEP);
+  const decayed = store.decayStaleConfidenceByKind(
+    STALE_AFTER_DAYS,
+    DEFAULT_STALE_AFTER_DAYS,
+    DECAY_STEP,
+  );
   const promoted = store.promoteFacts(PROMOTE_THRESHOLD);
   const retiered = reclassifyMemoryTiers(store);
   return { decayed, promoted, expired, retiered };

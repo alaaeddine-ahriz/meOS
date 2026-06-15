@@ -35,8 +35,14 @@ export function CommandPalette({
 
   useEffect(() => {
     if (!open) return;
-    api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
-    api.listConversations().then((r) => setConversations(r.conversations)).catch(() => {});
+    api
+      .listEntities()
+      .then((r) => setEntities(r.entities))
+      .catch(() => {});
+    api
+      .listConversations()
+      .then((r) => setConversations(r.conversations))
+      .catch(() => {});
   }, [open]);
 
   const choose = (to: string) => {
@@ -51,13 +57,18 @@ export function CommandPalette({
       showCloseButton={false}
       className="top-[18vh] translate-y-0 border-line bg-desk"
     >
-      <CommandInput placeholder="Jump to a view, chat, or wiki page..." className="text-paper placeholder:text-dim" />
+      <CommandInput
+        placeholder="Jump to a view, chat, or wiki page..."
+        className="text-paper placeholder:text-dim"
+      />
       <CommandList className="max-h-72">
         <CommandEmpty className="py-3 text-sm text-dim">Nothing matches.</CommandEmpty>
         <CommandGroup heading="Actions">
           <CommandItem value="new-chat" onSelect={() => choose("/")}>
             <span>New chat</span>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">chat</span>
+            <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
+              chat
+            </span>
           </CommandItem>
         </CommandGroup>
         {conversations.length > 0 && (
@@ -68,17 +79,27 @@ export function CommandPalette({
                 value={`chat-${conversation.id} ${conversation.title ?? ""}`}
                 onSelect={() => choose(`/?c=${conversation.id}`)}
               >
-                <span className="truncate">{conversation.title ?? `Conversation ${conversation.id}`}</span>
-                <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wider text-dim">chat</span>
+                <span className="truncate">
+                  {conversation.title ?? `Conversation ${conversation.id}`}
+                </span>
+                <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wider text-dim">
+                  chat
+                </span>
               </CommandItem>
             ))}
           </CommandGroup>
         )}
         <CommandGroup heading="Views">
           {VIEWS.map((view) => (
-            <CommandItem key={view.to} value={`view-${view.label}`} onSelect={() => choose(view.to)}>
+            <CommandItem
+              key={view.to}
+              value={`view-${view.label}`}
+              onSelect={() => choose(view.to)}
+            >
               <span>{view.label}</span>
-              <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">view</span>
+              <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
+                view
+              </span>
             </CommandItem>
           ))}
         </CommandGroup>

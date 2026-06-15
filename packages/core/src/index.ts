@@ -1,4 +1,10 @@
-export { defaultConfig, ensureDataDirs, LLM_PROVIDERS, loadConfig, overlayStoredLlmConfig } from "./config.js";
+export {
+  defaultConfig,
+  ensureDataDirs,
+  LLM_PROVIDERS,
+  loadConfig,
+  overlayStoredLlmConfig,
+} from "./config.js";
 export type { LlmConfig, LlmProvider, MeosConfig } from "./config.js";
 export { openDatabase, resetDatabase } from "./db/database.js";
 export type { MeosDatabase } from "./db/database.js";
@@ -17,9 +23,21 @@ export type { ParsedDocument } from "./ingest/parse.js";
 export { chunkText } from "./ingest/chunk.js";
 export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
-export { entityTypeSchema, extractionSchema, observationKindSchema, relevanceSchema, sensitivitySchema } from "./extract/schema.js";
+export {
+  entityTypeSchema,
+  extractionSchema,
+  observationKindSchema,
+  relevanceSchema,
+  sensitivitySchema,
+} from "./extract/schema.js";
 export type { EntityType, ExtractedObservation, Extraction, Relevance } from "./extract/schema.js";
-export { containsPII, containsSecret, detectSensitivity, redactSecrets, REDACTION_PLACEHOLDER } from "./memory/privacy.js";
+export {
+  containsPII,
+  containsSecret,
+  detectSensitivity,
+  redactSecrets,
+  REDACTION_PLACEHOLDER,
+} from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
 export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
@@ -74,8 +92,17 @@ export {
   saveProfileSection,
   withProfile,
 } from "./profile/profile-doc.js";
-export type { Profile, ProfileSectionDef, ProfileSectionId, ProfileVersion } from "./profile/profile-doc.js";
-export { draftProfileFromContext, draftProfileFromKnowledge, editProfileWithInstruction } from "./profile/profile-assistant.js";
+export type {
+  Profile,
+  ProfileSectionDef,
+  ProfileSectionId,
+  ProfileVersion,
+} from "./profile/profile-doc.js";
+export {
+  draftProfileFromContext,
+  draftProfileFromKnowledge,
+  editProfileWithInstruction,
+} from "./profile/profile-assistant.js";
 export type { ProfileProposal } from "./profile/profile-assistant.js";
 export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";

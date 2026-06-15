@@ -49,7 +49,10 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
       .finally(() => setLoading(false));
 
   const loadDuplicates = () =>
-    api.getDuplicates().then((r) => setDuplicates(r.duplicates)).catch(() => setDuplicates([]));
+    api
+      .getDuplicates()
+      .then((r) => setDuplicates(r.duplicates))
+      .catch(() => setDuplicates([]));
 
   useEffect(() => {
     void load();
@@ -112,7 +115,10 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   const runAutoMerge = async () => {
     setAutoRunning(true);
     try {
-      let queue = await api.getDuplicates().then((r) => r.duplicates).catch(() => []);
+      let queue = await api
+        .getDuplicates()
+        .then((r) => r.duplicates)
+        .catch(() => []);
       // Each successful merge removes one entity, so the proposal count strictly
       // trends down; this bound just guarantees termination if a pair keeps failing.
       let guard = queue.length * 2 + 5;
@@ -122,7 +128,10 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
         const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
         try {
           await api.mergeEntities(loserId, d.suggestedWinnerId);
-          queue = await api.getDuplicates().then((r) => r.duplicates).catch(() => []);
+          queue = await api
+            .getDuplicates()
+            .then((r) => r.duplicates)
+            .catch(() => []);
         } catch {
           // Drop the offending pair locally so we don't spin on it; keep going.
           queue = queue.slice(1);
@@ -175,14 +184,18 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
               const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
               const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
               return (
-                <div key={key} className="flex items-center gap-3 rounded-lg border border-line bg-card/40 p-3">
+                <div
+                  key={key}
+                  className="flex items-center gap-3 rounded-lg border border-line bg-card/40 p-3"
+                >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm text-paper">
                       {d.aName} <span className="text-dim">↔</span> {d.bName}{" "}
                       <span className="text-xs text-dim">({d.type})</span>
                     </p>
                     <p className="text-xs text-faded">
-                      {d.reasons.join("; ")} — keep <span className="text-paper">{winnerName}</span>, merge in {loserName}
+                      {d.reasons.join("; ")} — keep <span className="text-paper">{winnerName}</span>
+                      , merge in {loserName}
                     </p>
                   </div>
                   <Button
@@ -213,62 +226,86 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
       <section className="rise rise-1 mt-10">
         <SectionHeading title="Conflicting claims" count={items.length} />
         <div className="mt-4 flex flex-col gap-4 pb-16">
-        {autoResolvable.length > 0 && (
-          <AutoBar
-            label={`Resolve ${autoResolvable.length} of ${items.length} using the suggestion`}
-            disabled={autoRunning}
-            onClick={() => setConfirmAuto("conflicts")}
-          />
-        )}
-        {loading ? (
-          <p className="text-sm text-faded">Loading…</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-faded">No open contradictions. Your knowledge base is internally consistent.</p>
-        ) : (
-          items.map((c) => {
-            const winner = suggestedWinner(c.proposal?.suggested);
-            return (
-              <div key={c.id} className="rounded-lg border border-line bg-card/40 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="text-sm font-medium text-paper">{c.entity_name}</span>
-                  <span className="text-xs text-dim">{c.created_at.slice(0, 10)}</span>
+          {autoResolvable.length > 0 && (
+            <AutoBar
+              label={`Resolve ${autoResolvable.length} of ${items.length} using the suggestion`}
+              disabled={autoRunning}
+              onClick={() => setConfirmAuto("conflicts")}
+            />
+          )}
+          {loading ? (
+            <p className="text-sm text-faded">Loading…</p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-faded">
+              No open contradictions. Your knowledge base is internally consistent.
+            </p>
+          ) : (
+            items.map((c) => {
+              const winner = suggestedWinner(c.proposal?.suggested);
+              return (
+                <div key={c.id} className="rounded-lg border border-line bg-card/40 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="text-sm font-medium text-paper">{c.entity_name}</span>
+                    <span className="text-xs text-dim">{c.created_at.slice(0, 10)}</span>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Claim text={c.text_a} highlighted={winner === "a"} />
+                    <Claim text={c.text_b} highlighted={winner === "b"} />
+                  </div>
+
+                  {c.note && <p className="mt-3 text-xs text-faded">Note: {c.note}</p>}
+
+                  {c.proposal && (
+                    <p className="mt-3 text-xs text-faded">
+                      <span className="text-lamp">
+                        Suggested: {ACTION_LABEL[c.proposal.suggested]}
+                      </span>{" "}
+                      — {c.proposal.rationale}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <ResolveButton
+                      primary={c.proposal?.suggested === "supersede_a"}
+                      disabled={busy === c.id}
+                      onClick={() => resolve(c.id, "supersede_a")}
+                    >
+                      Keep first
+                    </ResolveButton>
+                    <ResolveButton
+                      primary={c.proposal?.suggested === "supersede_b"}
+                      disabled={busy === c.id}
+                      onClick={() => resolve(c.id, "supersede_b")}
+                    >
+                      Keep second
+                    </ResolveButton>
+                    <ResolveButton
+                      primary={c.proposal?.suggested === "keep_both"}
+                      disabled={busy === c.id}
+                      onClick={() => resolve(c.id, "keep_both")}
+                    >
+                      Keep both
+                    </ResolveButton>
+                    <ResolveButton
+                      primary={false}
+                      disabled={busy === c.id}
+                      onClick={() => resolve(c.id, "context_specific")}
+                    >
+                      Context-specific
+                    </ResolveButton>
+                  </div>
                 </div>
-
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <Claim text={c.text_a} highlighted={winner === "a"} />
-                  <Claim text={c.text_b} highlighted={winner === "b"} />
-                </div>
-
-                {c.note && <p className="mt-3 text-xs text-faded">Note: {c.note}</p>}
-
-                {c.proposal && (
-                  <p className="mt-3 text-xs text-faded">
-                    <span className="text-lamp">Suggested: {ACTION_LABEL[c.proposal.suggested]}</span> — {c.proposal.rationale}
-                  </p>
-                )}
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <ResolveButton primary={c.proposal?.suggested === "supersede_a"} disabled={busy === c.id} onClick={() => resolve(c.id, "supersede_a")}>
-                    Keep first
-                  </ResolveButton>
-                  <ResolveButton primary={c.proposal?.suggested === "supersede_b"} disabled={busy === c.id} onClick={() => resolve(c.id, "supersede_b")}>
-                    Keep second
-                  </ResolveButton>
-                  <ResolveButton primary={c.proposal?.suggested === "keep_both"} disabled={busy === c.id} onClick={() => resolve(c.id, "keep_both")}>
-                    Keep both
-                  </ResolveButton>
-                  <ResolveButton primary={false} disabled={busy === c.id} onClick={() => resolve(c.id, "context_specific")}>
-                    Context-specific
-                  </ResolveButton>
-                </div>
-              </div>
-            );
-          })
-        )}
+              );
+            })
+          )}
         </div>
       </section>
 
-      <Dialog open={confirmAuto !== null} onOpenChange={(open) => !open && !autoRunning && setConfirmAuto(null)}>
+      <Dialog
+        open={confirmAuto !== null}
+        onOpenChange={(open) => !open && !autoRunning && setConfirmAuto(null)}
+      >
         <DialogContent showCloseButton={!autoRunning}>
           {confirmAuto === "linked" ? (
             <>
@@ -276,7 +313,8 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
                 <DialogTitle>Auto-merge duplicates?</DialogTitle>
                 <DialogDescription>
                   meOS will merge {duplicates.length} likely-duplicate{" "}
-                  {duplicates.length === 1 ? "pair" : "pairs"}, keeping the suggested entity each time.
+                  {duplicates.length === 1 ? "pair" : "pairs"}, keeping the suggested entity each
+                  time.
                 </DialogDescription>
               </DialogHeader>
               <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-faded">
@@ -296,14 +334,16 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
               <DialogHeader>
                 <DialogTitle>Auto-resolve conflicts?</DialogTitle>
                 <DialogDescription>
-                  meOS will apply the suggested resolution to {autoResolvable.length} of {items.length}{" "}
-                  {items.length === 1 ? "conflict" : "conflicts"}. Conflicts with no clear suggestion stay for you to decide.
+                  meOS will apply the suggested resolution to {autoResolvable.length} of{" "}
+                  {items.length} {items.length === 1 ? "conflict" : "conflicts"}. Conflicts with no
+                  clear suggestion stay for you to decide.
                 </DialogDescription>
               </DialogHeader>
               <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-faded">
                 {autoResolvable.map((c) => (
                   <li key={c.id}>
-                    <span className="text-paper">{c.entity_name}</span> — {ACTION_LABEL[c.proposal!.suggested]}
+                    <span className="text-paper">{c.entity_name}</span> —{" "}
+                    {ACTION_LABEL[c.proposal!.suggested]}
                   </li>
                 ))}
               </ul>
@@ -357,7 +397,15 @@ function SectionHeading({ title, count }: { title: string; count: number }) {
 }
 
 /** A subtle row offering to apply every suggestion in a section at once. */
-function AutoBar({ label, disabled, onClick }: { label: string; disabled: boolean; onClick: () => void }) {
+function AutoBar({
+  label,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
   return (
     <div className="mb-2 flex items-center justify-between rounded-lg border border-dashed border-line bg-card/20 px-3 py-2">
       <span className="text-xs text-faded">{label}</span>
@@ -380,7 +428,9 @@ function Claim({ text, highlighted }: { text: string; highlighted: boolean }) {
     <div
       className={
         "rounded-md border p-3 text-sm " +
-        (highlighted ? "border-lamp-dim bg-lamp/5 text-paper" : "border-line bg-transparent text-faded")
+        (highlighted
+          ? "border-lamp-dim bg-lamp/5 text-paper"
+          : "border-line bg-transparent text-faded")
       }
     >
       {text}

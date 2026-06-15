@@ -50,7 +50,13 @@ const CREDIT_SIGNALS = [
 ];
 
 /** Words that mean "slow down" rather than "you're out of money". */
-const RATE_LIMIT_SIGNALS = ["rate limit", "rate_limit", "too many requests", "overloaded", "try again"];
+const RATE_LIMIT_SIGNALS = [
+  "rate limit",
+  "rate_limit",
+  "too many requests",
+  "overloaded",
+  "try again",
+];
 
 function contains(haystack: string, needles: string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
@@ -83,8 +89,8 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   const who = provider ? providerLabel(provider) : "the model provider";
 
   // Retries exhausted: the wrapper carries the underlying failure — classify that.
-  if (RetryError.isInstance(error) && (error as RetryError).lastError !== undefined) {
-    return normalizeLlmError((error as RetryError).lastError, provider);
+  if (RetryError.isInstance(error) && error.lastError !== undefined) {
+    return normalizeLlmError(error.lastError, provider);
   }
 
   // No key configured at all (provider factory threw before any HTTP call).
@@ -99,7 +105,7 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   }
 
   if (NoSuchModelError.isInstance(error)) {
-    const modelId = (error as NoSuchModelError).modelId;
+    const modelId = error.modelId;
     return new LlmError(
       `${who} doesn't recognise the model "${modelId}". Pick a different model in Settings.`,
       "model",
@@ -110,7 +116,7 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   }
 
   if (APICallError.isInstance(error)) {
-    const apiError = error as APICallError;
+    const apiError = error;
     const status = apiError.statusCode;
     const haystack = `${apiError.message}\n${apiError.responseBody ?? ""}`.toLowerCase();
     return classifyApiError(apiError, status, haystack, who, provider);
@@ -121,8 +127,16 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   if (
-    contains(lower, ["econnrefused", "fetch failed", "enotfound", "network", "socket hang up", "und_err"]) ||
-    (error instanceof Error && (error.cause as { code?: string } | undefined)?.code === "ECONNREFUSED")
+    contains(lower, [
+      "econnrefused",
+      "fetch failed",
+      "enotfound",
+      "network",
+      "socket hang up",
+      "und_err",
+    ]) ||
+    (error instanceof Error &&
+      (error.cause as { code?: string } | undefined)?.code === "ECONNREFUSED")
   ) {
     return new LlmError(
       `Couldn't reach ${who}. Check your connection${provider === "local" ? " and that the local server is running at the configured endpoint" : ""}.`,
@@ -133,15 +147,28 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
     );
   }
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
-    return new LlmError(`${who} took too long to respond. Try again.`, "timeout", provider, undefined, {
-      cause: error,
-    });
+    return new LlmError(
+      `${who} took too long to respond. Try again.`,
+      "timeout",
+      provider,
+      undefined,
+      {
+        cause: error,
+      },
+    );
   }
 
   // Empty / unparseable output: the call succeeded but the answer was unusable.
   if (
     AISDKError.isInstance(error) &&
-    contains(lower, ["no object generated", "empty response", "no content", "type validation", "json", "could not parse"])
+    contains(lower, [
+      "no object generated",
+      "empty response",
+      "no content",
+      "type validation",
+      "json",
+      "could not parse",
+    ])
   ) {
     return new LlmError(
       `${who} returned a response that couldn't be read. Try again, or switch model in Settings.`,
@@ -208,7 +235,9 @@ function classifyApiError(
     );
   }
   if (status === 408) {
-    return new LlmError(`${who} timed out. Try again.`, "timeout", provider, status, { cause: error });
+    return new LlmError(`${who} timed out. Try again.`, "timeout", provider, status, {
+      cause: error,
+    });
   }
   if (status !== undefined && status >= 500) {
     return new LlmError(

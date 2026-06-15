@@ -11,7 +11,10 @@ import { slugify, type KnowledgeStore } from "./store.js";
 const REINFORCE_THRESHOLD = 0.9;
 
 /** Char span of a quote within its source text, or null when it can't be located. */
-function locateQuote(sourceText: string | undefined, quote: string | null): { start: number; end: number } | null {
+function locateQuote(
+  sourceText: string | undefined,
+  quote: string | null,
+): { start: number; end: number } | null {
   if (!sourceText || !quote) return null;
   const trimmed = quote.trim();
   if (!trimmed) return null;
@@ -118,7 +121,9 @@ export async function mergeExtraction(
     const entityId = resolve(observation.entity)!;
 
     const existing = store.activeObservationVectors(entityId);
-    const match = existing.find((row) => cosineSimilarity(vector, row.vector) >= REINFORCE_THRESHOLD);
+    const match = existing.find(
+      (row) => cosineSimilarity(vector, row.vector) >= REINFORCE_THRESHOLD,
+    );
     if (match) {
       store.reinforceObservation(match.id, sourceId);
       reinforcedObservationIds.push(match.id);
@@ -138,7 +143,10 @@ export async function mergeExtraction(
           validFrom: observation.validFrom,
           validUntil: observation.validUntil,
           // Honour the extractor's label, but a detected credential always wins.
-          sensitivity: strongerSensitivity(observation.sensitivity, detectSensitivity(observation.claim)),
+          sensitivity: strongerSensitivity(
+            observation.sensitivity,
+            detectSensitivity(observation.claim),
+          ),
           // A new claim enters at its natural tier; corroboration promotes it later.
           memoryTier: classifyMemoryTier({ kind: observation.kind, sourceType, sourceCount: 1 }),
         }),
