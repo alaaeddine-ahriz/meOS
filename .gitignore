@@ -7,3 +7,6 @@ data/
 .playwright-mcp/
 
 .claude/worktrees/
+
+# Local benchmark output (JSON/CSV); regenerate with `pnpm bench`.
+benchmarks/results/
