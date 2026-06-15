@@ -132,6 +132,42 @@ export interface ChunkMetadataRow {
   source_revision_id: number | null;
 }
 
+/** The lifecycle of a single source revision (one ingested version of a source). */
+export type SourceRevisionStatus =
+  | "active"
+  | "missing"
+  | "deleted"
+  | "superseded"
+  | "failed"
+  | "incomplete";
+
+/** One ordered content version of a logical source (#16). */
+export interface SourceRevisionRow {
+  id: number;
+  source_id: number;
+  revision: number;
+  status: SourceRevisionStatus;
+  content_hash: string | null;
+  raw_content: string | null;
+  normalized_content: string | null;
+  created_at: string;
+}
+
+/**
+ * A fact (observation) whose only remaining support is a revision that is no
+ * longer current — superseded by a newer version, or from a deleted/missing
+ * source. Surfaced to the UI so obsolete claims are visible as such.
+ */
+export interface StaleBackedObservationRow {
+  id: number;
+  entity_id: number;
+  entity_name: string;
+  entity_slug: string;
+  text: string;
+  /** The worst (most obsolete) status among the revisions backing this claim. */
+  revision_status: SourceRevisionStatus;
+}
+
 export interface SourceRef {
   id: number;
   title: string;
@@ -431,12 +467,13 @@ export class KnowledgeStore {
    * all optional, so existing callers passing `{ text, embedding }` keep working
    * and the extra columns stay null.
    */
-  addChunks(sourceId: number, chunks: ChunkInput[]): void {
+  addChunks(sourceId: number, chunks: ChunkInput[], sourceRevisionId?: number): void {
     const insert = this.db.prepare(
       `INSERT INTO chunks
          (source_id, seq, text, embedding, source_block_ids, section_title,
-          page_start, page_end, char_start, char_end, token_estimate, content_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          page_start, page_end, char_start, char_end, token_estimate, content_type,
+          source_revision_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertAll = this.db.transaction(() => {
       chunks.forEach((chunk, seq) => {
@@ -453,6 +490,7 @@ export class KnowledgeStore {
           chunk.charEnd ?? null,
           chunk.tokenEstimate ?? null,
           chunk.contentType ?? null,
+          sourceRevisionId ?? null,
         );
       });
     });
@@ -526,6 +564,58 @@ export class KnowledgeStore {
       | undefined;
   }
 
+  /**
+   * The most recent source row recorded at this exact path — the logical source a
+   * watched-file re-ingest should advance (a new revision) instead of forking a
+   * fresh source. Newest id wins so legacy duplicate rows resolve to the latest.
+   */
+  findSourceByPath(path: string): { id: number } | undefined {
+    return this.db
+      .prepare("SELECT id FROM sources WHERE path = ? ORDER BY id DESC LIMIT 1")
+      .get(path) as { id: number } | undefined;
+  }
+
+  /** Replace a source's stored content (and optional raw bytes) on a re-ingest. */
+  updateSourceContent(id: number, content: string, rawContent?: string): void {
+    this.db
+      .prepare(
+        "UPDATE sources SET content = ?, raw_content = COALESCE(?, raw_content), title = title WHERE id = ?",
+      )
+      .run(content, rawContent ?? null, id);
+  }
+
+  /** Remove a source's chunks (and FTS shadow rows via trigger) before re-chunking a new revision. */
+  clearChunksForSource(sourceId: number): void {
+    this.db.prepare("DELETE FROM chunks WHERE source_id = ?").run(sourceId);
+  }
+
+  /**
+   * A watched file went away — mark its logical source's latest revision gone
+   * (`missing` when the file vanished, `deleted` when explicitly removed) and
+   * flag the wiki pages whose facts are now backed only by an obsolete revision.
+   * Returns the marked revision id, or undefined when no source matches the path.
+   * The `ingested_files` ledger is untouched so the content-hash dedup still works
+   * if the file reappears.
+   */
+  markSourceGoneByPath(path: string, reason: "missing" | "deleted"): number | undefined {
+    const source = this.findSourceByPath(path);
+    if (!source) return undefined;
+    const revisionId = this.markSourceGone(source.id, reason);
+    for (const id of this.entityIdsWithStaleBackedFacts()) this.markWikiStale(id);
+    return revisionId;
+  }
+
+  /**
+   * Sources whose path lies under a (now-unwatched) folder. Used to mark a whole
+   * removed watched folder's documents `deleted` in one pass.
+   */
+  sourcesUnderPath(folderPath: string): Array<{ id: number; path: string }> {
+    const prefix = folderPath.endsWith("/") ? folderPath : `${folderPath}/`;
+    return this.db
+      .prepare("SELECT id, path FROM sources WHERE path IS NOT NULL AND path LIKE ? ESCAPE '\\'")
+      .all(prefix.replace(/[%_\\]/g, "\\$&") + "%") as Array<{ id: number; path: string }>;
+  }
+
   /** Sources whose recorded path is only a basename (legacy ingest bug). */
   sourcesWithRelativePaths(): Array<{ id: number; path: string }> {
     return this.db
@@ -547,6 +637,228 @@ export class KnowledgeStore {
          ORDER BY s.title`,
       )
       .all(entityId) as SourceRef[];
+  }
+
+  // --- source revisions (#16) ------------------------------------------
+
+  /**
+   * Open a new revision for a source and make it the live one: the prior `active`
+   * revision (if any) becomes `superseded`, and the new row is inserted `active`
+   * at the next monotonic revision number. Returns the new revision's id, which
+   * the caller threads onto the chunks/observations/relationships it derives so a
+   * fact can later be traced to — and flagged by — the exact version it came from.
+   *
+   * `status` defaults to `active`; pass `incomplete`/`failed` to record an
+   * attempt without promoting it (the prior active stays live in that case).
+   */
+  createSourceRevision(input: {
+    sourceId: number;
+    contentHash?: string | null;
+    rawContent?: string | null;
+    normalizedContent?: string | null;
+    status?: SourceRevisionStatus;
+  }): number {
+    const status = input.status ?? "active";
+    const tx = this.db.transaction(() => {
+      const next =
+        (
+          this.db
+            .prepare("SELECT MAX(revision) AS m FROM source_revisions WHERE source_id = ?")
+            .get(input.sourceId) as { m: number | null }
+        ).m ?? 0;
+      // Only a promoting revision retires the previous active one.
+      if (status === "active") {
+        this.db
+          .prepare(
+            "UPDATE source_revisions SET status = 'superseded' WHERE source_id = ? AND status = 'active'",
+          )
+          .run(input.sourceId);
+      }
+      const id = Number(
+        this.db
+          .prepare(
+            `INSERT INTO source_revisions
+               (source_id, revision, status, content_hash, raw_content, normalized_content)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            input.sourceId,
+            next + 1,
+            status,
+            input.contentHash ?? null,
+            input.rawContent ?? null,
+            input.normalizedContent ?? null,
+          ).lastInsertRowid,
+      );
+      return id;
+    });
+    return tx();
+  }
+
+  /** A source's current `active` revision, if it has one. */
+  activeRevision(sourceId: number): SourceRevisionRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, revision, status, content_hash, raw_content,
+                normalized_content, created_at
+         FROM source_revisions WHERE source_id = ? AND status = 'active'
+         ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(sourceId) as SourceRevisionRow | undefined;
+  }
+
+  /** The most recent revision of a source regardless of status (live or retired). */
+  latestRevision(sourceId: number): SourceRevisionRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, revision, status, content_hash, raw_content,
+                normalized_content, created_at
+         FROM source_revisions WHERE source_id = ? ORDER BY revision DESC LIMIT 1`,
+      )
+      .get(sourceId) as SourceRevisionRow | undefined;
+  }
+
+  getRevision(id: number): SourceRevisionRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, revision, status, content_hash, raw_content,
+                normalized_content, created_at
+         FROM source_revisions WHERE id = ?`,
+      )
+      .get(id) as SourceRevisionRow | undefined;
+  }
+
+  /** Every revision of a source, oldest first — provenance/history. */
+  revisionsForSource(sourceId: number): SourceRevisionRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, revision, status, content_hash, raw_content,
+                normalized_content, created_at
+         FROM source_revisions WHERE source_id = ? ORDER BY revision`,
+      )
+      .all(sourceId) as SourceRevisionRow[];
+  }
+
+  /** Set a revision's lifecycle status (active|missing|deleted|superseded|failed|incomplete). */
+  setRevisionStatus(id: number, status: SourceRevisionStatus): void {
+    this.db.prepare("UPDATE source_revisions SET status = ? WHERE id = ?").run(status, id);
+  }
+
+  /**
+   * Mark a logical source's latest revision as gone — `missing` (file vanished on
+   * disk) or `deleted` (explicit removal). The active revision is retired in place
+   * so nothing newer is overwritten. Returns the affected revision id, or
+   * undefined when the source has no revisions. The caller then re-checks the
+   * facts that revision backed (see {@link entityIdsBackedOnlyByRevision}).
+   */
+  markSourceGone(sourceId: number, reason: "missing" | "deleted"): number | undefined {
+    const latest = this.latestRevision(sourceId);
+    if (!latest) return undefined;
+    // Only retire a still-live revision; leave already-superseded history alone.
+    if (latest.status === "active" || latest.status === "incomplete") {
+      this.setRevisionStatus(latest.id, reason);
+    }
+    return latest.id;
+  }
+
+  /** True when this revision is no longer a current/usable source of truth. */
+  private static isObsolete(status: SourceRevisionStatus): boolean {
+    return status === "superseded" || status === "deleted" || status === "missing";
+  }
+
+  /**
+   * Distinct entities owning at least one active observation whose every backing
+   * revision is obsolete (superseded/deleted/missing) — i.e. the claim is now
+   * supported only by stale provenance. Used to flag the wiki pages that need a
+   * "backed by an outdated source" treatment after a re-ingest or deletion.
+   */
+  entityIdsWithStaleBackedFacts(): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT o.entity_id AS id
+         FROM observations o
+         WHERE o.status = 'active' AND o.source_revision_id IS NOT NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM source_revisions sr
+             WHERE sr.id = o.source_revision_id AND sr.status = 'active'
+           )`,
+      )
+      .all() as Array<{ id: number }>;
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Active observations whose only support is an obsolete revision, with their
+   * owning-entity context and the worst backing status — the query the UI uses to
+   * render a stale/deleted indicator on a fact. (Each observation links a single
+   * revision today, so "only support" reduces to "that revision is obsolete".)
+   */
+  staleBackedObservations(): StaleBackedObservationRow[] {
+    return this.db
+      .prepare(
+        `SELECT o.id, o.entity_id, o.text, e.name AS entity_name, e.slug AS entity_slug,
+                sr.status AS revision_status
+         FROM observations o
+         JOIN source_revisions sr ON sr.id = o.source_revision_id
+         JOIN entities e ON e.id = o.entity_id
+         WHERE o.status = 'active' AND sr.status IN ('superseded','deleted','missing')
+         ORDER BY o.entity_id, o.id`,
+      )
+      .all() as StaleBackedObservationRow[];
+  }
+
+  /**
+   * Per active observation of an entity, the status of its backing revision when
+   * that revision is obsolete (superseded/deleted/missing) — keyed by observation
+   * id. Observations backed by an active revision (or no revision) are absent, so
+   * the wiki page can flag exactly the facts that came from an outdated source.
+   */
+  staleBackingByEntity(entityId: number): Map<number, SourceRevisionStatus> {
+    const rows = this.db
+      .prepare(
+        `SELECT o.id, sr.status
+         FROM observations o
+         JOIN source_revisions sr ON sr.id = o.source_revision_id
+         WHERE o.entity_id = ? AND o.status = 'active'
+           AND sr.status IN ('superseded','deleted','missing')`,
+      )
+      .all(entityId) as Array<{ id: number; status: SourceRevisionStatus }>;
+    return new Map(rows.map((r) => [r.id, r.status]));
+  }
+
+  /** Entity ids whose active facts are backed only by an obsolete revision. */
+  entityIdsBackedOnlyByRevision(revisionId: number): number[] {
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT entity_id AS id FROM observations
+         WHERE status = 'active' AND source_revision_id = ?`,
+      )
+      .all(revisionId) as Array<{ id: number }>;
+    return rows.map((r) => r.id);
+  }
+
+  /**
+   * Reclaim the raw/normalized content blobs of revisions that are no longer
+   * needed for provenance or retries: nulls the blobs of `superseded`/`deleted`
+   * revisions that back no active observation, relationship, or chunk. The
+   * revision rows themselves are kept (cheap, and they preserve the lineage); only
+   * the heavy content is dropped. Never touches `active`, `missing`, `failed`, or
+   * `incomplete` revisions (a missing file may come back; a failed/incomplete one
+   * may be retried). Returns how many revisions were GC'd.
+   */
+  gcOrphanedRevisionBlobs(): number {
+    const result = this.db
+      .prepare(
+        `UPDATE source_revisions
+           SET raw_content = NULL, normalized_content = NULL
+         WHERE status IN ('superseded','deleted')
+           AND (raw_content IS NOT NULL OR normalized_content IS NOT NULL)
+           AND NOT EXISTS (SELECT 1 FROM observations o WHERE o.source_revision_id = source_revisions.id AND o.status = 'active')
+           AND NOT EXISTS (SELECT 1 FROM relationships r WHERE r.source_revision_id = source_revisions.id AND r.status = 'active')
+           AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.source_revision_id = source_revisions.id)`,
+      )
+      .run();
+    return result.changes;
   }
 
   // --- inbox ---
@@ -904,6 +1216,7 @@ export class KnowledgeStore {
     toEntity: number,
     label: string,
     sourceId?: number,
+    sourceRevisionId?: number,
   ): boolean {
     const existing = this.db
       .prepare("SELECT id FROM relationships WHERE from_entity = ? AND to_entity = ? AND label = ?")
@@ -924,14 +1237,21 @@ export class KnowledgeStore {
             .run(existing.id);
         }
       }
+      // Re-confirmation by a current revision refreshes the edge's provenance.
+      if (sourceRevisionId !== undefined) {
+        this.db
+          .prepare("UPDATE relationships SET source_revision_id = ? WHERE id = ?")
+          .run(sourceRevisionId, existing.id);
+      }
       return false;
     }
     const id = Number(
       this.db
         .prepare(
-          "INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)",
+          "INSERT INTO relationships (from_entity, to_entity, label, source_id, source_revision_id) VALUES (?, ?, ?, ?, ?)",
         )
-        .run(fromEntity, toEntity, label, sourceId ?? null).lastInsertRowid,
+        .run(fromEntity, toEntity, label, sourceId ?? null, sourceRevisionId ?? null)
+        .lastInsertRowid,
     );
     if (sourceId !== undefined) {
       this.db
@@ -1058,13 +1378,16 @@ export class KnowledgeStore {
     validUntil?: string | null;
     sensitivity?: "normal" | "private" | "secret";
     memoryTier?: "working" | "episodic" | "semantic" | "procedural";
+    /** The exact source revision (#16) that produced this claim, for provenance/staleness. */
+    sourceRevisionId?: number | null;
   }): number {
     const result = this.db
       .prepare(
         `INSERT INTO observations
            (entity_id, text, source_id, confidence, embedding, kind, source_quote,
-            char_start, char_end, valid_from, valid_until, sensitivity, memory_tier)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            char_start, char_end, valid_from, valid_until, sensitivity, memory_tier,
+            source_revision_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.entityId,
@@ -1080,6 +1403,7 @@ export class KnowledgeStore {
         input.validUntil ?? null,
         input.sensitivity ?? "normal",
         input.memoryTier ?? "working",
+        input.sourceRevisionId ?? null,
       );
     const id = Number(result.lastInsertRowid);
     if (input.sourceId !== undefined) this.recordObservationSource(id, input.sourceId);
@@ -1586,7 +1910,7 @@ export class KnowledgeStore {
    * document never inflates it — confidence tracks *source count*, not mentions.
    * Re-confirmation always refreshes recency so the fact resists decay.
    */
-  reinforceObservation(id: number, sourceId?: number): void {
+  reinforceObservation(id: number, sourceId?: number, sourceRevisionId?: number): void {
     const distinctSource =
       sourceId === undefined ? true : this.recordObservationSource(id, sourceId);
     this.db
@@ -1598,6 +1922,14 @@ export class KnowledgeStore {
           : "UPDATE observations SET last_confirmed_at = datetime('now') WHERE id = ?",
       )
       .run(id);
+    // A re-confirmation by a current revision refreshes the claim's provenance to
+    // that revision, so a fact that survives a re-ingest is no longer flagged as
+    // backed by the now-superseded prior version.
+    if (sourceRevisionId !== undefined) {
+      this.db
+        .prepare("UPDATE observations SET source_revision_id = ? WHERE id = ?")
+        .run(sourceRevisionId, id);
+    }
   }
 
   // --- compiled wiki pages (retrievable prose) -------------------------

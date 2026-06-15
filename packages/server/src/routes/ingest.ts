@@ -1,9 +1,25 @@
-import { ingest } from "@meos/contracts";
+import { ingest, staleFacts } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 
 export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // Facts now backed only by an outdated source revision (#16): superseded by a
+  // newer version, or from a deleted/missing source. The UI flags these so an
+  // obsolete claim is visible as such rather than treated as equally current.
+  app.get("/api/facts/stale", async () =>
+    staleFacts.StaleFactsResponse.parse({
+      facts: ctx.store.staleBackedObservations().map((o) => ({
+        id: o.id,
+        entityId: o.entity_id,
+        entityName: o.entity_name,
+        entitySlug: o.entity_slug,
+        text: o.text,
+        status: o.revision_status,
+      })),
+    }),
+  );
+
   app.post("/api/ingest/upload", async (request, reply) => {
     const accepted: Array<{ inboxItemId: number; filename: string }> = [];
     for await (const part of request.files()) {

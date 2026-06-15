@@ -1,6 +1,11 @@
 import Database from "better-sqlite3";
 
-const migrations: string[] = [
+/**
+ * The ordered DDL migrations. Index i upgrades user_version i → i+1. Exported
+ * (read-only) so tests can stand up a DB at a specific historical version and
+ * assert the next migration applies cleanly — never mutate it.
+ */
+export const migrations: readonly string[] = [
   // 1 — initial schema
   `
   CREATE TABLE sources (
@@ -450,6 +455,73 @@ const migrations: string[] = [
   ALTER TABLE chunks ADD COLUMN source_revision_id INTEGER;
 
   ALTER TABLE sources ADD COLUMN raw_content TEXT;
+  `,
+  // 20 — source revisions (#16). One logical source (sources.id) now owns an
+  // ordered history of content versions, so retrieval/wiki can tell "this fact
+  // came from the old version" from "still current", and a delete/rename is
+  // visible and recoverable rather than silently kept as live.
+  //
+  //   source_revisions       — one row per ingested version of a source.
+  //     revision             — monotonic per source (1, 2, 3…).
+  //     status               — the version's lifecycle:
+  //         active      the current, in-effect version
+  //         superseded  replaced by a newer revision of the same source
+  //         missing     the backing file vanished (watched file deleted on disk)
+  //         deleted     explicitly removed (folder unwatched / source deleted)
+  //         failed      an ingest attempt that errored before completing
+  //         incomplete  a revision opened but not yet finalized
+  //     content_hash         — sha256 of the raw bytes, for dedup/provenance.
+  //     raw_content /        — the version's reconstructable content blob, kept
+  //     normalized_content     so an old revision can be re-parsed or shown even
+  //                            after the live source row moved on. GC (see
+  //                            gcOrphanedRevisionBlobs) nulls these once a
+  //                            superseded/deleted revision is no longer needed.
+  //
+  // Derived rows link to the exact revision that produced them, so a fact can be
+  // flagged the moment its only supporting revision is superseded/deleted/missing:
+  //   chunks.source_revision_id        (placeholder from #19, now populated)
+  //   observations.source_revision_id
+  //   relationships.source_revision_id
+  //
+  // Backfill: every existing source gets one `active` revision (revision 1) whose
+  // content blobs mirror the source's current content, and every existing chunk/
+  // observation/relationship is pointed at it. Idempotent on a fresh DB (no rows).
+  `
+  CREATE TABLE source_revisions (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active'
+      CHECK (status IN ('active','missing','deleted','superseded','failed','incomplete')),
+    content_hash TEXT,
+    raw_content TEXT,
+    normalized_content TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_id, revision)
+  );
+  CREATE INDEX idx_source_revisions_source ON source_revisions(source_id, revision);
+  CREATE INDEX idx_source_revisions_status ON source_revisions(status);
+
+  ALTER TABLE observations ADD COLUMN source_revision_id INTEGER REFERENCES source_revisions(id);
+  ALTER TABLE relationships ADD COLUMN source_revision_id INTEGER REFERENCES source_revisions(id);
+  CREATE INDEX idx_observations_revision ON observations(source_revision_id);
+  CREATE INDEX idx_relationships_revision ON relationships(source_revision_id);
+
+  -- Backfill: one active revision per existing source, mirroring its content.
+  INSERT INTO source_revisions
+    (source_id, revision, status, content_hash, raw_content, normalized_content, created_at)
+    SELECT id, 1, 'active', NULL, raw_content, content, created_at FROM sources;
+
+  -- Point existing derived rows at their source's (sole) active revision.
+  UPDATE chunks SET source_revision_id = (
+    SELECT sr.id FROM source_revisions sr WHERE sr.source_id = chunks.source_id
+  ) WHERE source_revision_id IS NULL;
+  UPDATE observations SET source_revision_id = (
+    SELECT sr.id FROM source_revisions sr WHERE sr.source_id = observations.source_id
+  ) WHERE source_id IS NOT NULL AND source_revision_id IS NULL;
+  UPDATE relationships SET source_revision_id = (
+    SELECT sr.id FROM source_revisions sr WHERE sr.source_id = relationships.source_id
+  ) WHERE source_id IS NOT NULL AND source_revision_id IS NULL;
   `,
 ];
 

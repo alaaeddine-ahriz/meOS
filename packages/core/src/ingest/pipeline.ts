@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
 import { extractKnowledge } from "../extract/extractor.js";
@@ -99,6 +100,13 @@ export class IngestionPipeline {
       path: input.path,
       content: input.content,
     });
+    // Every ingest opens a source revision (#16); derived facts link to it so a
+    // connector item that later changes/disappears can flag what it produced.
+    const revisionId = store.createSourceRevision({
+      sourceId,
+      contentHash: createHash("sha256").update(input.content).digest("hex"),
+      normalizedContent: input.content,
+    });
 
     const merge = await this.withMergeLock(async () => {
       const merge = await mergeExtraction(
@@ -107,6 +115,7 @@ export class IngestionPipeline {
         input.extraction,
         sourceId,
         input.content,
+        revisionId,
       );
       for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
       if (input.runPostMerge) await this.deps.postMerge?.({ sourceId, merge });
@@ -161,11 +170,32 @@ export class IngestionPipeline {
         return { inboxItemId, status: "unsupported" };
       }
 
-      const sourceId = store.createSource({
-        type: input.origin ?? input.kind,
-        title: parsed.title,
-        path: input.kind === "file" ? (input.path ?? input.filename) : undefined,
-        content: parsed.text,
+      // Logical-source identity (#16): a watched/uploaded file re-ingested at a
+      // known path advances the SAME source's revision history instead of forking
+      // a fresh source row — so an edit supersedes the prior version's facts
+      // rather than accumulating duplicates. New paths (and all pasted text) open
+      // a new logical source.
+      const sourcePath = input.kind === "file" ? (input.path ?? input.filename) : undefined;
+      const existing = sourcePath ? store.findSourceByPath(sourcePath) : undefined;
+      let sourceId: number;
+      if (existing) {
+        sourceId = existing.id;
+        store.updateSourceContent(sourceId, parsed.text);
+        store.clearChunksForSource(sourceId);
+      } else {
+        sourceId = store.createSource({
+          type: input.origin ?? input.kind,
+          title: parsed.title,
+          path: sourcePath,
+          content: parsed.text,
+        });
+      }
+      // Open this ingest's revision; if the source already had an active one it is
+      // superseded here, so the facts it backed become flag-able as outdated.
+      const revisionId = store.createSourceRevision({
+        sourceId,
+        contentHash: createHash("sha256").update(parsed.text).digest("hex"),
+        normalizedContent: parsed.text,
       });
       store.updateInboxItem(inboxItemId, "parsing", undefined, sourceId);
 
@@ -189,6 +219,7 @@ export class IngestionPipeline {
           tokenEstimate: chunk.tokenEstimate,
           contentType: chunk.contentType,
         })),
+        revisionId,
       );
 
       store.updateInboxItem(inboxItemId, "extracting");
@@ -198,10 +229,20 @@ export class IngestionPipeline {
 
       store.updateInboxItem(inboxItemId, "merging");
       const { merge, postMergeNote } = await this.withMergeLock(async () => {
-        const merge = await mergeExtraction(store, embedder, extraction, sourceId, parsed.text);
+        const merge = await mergeExtraction(
+          store,
+          embedder,
+          extraction,
+          sourceId,
+          parsed.text,
+          revisionId,
+        );
         // Credit this document for the pages it made stale; consumed when the
         // wiki regenerates and the resulting commit is attributed back to it.
         for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
+        // A re-ingest may leave facts behind that now hang off the just-superseded
+        // revision — flag their pages so the wiki reflects the outdated provenance.
+        for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
         const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
         return { merge, postMergeNote };
       });

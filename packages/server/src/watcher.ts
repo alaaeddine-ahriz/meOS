@@ -56,6 +56,7 @@ export class FolderWatcher {
     });
     this.watcher.on("add", (filePath) => this.consider(filePath));
     this.watcher.on("change", (filePath) => this.consider(filePath));
+    this.watcher.on("unlink", (filePath) => this.forget(filePath));
     this.watcher.on("error", (error) => console.error("watcher:", error));
   }
 
@@ -72,6 +73,28 @@ export class FolderWatcher {
 
   removeFolder(folderPath: string): void {
     this.watcher.unwatch(folderPath);
+    // Removing a watched folder is an explicit deletion: every source under it has
+    // its latest revision marked `deleted`, so facts now backed only by those
+    // outdated revisions get flagged rather than silently kept as current (#16).
+    const { store } = this.deps;
+    for (const source of store.sourcesUnderPath(folderPath)) {
+      store.markSourceGone(source.id, "deleted");
+    }
+    for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
+  }
+
+  /**
+   * A watched file disappeared from disk: mark its source's latest revision
+   * `missing` (recoverable — the file may return) and flag any facts now backed
+   * only by an outdated revision. The `ingested_files` ledger is left intact so
+   * the content-hash dedup still short-circuits if the same bytes reappear.
+   */
+  private forget(filePath: string): void {
+    if (!SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return;
+    const { store, queue } = this.deps;
+    queue.push(async () => {
+      store.markSourceGoneByPath(filePath, "missing");
+    });
   }
 
   /**

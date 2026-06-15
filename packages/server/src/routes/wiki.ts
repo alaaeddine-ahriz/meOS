@@ -92,17 +92,23 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
       markdown,
       relationships,
       sources: ctx.store.sourcesForEntity(entity.id),
-      observations: ctx.store.activeObservations(entity.id).map((o) => ({
-        text: o.text,
-        confidence: o.confidence,
-        tier: o.tier,
-        recordedAt: o.created_at,
-        lastConfirmedAt: o.last_confirmed_at,
-        // Recency surfaced to the UI: the same date/stale/upcoming tag the chat
-        // model sees, so the user judges a fact's pertinence the same way.
-        when: temporalTag(o),
-        stale: isStale(o),
-      })),
+      observations: (() => {
+        // Facts whose only backing revision is no longer current (#16) — flagged
+        // so the UI can show them as outdated-source rather than equally live.
+        const staleBacking = ctx.store.staleBackingByEntity(entity.id);
+        return ctx.store.activeObservations(entity.id).map((o) => ({
+          text: o.text,
+          confidence: o.confidence,
+          tier: o.tier,
+          recordedAt: o.created_at,
+          lastConfirmedAt: o.last_confirmed_at,
+          // Recency surfaced to the UI: the same date/stale/upcoming tag the chat
+          // model sees, so the user judges a fact's pertinence the same way.
+          when: temporalTag(o),
+          stale: isStale(o),
+          sourceStatus: staleBacking.get(o.id) ?? null,
+        }));
+      })(),
     };
   });
 }

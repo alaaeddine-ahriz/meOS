@@ -28,6 +28,13 @@ export const WikiObservationSchema = z.object({
   when: z.string(),
   /** True when unconfirmed past its kind's freshness horizon. */
   stale: z.boolean(),
+  /**
+   * Set (#16) when this fact's only backing source revision is no longer current:
+   * `superseded` (a newer version of the document replaced it), `deleted` (the
+   * source was explicitly removed), or `missing` (the watched file vanished).
+   * Absent when the fact is backed by the source's active revision.
+   */
+  sourceStatus: z.enum(["superseded", "deleted", "missing"]).nullable().optional(),
 });
 
 export const WikiRelationshipSchema = z.object({
