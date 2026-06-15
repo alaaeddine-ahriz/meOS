@@ -26,7 +26,10 @@ export const ProfileVersionSchema = z.object({
 
 /** Path param shared by section routes. */
 export const ProfileIdParam = z.object({ id: z.string().min(1) });
-export const ProfileIdVersionParam = z.object({ id: z.string().min(1), version: z.string().min(1) });
+export const ProfileIdVersionParam = z.object({
+  id: z.string().min(1),
+  version: z.string().min(1),
+});
 
 /** PUT /api/profile/:id */
 export const SaveProfileSectionBody = z.object({ content: z.string().optional() });

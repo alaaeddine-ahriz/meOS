@@ -65,7 +65,9 @@ function reasoningOptions(provider: LlmProvider, modelId: string): AgentProvider
     case "openai":
       return { openai: { reasoningEffort: "medium", reasoningSummary: "auto" } };
     case "google":
-      return { google: { thinkingConfig: { includeThoughts: true, thinkingBudget: THINKING_BUDGET } } };
+      return {
+        google: { thinkingConfig: { includeThoughts: true, thinkingBudget: THINKING_BUDGET } },
+      };
     default:
       return undefined;
   }
@@ -76,7 +78,11 @@ function reasoningOptions(provider: LlmProvider, modelId: string): AgentProvider
  * independent of the active provider — so the wiki maintainer can run on a
  * different (reasoning-capable) provider than chat does.
  */
-function resolveModel(llm: LlmConfig, provider: LlmProvider, modelId: string): LanguageModel | null {
+function resolveModel(
+  llm: LlmConfig,
+  provider: LlmProvider,
+  modelId: string,
+): LanguageModel | null {
   switch (provider) {
     case "anthropic":
       return createAnthropic({ apiKey: llm.anthropic.apiKey })(modelId);
@@ -110,8 +116,12 @@ export function createLlmClient(config: MeosConfig): LlmClient {
   // (with reasoning left off, preserving the prior headless behaviour).
   const maintainerProvider = llm.maintainer?.provider ?? llm.provider;
   const maintainerModelId = llm.maintainer?.model;
-  const agentModel = maintainerModelId ? resolveModel(llm, maintainerProvider, maintainerModelId) : null;
-  const agentOptions = maintainerModelId ? reasoningOptions(maintainerProvider, maintainerModelId) : undefined;
+  const agentModel = maintainerModelId
+    ? resolveModel(llm, maintainerProvider, maintainerModelId)
+    : null;
+  const agentOptions = maintainerModelId
+    ? reasoningOptions(maintainerProvider, maintainerModelId)
+    : undefined;
 
   switch (llm.provider) {
     case "anthropic": {

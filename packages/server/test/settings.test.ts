@@ -92,7 +92,10 @@ describe("DELETE /api/settings/folders/:id", () => {
   });
 
   it("400s with the VALIDATION_ERROR envelope for a non-numeric id", async () => {
-    const res = await server.app.inject({ method: "DELETE", url: "/api/settings/folders/not-a-number" });
+    const res = await server.app.inject({
+      method: "DELETE",
+      url: "/api/settings/folders/not-a-number",
+    });
     expect(res.statusCode).toBe(400);
     const envelope = ErrorEnvelopeSchema.parse(res.json());
     expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);

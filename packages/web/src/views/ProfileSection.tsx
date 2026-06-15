@@ -80,7 +80,10 @@ export function ProfileSection() {
   };
 
   useEffect(() => {
-    api.getProfile().then(apply).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    api
+      .getProfile()
+      .then(apply)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   const dirty = data?.sections.some((s) => (edited[s.id] ?? "") !== s.content) ?? false;
@@ -142,7 +145,11 @@ export function ProfileSection() {
   if (!data) {
     return (
       <section className="rise">
-        {error ? <p className="text-sm text-ember">⚠ {error}</p> : <p className="text-sm text-dim">Loading…</p>}
+        {error ? (
+          <p className="text-sm text-ember">⚠ {error}</p>
+        ) : (
+          <p className="text-sm text-dim">Loading…</p>
+        )}
       </section>
     );
   }
@@ -150,24 +157,44 @@ export function ProfileSection() {
   return (
     <section className="rise flex flex-col gap-6">
       <p className="text-sm text-faded">
-        Your profile is the <span className="text-paper">lens</span> MeOS reads through — guiding extraction,
-        the wiki, chat, and digests so they centre on your world. Private to this machine by default.
+        Your profile is the <span className="text-paper">lens</span> MeOS reads through — guiding
+        extraction, the wiki, chat, and digests so they centre on your world. Private to this
+        machine by default.
       </p>
 
       {/* Drafting actions */}
       <div className="flex flex-wrap items-center gap-2">
-        <input ref={fileInput} type="file" multiple hidden onChange={(e) => void onUpload(e.target.files)} />
-        <Button variant="outline" size="sm" onClick={() => void onGenerateFromWiki()} disabled={aiBusy !== null} className={actionButtonClass}>
+        <input
+          ref={fileInput}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => void onUpload(e.target.files)}
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void onGenerateFromWiki()}
+          disabled={aiBusy !== null}
+          className={actionButtonClass}
+        >
           <Library className={cn("size-3.5", aiBusy === "wiki" && "animate-pulse")} />
           {aiBusy === "wiki" ? "Reading your wiki…" : "Generate from wiki"}
         </Button>
-        <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()} disabled={aiBusy !== null} className={actionButtonClass}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileInput.current?.click()}
+          disabled={aiBusy !== null}
+          className={actionButtonClass}
+        >
           <FileUp className={cn("size-3.5", aiBusy === "upload" && "animate-pulse")} />
           {aiBusy === "upload" ? "Reading…" : "Upload documents"}
         </Button>
         <span className="flex items-center gap-1.5 text-[12px] text-dim">
           <MessageSquare className="size-3.5" />
-          or refine in <code className="rounded bg-card px-1 py-0.5 font-mono text-faded">/profile</code> chat
+          or refine in{" "}
+          <code className="rounded bg-card px-1 py-0.5 font-mono text-faded">/profile</code> chat
         </span>
       </div>
 
@@ -200,7 +227,13 @@ export function ProfileSection() {
 
       {/* Single save bar */}
       <div className="flex items-center gap-3 border-t border-line pt-4">
-        <Button variant="outline" size="sm" onClick={() => void saveAll()} disabled={!dirty || saving} className={actionButtonClass}>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => void saveAll()}
+          disabled={!dirty || saving}
+          className={actionButtonClass}
+        >
           {saving ? "Saving…" : "Save changes"}
         </Button>
         {saved && (
@@ -214,10 +247,19 @@ export function ProfileSection() {
       {/* Privacy + audit, kept low-key */}
       <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
         <span className="flex items-center gap-2 text-[13px] text-faded">
-          {data.gitSync ? <Unlock className="size-3.5 text-lamp" /> : <Lock className="size-3.5 text-moss" />}
+          {data.gitSync ? (
+            <Unlock className="size-3.5 text-lamp" />
+          ) : (
+            <Lock className="size-3.5 text-moss" />
+          )}
           {data.gitSync ? "Exported to Git sync" : "Private to this machine"}
         </span>
-        <Button variant="ghost" size="sm" onClick={() => void togglePrivacy()} className="text-dim hover:bg-transparent hover:text-paper">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => void togglePrivacy()}
+          className="text-dim hover:bg-transparent hover:text-paper"
+        >
           {data.gitSync ? "Make private" : "Allow export"}
         </Button>
       </div>
@@ -301,13 +343,18 @@ function ReviewDialog({
         </DialogHeader>
 
         {changed.length === 0 ? (
-          <p className="text-sm text-dim">No changes proposed — your profile already reflects this.</p>
+          <p className="text-sm text-dim">
+            No changes proposed — your profile already reflects this.
+          </p>
         ) : (
           <div className="flex flex-col gap-5">
             {changed.map((s) => (
               <div key={s.id} className="flex flex-col gap-2">
                 <span className="text-sm text-paper">{s.title}</span>
-                <DiffView patch={buildPatch(s.title, s.content, proposal.profile[s.id] ?? "")} showPaths={false} />
+                <DiffView
+                  patch={buildPatch(s.title, s.content, proposal.profile[s.id] ?? "")}
+                  showPaths={false}
+                />
                 <Textarea
                   value={draft[s.id] ?? ""}
                   onChange={(e) => setDraft((prev) => ({ ...prev, [s.id]: e.target.value }))}
@@ -377,8 +424,8 @@ function HistoryDialog({
             <History className="size-5 text-dim" /> {section.title} — history
           </DialogTitle>
           <DialogDescription className="text-sm text-dim">
-            Earlier versions, saved automatically before each change. Restoring snapshots the current version
-            first.
+            Earlier versions, saved automatically before each change. Restoring snapshots the
+            current version first.
           </DialogDescription>
         </DialogHeader>
 
@@ -390,7 +437,9 @@ function HistoryDialog({
           <ul className="divide-y divide-line">
             {versions.map((v) => (
               <li key={v.version} className="flex items-center justify-between gap-3 py-2">
-                <span className="font-mono text-[12px] text-faded">{new Date(v.savedAt).toLocaleString()}</span>
+                <span className="font-mono text-[12px] text-faded">
+                  {new Date(v.savedAt).toLocaleString()}
+                </span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -418,13 +467,18 @@ function AuditTrail() {
 
   useEffect(() => {
     if (open && entries === null) {
-      api.getProfileAudit().then((r) => setEntries(r.entries)).catch(() => setEntries([]));
+      api
+        .getProfileAudit()
+        .then((r) => setEntries(r.entries))
+        .catch(() => setEntries([]));
     }
   }, [open, entries]);
 
   const describe = (entry: AuditEntry): string => {
     try {
-      const detail = entry.detail ? (JSON.parse(entry.detail) as { action?: string; [k: string]: unknown }) : {};
+      const detail = entry.detail
+        ? (JSON.parse(entry.detail) as { action?: string; [k: string]: unknown })
+        : {};
       const { action, ...rest } = detail;
       const extra = Object.entries(rest)
         .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : String(v)}`)

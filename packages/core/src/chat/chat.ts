@@ -100,16 +100,31 @@ export class ChatService {
       return null;
     };
 
-    for await (const chunk of this.llm.streamAgent({ system, messages, tools, maxSteps: MAX_AGENT_STEPS })) {
+    for await (const chunk of this.llm.streamAgent({
+      system,
+      messages,
+      tools,
+      maxSteps: MAX_AGENT_STEPS,
+    })) {
       switch (chunk.type) {
         case "reasoning":
           yield { type: "reasoning", text: chunk.text };
           break;
         case "tool-call":
-          yield { type: "tool-call", toolCallId: chunk.toolCallId, toolName: chunk.toolName, input: chunk.input };
+          yield {
+            type: "tool-call",
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            input: chunk.input,
+          };
           break;
         case "tool-result": {
-          yield { type: "tool-result", toolCallId: chunk.toolCallId, toolName: chunk.toolName, output: chunk.output };
+          yield {
+            type: "tool-result",
+            toolCallId: chunk.toolCallId,
+            toolName: chunk.toolName,
+            output: chunk.output,
+          };
           // A tool just ran — surface any new documents it drew on.
           const event = announceSources();
           if (event) yield event;

@@ -11,8 +11,14 @@ import { api, type GraphLink, type GraphNode } from "../api.js";
  * simulation and interaction live in {@link ForceGraph}; this view fetches the
  * data, scopes it, and frames it with a header and legend.
  */
-export function GraphView({ focusSlug, embedded = false }: { focusSlug?: string; embedded?: boolean } = {}) {
-  const [data, setData] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>({ nodes: [], links: [] });
+export function GraphView({
+  focusSlug,
+  embedded = false,
+}: { focusSlug?: string; embedded?: boolean } = {}) {
+  const [data, setData] = useState<{ nodes: GraphNode[]; links: GraphLink[] }>({
+    nodes: [],
+    links: [],
+  });
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -76,7 +82,10 @@ export function GraphView({ focusSlug, embedded = false }: { focusSlug?: string;
       {loaded && !focusSlug && data.nodes.length === 0 && (
         <p className="pointer-events-auto absolute left-10 top-32 text-sm text-faded">
           Nothing to map yet. Add watched folders in{" "}
-          <Link className="text-lamp" to="/settings">Settings</Link> and the graph will grow on its own.
+          <Link className="text-lamp" to="/settings">
+            Settings
+          </Link>{" "}
+          and the graph will grow on its own.
         </p>
       )}
 

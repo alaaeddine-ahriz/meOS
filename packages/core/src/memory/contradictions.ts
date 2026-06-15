@@ -82,14 +82,22 @@ export async function detectContradictions(
 
     for (const conflict of judgement.conflicts) {
       const validPair =
-        fresh.some((o) => o.id === conflict.new_id) && prior.some((o) => o.id === conflict.existing_id);
+        fresh.some((o) => o.id === conflict.new_id) &&
+        prior.some((o) => o.id === conflict.existing_id);
       if (!validPair) continue;
       if (conflict.kind === "supersedes") {
         store.markSuperseded(conflict.existing_id, conflict.new_id);
-        store.logAudit("supersede", `obs ${conflict.existing_id} superseded by ${conflict.new_id} on ${entity.name}: ${conflict.note}`);
+        store.logAudit(
+          "supersede",
+          `obs ${conflict.existing_id} superseded by ${conflict.new_id} on ${entity.name}: ${conflict.note}`,
+        );
         summary.superseded++;
       } else {
-        const contradictionId = store.createContradiction(conflict.new_id, conflict.existing_id, conflict.note);
+        const contradictionId = store.createContradiction(
+          conflict.new_id,
+          conflict.existing_id,
+          conflict.note,
+        );
         store.logAudit("contradiction", `flagged on ${entity.name}: ${conflict.note}`);
         summary.contradictions++;
         await events?.emit("onContradiction", { contradictionId, entityId });

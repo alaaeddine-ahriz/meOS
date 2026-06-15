@@ -55,7 +55,10 @@ describe("GET /api/conversations/:id/messages", () => {
   });
 
   it("404s with the NOT_FOUND envelope for an unknown conversation", async () => {
-    const res = await server.app.inject({ method: "GET", url: "/api/conversations/987654/messages" });
+    const res = await server.app.inject({
+      method: "GET",
+      url: "/api/conversations/987654/messages",
+    });
     expect(res.statusCode).toBe(404);
     const envelope = ErrorEnvelopeSchema.parse(res.json());
     expect(envelope.code).toBe(ErrorCode.NOT_FOUND);

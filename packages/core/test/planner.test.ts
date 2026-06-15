@@ -27,10 +27,24 @@ describe("intent-routed retrieval", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });
     // recorded high-confidence-first, but dated out of order
-    s.insertObservation({ entityId: dana.id, text: "Dana was promoted to lead.", validFrom: "2022-05-01", confidence: 0.9 });
-    s.insertObservation({ entityId: dana.id, text: "Dana joined the team.", validFrom: "2020-01-01", confidence: 0.5 });
+    s.insertObservation({
+      entityId: dana.id,
+      text: "Dana was promoted to lead.",
+      validFrom: "2022-05-01",
+      confidence: 0.9,
+    });
+    s.insertObservation({
+      entityId: dana.id,
+      text: "Dana joined the team.",
+      validFrom: "2020-01-01",
+      confidence: 0.5,
+    });
 
-    const pack = await buildContextPack(s, new HashEmbedder(), "what is the timeline of Dana's history?");
+    const pack = await buildContextPack(
+      s,
+      new HashEmbedder(),
+      "what is the timeline of Dana's history?",
+    );
 
     expect(pack.intent).toBe("trace_timeline");
     // every fact leads with its date so the model can place and weigh it

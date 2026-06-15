@@ -1,7 +1,13 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Embedder } from "../embedding/embedder.js";
-import { slugify, type KnowledgeStore, type SourceRef, type SubgraphEdge, type SubgraphNode } from "../knowledge/store.js";
+import {
+  slugify,
+  type KnowledgeStore,
+  type SourceRef,
+  type SubgraphEdge,
+  type SubgraphNode,
+} from "../knowledge/store.js";
 import { temporalTag } from "../memory/temporal.js";
 import { buildContextPack } from "./retrieval.js";
 
@@ -43,7 +49,11 @@ export interface ChatToolDeps {
   gmail?: (query: string) => Promise<string>;
 }
 
-export function buildChatTools(store: KnowledgeStore, embedder: Embedder, deps: ChatToolDeps = {}): ChatTools {
+export function buildChatTools(
+  store: KnowledgeStore,
+  embedder: Embedder,
+  deps: ChatToolDeps = {},
+): ChatTools {
   const sources = new Map<number, SourceRef>();
   const remember = (refs: SourceRef[]) => {
     for (const source of refs) sources.set(source.id, source);
@@ -103,7 +113,9 @@ export function buildChatTools(store: KnowledgeStore, embedder: Embedder, deps: 
             return `- [${temporalTag(o)}, confidence ${o.confidence.toFixed(2)}${source ? `, source: ${source.title}` : ""}${tier}] ${o.text}`;
           }),
           ...relationships.map((r) =>
-            r.from_entity === entity.id ? `- ${entity.name} ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} ${entity.name}`,
+            r.from_entity === entity.id
+              ? `- ${entity.name} ${r.label} ${r.to_name}`
+              : `- ${r.from_name} ${r.label} ${entity.name}`,
           ),
         ].filter(Boolean);
         return lines.join("\n");

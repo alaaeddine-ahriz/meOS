@@ -24,7 +24,12 @@ interface GmailMessage {
   threadId: string;
   snippet?: string;
   internalDate?: string;
-  payload?: { headers?: Header[]; mimeType?: string; body?: { data?: string }; parts?: MessagePart[] };
+  payload?: {
+    headers?: Header[];
+    mimeType?: string;
+    body?: { data?: string };
+    parts?: MessagePart[];
+  };
 }
 
 function header(headers: Header[] | undefined, name: string): string {
@@ -64,7 +69,10 @@ function normalize(message: GmailMessage): GmailMessageItem {
 async function getMessageMetadata(accessToken: string, id: string): Promise<GmailMessageItem> {
   const params = new URLSearchParams({ format: "metadata" });
   for (const h of ["From", "To", "Subject", "Date"]) params.append("metadataHeaders", h);
-  const message = await googleGet<GmailMessage>(`${BASE}/messages/${id}?${params.toString()}`, accessToken);
+  const message = await googleGet<GmailMessage>(
+    `${BASE}/messages/${id}?${params.toString()}`,
+    accessToken,
+  );
   return normalize(message);
 }
 
@@ -105,9 +113,15 @@ export async function fetchGmailDelta(
     let pageToken: string | undefined;
     let latestHistoryId: string | undefined;
     do {
-      const params = new URLSearchParams({ startHistoryId: syncToken, historyTypes: "messageAdded" });
+      const params = new URLSearchParams({
+        startHistoryId: syncToken,
+        historyTypes: "messageAdded",
+      });
       if (pageToken) params.set("pageToken", pageToken);
-      const data = await googleGet<HistoryResponse>(`${BASE}/history?${params.toString()}`, accessToken);
+      const data = await googleGet<HistoryResponse>(
+        `${BASE}/history?${params.toString()}`,
+        accessToken,
+      );
       for (const h of data.history ?? []) {
         for (const added of h.messagesAdded ?? []) ids.add(added.message.id);
       }
@@ -118,7 +132,8 @@ export async function fetchGmailDelta(
     const items = await Promise.all([...ids].map((id) => getMessageMetadata(accessToken, id)));
     return { items, deletions: [], nextSyncToken: latestHistoryId ?? syncToken };
   } catch (error) {
-    if (error instanceof SyncTokenExpiredError) return { items: [], deletions: [], fullResync: true };
+    if (error instanceof SyncTokenExpiredError)
+      return { items: [], deletions: [], fullResync: true };
     throw error;
   }
 }
@@ -141,7 +156,11 @@ function decodeBody(part: MessagePart | undefined): string {
  * metadata-only sync). Bounded to a handful of threads to keep the tool result
  * small.
  */
-export async function searchThreadsText(accessToken: string, query: string, limit = 5): Promise<string> {
+export async function searchThreadsText(
+  accessToken: string,
+  query: string,
+  limit = 5,
+): Promise<string> {
   const params = new URLSearchParams({ q: query, maxResults: String(limit) });
   const list = await googleGet<{ threads?: Array<{ id: string }> }>(
     `${BASE}/threads?${params.toString()}`,
@@ -160,7 +179,9 @@ export async function searchThreadsText(accessToken: string, query: string, limi
       const subject = header(messages[0]?.payload?.headers, "Subject").trim() || "(no subject)";
       const lines = messages.map((m) => {
         const from = header(m.payload?.headers, "From");
-        const date = m.internalDate ? new Date(Number(m.internalDate)).toISOString().slice(0, 10) : "";
+        const date = m.internalDate
+          ? new Date(Number(m.internalDate)).toISOString().slice(0, 10)
+          : "";
         const body = decodeBody(m.payload).trim() || m.snippet?.trim() || "";
         return `From ${from} (${date}):\n${body.slice(0, 2000)}`;
       });

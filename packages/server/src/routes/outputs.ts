@@ -23,8 +23,9 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
     reply(decisionBrief(ctx.store), request.query.format),
   );
 
-  app.get<{ Querystring: { format?: string } }>("/api/outputs/contradiction-report", async (request) =>
-    reply(contradictionReport(ctx.store), request.query.format),
+  app.get<{ Querystring: { format?: string } }>(
+    "/api/outputs/contradiction-report",
+    async (request) => reply(contradictionReport(ctx.store), request.query.format),
   );
 
   const entityResolver = (key: string): number | undefined => {
@@ -38,12 +39,16 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
     ["dependency-graph", dependencyGraph],
     ["meeting-brief", meetingBrief],
   ] as const) {
-    app.get<{ Querystring: { entity?: string; format?: string } }>(`/api/outputs/${path}`, async (request) => {
-      const key = request.query.entity?.trim();
-      if (!key) throw httpError.validation("Query parameter 'entity' is required (id, name, or slug)");
-      const entityId = entityResolver(key);
-      if (entityId === undefined) throw httpError.notFound(`No entity matching "${key}"`);
-      return reply(fn(ctx.store, entityId), request.query.format);
-    });
+    app.get<{ Querystring: { entity?: string; format?: string } }>(
+      `/api/outputs/${path}`,
+      async (request) => {
+        const key = request.query.entity?.trim();
+        if (!key)
+          throw httpError.validation("Query parameter 'entity' is required (id, name, or slug)");
+        const entityId = entityResolver(key);
+        if (entityId === undefined) throw httpError.notFound(`No entity matching "${key}"`);
+        return reply(fn(ctx.store, entityId), request.query.format);
+      },
+    );
   }
 }

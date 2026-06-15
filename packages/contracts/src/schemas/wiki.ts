@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { EntitySummarySchema, GraphLinkSchema, GraphNodeSchema, SourceRefSchema } from "./common.js";
+import {
+  EntitySummarySchema,
+  GraphLinkSchema,
+  GraphNodeSchema,
+  SourceRefSchema,
+} from "./common.js";
 
 /** GET /api/wiki */
 export const ListEntitiesResponse = z.object({ entities: z.array(EntitySummarySchema) });

@@ -26,7 +26,9 @@ export interface MeosEventMap {
 }
 
 export type MeosEvent = keyof MeosEventMap;
-export type MeosEventHandler<E extends MeosEvent> = (payload: MeosEventMap[E]) => void | Promise<void>;
+export type MeosEventHandler<E extends MeosEvent> = (
+  payload: MeosEventMap[E],
+) => void | Promise<void>;
 
 export class MeosEvents {
   // One handler list per event. Stored loosely (the public on/emit signatures
@@ -34,15 +36,21 @@ export class MeosEvents {
   // an internal-storage concern).
   private readonly handlers = new Map<MeosEvent, Array<(payload: never) => void | Promise<void>>>();
   /** Reports a handler that threw; defaults to console.error, overridable for tests. */
-  constructor(private readonly onError: (event: MeosEvent, error: unknown) => void = defaultOnError) {}
+  constructor(
+    private readonly onError: (event: MeosEvent, error: unknown) => void = defaultOnError,
+  ) {}
 
   on<E extends MeosEvent>(event: E, handler: MeosEventHandler<E>): () => void {
     const list = this.handlers.get(event) ?? [];
-    list.push(handler as (payload: never) => void | Promise<void>);
+    list.push(handler);
     this.handlers.set(event, list);
     return () => {
       const current = this.handlers.get(event);
-      if (current) this.handlers.set(event, current.filter((h) => h !== handler));
+      if (current)
+        this.handlers.set(
+          event,
+          current.filter((h) => h !== handler),
+        );
     };
   }
 
@@ -63,5 +71,8 @@ export class MeosEvents {
 }
 
 function defaultOnError(event: MeosEvent, error: unknown): void {
-  console.error(`[events] handler for "${event}" failed:`, error instanceof Error ? error.message : error);
+  console.error(
+    `[events] handler for "${event}" failed:`,
+    error instanceof Error ? error.message : error,
+  );
 }

@@ -41,7 +41,10 @@ function profileView(ctx: AppContext) {
 }
 
 /** Concatenate the stored profile_context documents — the corpus the assistant drafts from. */
-function uploadedContext(ctx: AppContext): { documents: Array<{ title: string; text: string }>; combined: string } {
+function uploadedContext(ctx: AppContext): {
+  documents: Array<{ title: string; text: string }>;
+  combined: string;
+} {
   const sources = ctx.store
     .recentSources("0000-00-00")
     .filter((s) => s.type === PROFILE_SOURCE_TYPE);
@@ -106,20 +109,27 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.get("/api/profile", async () => profileView(ctx));
 
   // Save one section. The store snapshots the prior version before overwriting.
-  app.put<{ Params: { id: string }; Body: { content?: string } }>("/api/profile/:id", async (request) => {
-    const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
-    const section = profileSection(params.id);
-    if (!section) throw httpError.notFound("No such profile section");
-    const { content } = parseOrThrow(profileSchema.SaveProfileSectionBody, request.body, "body");
-    saveProfileSection(ctx.config.dataDir, section.id, content ?? "");
-    logProfileEdit(ctx, "edit_section", { section: section.id });
-    return profileView(ctx);
-  });
+  app.put<{ Params: { id: string }; Body: { content?: string } }>(
+    "/api/profile/:id",
+    async (request) => {
+      const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
+      const section = profileSection(params.id);
+      if (!section) throw httpError.notFound("No such profile section");
+      const { content } = parseOrThrow(profileSchema.SaveProfileSectionBody, request.body, "body");
+      saveProfileSection(ctx.config.dataDir, section.id, content ?? "");
+      logProfileEdit(ctx, "edit_section", { section: section.id });
+      return profileView(ctx);
+    },
+  );
 
   // Apply a reviewed proposal (or hand edit): persist every changed section in
   // one shot, after the user has accepted the diff.
   app.post<{ Body: { profile?: Partial<Profile> } }>("/api/profile/apply", async (request) => {
-    const { profile: proposed } = parseOrThrow(profileSchema.ApplyProfileBody, request.body, "body");
+    const { profile: proposed } = parseOrThrow(
+      profileSchema.ApplyProfileBody,
+      request.body,
+      "body",
+    );
     const current = loadProfile(ctx.config.dataDir);
     const applied: string[] = [];
     for (const section of PROFILE_SECTIONS) {
@@ -144,13 +154,20 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       const mediaType = imageMediaType(filename);
       let parsed: { title: string; text: string } | null;
       if (mediaType) {
-        const text = await readImage(ctx.llm, filename, { mediaType, data: buffer.toString("base64") });
+        const text = await readImage(ctx.llm, filename, {
+          mediaType,
+          data: buffer.toString("base64"),
+        });
         parsed = { title: filename.replace(/\.[^.]+$/, ""), text };
       } else {
         parsed = await parseDocument(filename, buffer);
       }
       if (!parsed || !parsed.text.trim()) continue;
-      ctx.store.createSource({ type: PROFILE_SOURCE_TYPE, title: parsed.title, content: parsed.text });
+      ctx.store.createSource({
+        type: PROFILE_SOURCE_TYPE,
+        title: parsed.title,
+        content: parsed.text,
+      });
       stored.push(parsed);
     }
     if (stored.length === 0) {
@@ -214,7 +231,11 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.post<{ Body: { instruction?: string; useUploaded?: boolean } }>(
     "/api/profile/edit",
     async (request) => {
-      const { instruction, useUploaded } = parseOrThrow(profileSchema.EditProfileBody, request.body, "body");
+      const { instruction, useUploaded } = parseOrThrow(
+        profileSchema.EditProfileBody,
+        request.body,
+        "body",
+      );
       const trimmed = instruction.trim();
       if (!trimmed) throw httpError.validation("Field 'instruction' is required");
       try {
@@ -242,7 +263,11 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.get<{ Params: { id: string; version: string } }>(
     "/api/profile/:id/history/:version",
     async (request) => {
-      const { id, version } = parseOrThrow(profileSchema.ProfileIdVersionParam, request.params, "params");
+      const { id, version } = parseOrThrow(
+        profileSchema.ProfileIdVersionParam,
+        request.params,
+        "params",
+      );
       const section = profileSection(id);
       if (!section) throw httpError.notFound("No such profile section");
       const content = readProfileVersion(ctx.config.dataDir, section.id, version);
