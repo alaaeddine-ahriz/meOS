@@ -8,66 +8,11 @@ import { IngestionPipeline } from "../src/ingest/pipeline.js";
 import { KnowledgeStore } from "../src/knowledge/store.js";
 import { StubLlmClient } from "../src/llm/stub.js";
 import { WikiWriter } from "../src/wiki/writer.js";
+import { adaExtraction as sampleExtraction, makeExtractionStub } from "./fixtures/index.js";
 
-const sampleExtraction = {
-  entities: [
-    {
-      name: "Ada Lovelace",
-      type: "person",
-      aliases: ["Ada"],
-      summary: "Mathematician collaborating on the Analytical Engine.",
-    },
-    {
-      name: "Analytical Engine",
-      type: "project",
-      aliases: [],
-      summary: "A proposed mechanical general-purpose computer.",
-    },
-  ],
-  relationships: [{ from: "Ada Lovelace", to: "Analytical Engine", label: "works on" }],
-  observations: [
-    {
-      entity: "Ada Lovelace",
-      claim: "Ada Lovelace wrote the first published algorithm.",
-      kind: "fact",
-      sourceQuote: "Ada Lovelace wrote the first published algorithm.",
-      validFrom: null,
-      validUntil: null,
-      confidence: 0.5,
-      sensitivity: "normal",
-    },
-    {
-      entity: "Analytical Engine",
-      claim: "The Analytical Engine uses punched cards for input.",
-      kind: "fact",
-      sourceQuote: null,
-      validFrom: null,
-      validUntil: null,
-      confidence: 0.5,
-      sensitivity: "normal",
-    },
-  ],
-};
-
-function makeStub() {
-  return new StubLlmClient({
-    onStructured: (request) => {
-      if (request.schemaName === "knowledge_extraction") return sampleExtraction;
-      throw new Error(`Unexpected structured request: ${request.schemaName}`);
-    },
-    // The wiki writer now runs an agent over a sandbox; mimic a model that edits
-    // the target page and writes the directory summary, then read both back.
-    onAgent: async (request) => {
-      const relPath = request.prompt.match(/target file is "([^"]+)"/)?.[1];
-      if (!relPath) throw new Error("agent prompt did not name a target file");
-      await request.sandbox.writeFiles([
-        { path: relPath, content: "A page about this entity, related to [[Ada Lovelace]]." },
-        { path: "SUMMARY.txt", content: "A generated one-line summary." },
-      ]);
-      return "done";
-    },
-  });
-}
+// The canonical extraction + ingest stub now live in the shared fixtures (#21),
+// so suites stop re-declaring them; this alias keeps the cases below unchanged.
+const makeStub = makeExtractionStub;
 
 describe("IngestionPipeline", () => {
   let db: MeosDatabase;

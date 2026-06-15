@@ -19,6 +19,9 @@ export default tseslint.config(
       "packages/desktop/src-tauri/payload/**",
       // Agent git worktrees live here (gitignored); never lint sibling checkouts.
       ".claude/**",
+      // Vitest config files are build/test tooling, not part of any package's
+      // tsconfig project — type-aware linting can't resolve them, so skip.
+      "**/vitest.config.ts",
       "**/*.d.ts",
     ],
   },

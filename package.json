@@ -12,6 +12,10 @@
     "dev": "pnpm --filter @meos/core --filter @meos/contracts build && pnpm --parallel --filter @meos/core --filter @meos/contracts --filter @meos/server --filter @meos/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "test:unit": "pnpm --filter @meos/core test",
+    "test:integration": "pnpm --filter @meos/server test",
+    "test:e2e": "pnpm --filter @meos/core exec vitest run test/e2e-ingest.test.ts && pnpm --filter @meos/server exec vitest run test/e2e-smoke.test.ts",
+    "test:coverage": "pnpm --filter @meos/core --filter @meos/server test:coverage",
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "boundaries": "depcruise packages --config .dependency-cruiser.cjs",
@@ -38,6 +42,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
+    "@vitest/coverage-v8": "4.1.8",
     "dependency-cruiser": "^17.4.3",
     "eslint": "^9.39.0",
     "eslint-import-resolver-typescript": "^4.4.4",
