@@ -74,8 +74,10 @@ function nominalSimilarity(a: string, b: string): number {
 function roleKeys(store: KnowledgeStore, entityId: number): Set<string> {
   const keys = new Set<string>();
   for (const r of store.relationshipsFor(entityId)) {
-    if (r.from_entity === entityId && r.to_entity !== entityId) keys.add(`out:${r.label}:${r.to_entity}`);
-    else if (r.to_entity === entityId && r.from_entity !== entityId) keys.add(`in:${r.label}:${r.from_entity}`);
+    if (r.from_entity === entityId && r.to_entity !== entityId)
+      keys.add(`out:${r.label}:${r.to_entity}`);
+    else if (r.to_entity === entityId && r.from_entity !== entityId)
+      keys.add(`in:${r.label}:${r.from_entity}`);
   }
   return keys;
 }
@@ -135,7 +137,9 @@ export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[
         }
         if (shared.length > 0) {
           score += Math.min(0.3, 0.15 * shared.length);
-          reasons.push(`share ${shared.length} identical relationship${shared.length > 1 ? "s" : ""}`);
+          reasons.push(
+            `share ${shared.length} identical relationship${shared.length > 1 ? "s" : ""}`,
+          );
         }
 
         score = Math.min(1, score);

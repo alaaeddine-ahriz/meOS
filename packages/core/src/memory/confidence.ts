@@ -40,7 +40,10 @@ export function clampConfidence(value: number): number {
  * Confidence a freshly extracted claim should start at: the extractor's own
  * confidence, discounted by how much we trust the source it came from.
  */
-export function initialConfidence(extractionConfidence: number, sourceType: string | undefined): number {
+export function initialConfidence(
+  extractionConfidence: number,
+  sourceType: string | undefined,
+): number {
   const base = Number.isFinite(extractionConfidence) ? extractionConfidence : 0.5;
   return clampConfidence(base * sourceQuality(sourceType));
 }

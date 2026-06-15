@@ -24,7 +24,9 @@ describe("memory tier classification", () => {
     expect(classifyMemoryTier({ kind: "fact", sourceCount: 2 })).toBe("semantic");
     expect(classifyMemoryTier({ kind: "fact", sourceCount: 1 })).toBe("working");
     expect(classifyMemoryTier({ kind: "event", sourceCount: 1 })).toBe("episodic");
-    expect(classifyMemoryTier({ kind: "fact", sourceType: "conversation", sourceCount: 1 })).toBe("episodic");
+    expect(classifyMemoryTier({ kind: "fact", sourceType: "conversation", sourceCount: 1 })).toBe(
+      "episodic",
+    );
   });
 
   it("promotes a fact to semantic once a second source corroborates it", () => {
@@ -33,7 +35,12 @@ describe("memory tier classification", () => {
     const a = s.createSource({ type: "file", title: "A", content: "." });
     const b = s.createSource({ type: "file", title: "B", content: "." });
 
-    const obs = s.insertObservation({ entityId: dana.id, text: "Dana leads Orion.", sourceId: a, kind: "fact" });
+    const obs = s.insertObservation({
+      entityId: dana.id,
+      text: "Dana leads Orion.",
+      sourceId: a,
+      kind: "fact",
+    });
     expect(s.getObservation(obs)!.memory_tier).toBe("working");
 
     s.recordObservationSource(obs, b); // a second independent source
@@ -74,7 +81,10 @@ describe("retention pass", () => {
       confidence: 0.9,
       kind: "fact",
     });
-    s.recordObservationSource(corroborated, s.createSource({ type: "file", title: "Src2", content: "." }));
+    s.recordObservationSource(
+      corroborated,
+      s.createSource({ type: "file", title: "Src2", content: "." }),
+    );
 
     const report = runRetention(s);
     expect(report.promoted).toBe(1); // 0.9 >= promote threshold

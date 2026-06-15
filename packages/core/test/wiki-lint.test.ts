@@ -15,7 +15,12 @@ describe("wiki lint", () => {
     const orion = s.createEntity({ type: "project", name: "Orion" });
     s.upsertRelationship(dana.id, orion.id, "works on");
     const src = s.createSource({ type: "file", title: "Notes", content: "." });
-    s.insertObservation({ entityId: dana.id, text: "Dana leads Orion.", sourceId: src, confidence: 0.9 });
+    s.insertObservation({
+      entityId: dana.id,
+      text: "Dana leads Orion.",
+      sourceId: src,
+      confidence: 0.9,
+    });
 
     const result = lintPage(s, dana.id, "Dana leads [[Orion]].");
     expect(result.issues).toHaveLength(0);

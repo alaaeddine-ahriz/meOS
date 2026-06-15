@@ -59,7 +59,10 @@ export class GitSync {
   /** Run a git subcommand in the data dir; throws with stderr on failure. */
   private async run(args: string[]): Promise<string> {
     try {
-      const { stdout } = await exec("git", args, { cwd: this.dataDir, maxBuffer: 16 * 1024 * 1024 });
+      const { stdout } = await exec("git", args, {
+        cwd: this.dataDir,
+        maxBuffer: 16 * 1024 * 1024,
+      });
       return stdout.trim();
     } catch (error) {
       const err = error as { stderr?: string; message?: string };
@@ -83,7 +86,15 @@ export class GitSync {
 
   async status(): Promise<GitStatus> {
     if (!this.isInitialized()) {
-      return { initialized: false, branch: null, remote: null, dirty: 0, ahead: null, behind: null, lastCommit: null };
+      return {
+        initialized: false,
+        branch: null,
+        remote: null,
+        dirty: 0,
+        ahead: null,
+        behind: null,
+        lastCommit: null,
+      };
     }
     const branch = await this.tryRun(["rev-parse", "--abbrev-ref", "HEAD"]);
     const remoteRaw = await this.tryRun(["remote", "get-url", "origin"]);
@@ -119,7 +130,10 @@ export class GitSync {
     const ignorePath = path.join(this.dataDir, ".gitignore");
     if (!fs.existsSync(ignorePath)) {
       // The database and its write-ahead log are derived state, never synced.
-      fs.writeFileSync(ignorePath, ["meos.db", "meos.db-wal", "meos.db-shm", "*.log", ".DS_Store", ""].join("\n"));
+      fs.writeFileSync(
+        ignorePath,
+        ["meos.db", "meos.db-wal", "meos.db-shm", "*.log", ".DS_Store", ""].join("\n"),
+      );
     }
     await this.commit("Initialize MeOS knowledge base");
     return this.status();
@@ -147,7 +161,9 @@ export class GitSync {
   async setRemote(url: string): Promise<void> {
     if (!this.isInitialized()) await this.init();
     const existing = await this.tryRun(["remote", "get-url", "origin"]);
-    await this.run(existing ? ["remote", "set-url", "origin", url] : ["remote", "add", "origin", url]);
+    await this.run(
+      existing ? ["remote", "set-url", "origin", url] : ["remote", "add", "origin", url],
+    );
   }
 
   /** Stage everything tracked and commit. Returns false when there was nothing to commit. */
@@ -157,7 +173,15 @@ export class GitSync {
     const staged = await this.tryRun(["diff", "--cached", "--name-only"]);
     if (!staged) return false;
     const msg = message ?? `Sync ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-    await this.run(["-c", "user.name=MeOS", "-c", "user.email=meos@localhost", "commit", "-m", msg]);
+    await this.run([
+      "-c",
+      "user.name=MeOS",
+      "-c",
+      "user.email=meos@localhost",
+      "commit",
+      "-m",
+      msg,
+    ]);
     return true;
   }
 

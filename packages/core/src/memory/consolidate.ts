@@ -97,7 +97,9 @@ export async function runConsolidation(deps: {
   const { store, llm, wiki, digestDir } = deps;
   const schema = deps.schema ?? DEFAULT_SCHEMA_MD;
   const profile = deps.profile ?? "";
-  const since = deps.since ?? new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
+  const since =
+    deps.since ??
+    new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
 
   // Fold in new knowledge first, then run the lifecycle over everything (so
   // crystallized corroboration can promote facts and tiers the same night), then
@@ -145,11 +147,16 @@ export async function runConsolidation(deps: {
           "",
           "Unresolved contradictions needing the user's attention:",
           ...(contradictions.length
-            ? contradictions.map((c) => `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`)
+            ? contradictions.map(
+                (c) =>
+                  `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`,
+              )
             : ["(none)"]),
           "",
           "Wiki pages with no connections to the rest of the graph (possible orphans):",
-          ...(orphans.length ? orphans.slice(0, 20).map((o) => `- ${o.name} (${o.type})`) : ["(none)"]),
+          ...(orphans.length
+            ? orphans.slice(0, 20).map((o) => `- ${o.name} (${o.type})`)
+            : ["(none)"]),
           "",
           `Maintenance: ${decayed} facts decayed, ${promoted} promoted to established facts, ${expired} expired past their validity, ${retiered} re-tiered, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${healing.flaggedForRepair} page(s) auto-repaired${healing.meanQuality !== null ? `, mean wiki quality ${healing.meanQuality.toFixed(2)}` : ""}.`,
         ].join("\n"),

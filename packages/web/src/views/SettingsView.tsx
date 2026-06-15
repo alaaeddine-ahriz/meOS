@@ -115,7 +115,14 @@ type SettingsItem = {
   blurb: string;
 };
 
-type TabId = "profile" | "appearance" | "intelligence" | "folders" | "connectors" | "sync" | "reset";
+type TabId =
+  | "profile"
+  | "appearance"
+  | "intelligence"
+  | "folders"
+  | "connectors"
+  | "sync"
+  | "reset";
 
 /**
  * The sections of Settings, presented as a grouped left rail — a focused panel
@@ -125,8 +132,18 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
   {
     heading: "Workspace",
     items: [
-      { id: "profile", label: "Profile", icon: UserCircle, blurb: "Who you are, in MeOS's own words." },
-      { id: "appearance", label: "Appearance", icon: PaletteIcon, blurb: "Mode, palette, typeface, width and motion." },
+      {
+        id: "profile",
+        label: "Profile",
+        icon: UserCircle,
+        blurb: "Who you are, in MeOS's own words.",
+      },
+      {
+        id: "appearance",
+        label: "Appearance",
+        icon: PaletteIcon,
+        blurb: "Mode, palette, typeface, width and motion.",
+      },
       {
         id: "intelligence",
         label: "Intelligence",
@@ -138,19 +155,31 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
   {
     heading: "Knowledge",
     items: [
-      { id: "folders", label: "Folders", icon: FolderOpen, blurb: "The folders MeOS reads and keeps watching." },
+      {
+        id: "folders",
+        label: "Folders",
+        icon: FolderOpen,
+        blurb: "The folders MeOS reads and keeps watching.",
+      },
       {
         id: "connectors",
         label: "Connectors",
         icon: Plug,
         blurb: "Sync people from Google Contacts, Calendar and Mail.",
       },
-      { id: "sync", label: "Sync", icon: GitBranch, blurb: "Version your wiki and digests with Git." },
+      {
+        id: "sync",
+        label: "Sync",
+        icon: GitBranch,
+        blurb: "Version your wiki and digests with Git.",
+      },
     ],
   },
   {
     heading: "Advanced",
-    items: [{ id: "reset", label: "Reset", icon: Trash2, blurb: "Erase everything MeOS has learned." }],
+    items: [
+      { id: "reset", label: "Reset", icon: Trash2, blurb: "Erase everything MeOS has learned." },
+    ],
   },
 ];
 
@@ -254,7 +283,9 @@ export function SettingsView() {
                     onClick={() => setTab(id)}
                     className={cn(
                       "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors",
-                      isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
+                      isActive
+                        ? "bg-card text-paper"
+                        : "text-faded hover:bg-card/50 hover:text-paper",
                     )}
                   >
                     <Icon className="size-4 shrink-0 opacity-70" />
@@ -438,7 +469,7 @@ function IntelligenceSection() {
       const listing = await api.listProviderModels(target, key);
       setCloudModels(listing.models);
       setCloudSource(listing.source);
-      setCloudModelsError(listing.source === "curated" ? listing.error ?? null : null);
+      setCloudModelsError(listing.source === "curated" ? (listing.error ?? null) : null);
     } catch (e) {
       setCloudModels([]);
       setCloudSource("curated");
@@ -450,8 +481,9 @@ function IntelligenceSection() {
 
   // Pull the model list whenever a cloud provider becomes active.
   useEffect(() => {
-    if (provider !== "local") void refreshCloudModels(provider as "anthropic" | "openai" | "google");
-  }, [provider]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (provider !== "local")
+      void refreshCloudModels(provider as "anthropic" | "openai" | "google");
+  }, [provider]);
 
   const chooseProvider = (next: LlmProvider) => {
     setLlmError(null);
@@ -480,7 +512,8 @@ function IntelligenceSection() {
       setApiKey("");
       setLlmSaved(true);
       // A freshly-saved key may reveal the account's real catalogue.
-      if (provider !== "local") void refreshCloudModels(provider as "anthropic" | "openai" | "google");
+      if (provider !== "local")
+        void refreshCloudModels(provider as "anthropic" | "openai" | "google");
     } catch (e) {
       setLlmError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -489,16 +522,20 @@ function IntelligenceSection() {
   };
 
   const cloudProvider = provider !== "local";
-  const keySaved = cloudProvider && llm ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey : false;
+  const keySaved =
+    cloudProvider && llm
+      ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey
+      : false;
   // Always keep the currently-selected model selectable, even if discovery hasn't
   // returned it (a key that's saved but unverified, an offline refresh, etc.).
-  const cloudOptions = model && !cloudModels.includes(model) ? [model, ...cloudModels] : cloudModels;
+  const cloudOptions =
+    model && !cloudModels.includes(model) ? [model, ...cloudModels] : cloudModels;
 
   return (
     <section className="rise flex flex-col gap-4">
       <PanelIntro>
-        The model that reads your documents, maintains the wiki, and answers your questions. API keys
-        stay on this machine.
+        The model that reads your documents, maintains the wiki, and answers your questions. API
+        keys stay on this machine.
       </PanelIntro>
 
       {!llm && !llmError && <p className="text-sm text-dim">Loading…</p>}
@@ -615,7 +652,9 @@ function IntelligenceSection() {
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
-                placeholder={keySaved ? "API key saved — paste to replace" : KEY_PLACEHOLDERS[provider]}
+                placeholder={
+                  keySaved ? "API key saved — paste to replace" : KEY_PLACEHOLDERS[provider]
+                }
                 autoComplete="off"
                 className={inputClass}
               />
@@ -632,7 +671,8 @@ function IntelligenceSection() {
               </Button>
               {llmSaved && (
                 <span className="flex items-center gap-1.5 text-sm text-moss">
-                  <Check className="size-3.5" /> using {provider === "local" ? model || "local model" : model}
+                  <Check className="size-3.5" /> using{" "}
+                  {provider === "local" ? model || "local model" : model}
                 </span>
               )}
             </div>
@@ -687,8 +727,8 @@ function MaintainerPicker({
       <div>
         <p className="text-sm text-paper">Wiki maintainer model</p>
         <p className="mt-0.5 text-[13px] text-dim">
-          A reasoning-capable model narrates wiki updates in Activity — showing its thinking and each
-          edit as it works. Leave empty to reuse your main model (no reasoning).
+          A reasoning-capable model narrates wiki updates in Activity — showing its thinking and
+          each edit as it works. Leave empty to reuse your main model (no reasoning).
         </p>
       </div>
       <div className="flex min-w-0 items-center gap-2">
@@ -713,8 +753,8 @@ function MaintainerPicker({
           </p>
         ) : (
           <p className="font-mono text-[11px] text-ember">
-            ⚠ This model can't stream reasoning. Pick a Claude Opus/Sonnet, GPT-5/o-series, or Gemini
-            2.5/3 model for the full transcript.
+            ⚠ This model can't stream reasoning. Pick a Claude Opus/Sonnet, GPT-5/o-series, or
+            Gemini 2.5/3 model for the full transcript.
           </p>
         )
       ) : (
@@ -737,7 +777,11 @@ function FoldersSection() {
   const [manualPath, setManualPath] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => api.listFolders().then((r) => setFolders(r.folders)).catch(() => {});
+  const refresh = () =>
+    api
+      .listFolders()
+      .then((r) => setFolders(r.folders))
+      .catch(() => {});
 
   useEffect(() => {
     refresh();
@@ -775,14 +819,17 @@ function FoldersSection() {
   return (
     <section className="rise flex flex-col gap-5">
       <PanelIntro>
-        Everything readable in these folders is absorbed automatically — new files and edits alike. Your
-        files are never moved or modified.
+        Everything readable in these folders is absorbed automatically — new files and edits alike.
+        Your files are never moved or modified.
       </PanelIntro>
 
       <ul className="divide-y divide-line border-y border-line">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
-            <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-paper" title={folder.path}>
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-[13px] text-paper"
+              title={folder.path}
+            >
               {folder.path}
             </span>
             <Button
@@ -797,7 +844,9 @@ function FoldersSection() {
           </li>
         ))}
         {folders.length === 0 && (
-          <li className="py-5 text-sm text-dim">No folders yet — add one and MeOS starts reading.</li>
+          <li className="py-5 text-sm text-dim">
+            No folders yet — add one and MeOS starts reading.
+          </li>
         )}
       </ul>
 
@@ -831,14 +880,19 @@ function FoldersSection() {
       </div>
       {error && <p className="text-sm text-ember">⚠ {error}</p>}
       <p className="font-mono text-[11px] text-dim">
-        reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left alone
+        reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left
+        alone
       </p>
     </section>
   );
 }
 
 const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb: string }> = {
-  contacts: { label: "Contacts", icon: Contact, blurb: "People, with email and phone (kept private)." },
+  contacts: {
+    label: "Contacts",
+    icon: Contact,
+    blurb: "People, with email and phone (kept private).",
+  },
   calendar: { label: "Calendar", icon: Calendar, blurb: "Events and who you met with." },
   gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
 };
@@ -851,7 +905,11 @@ function ConnectorsSection() {
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
 
-  const refresh = () => api.getConnectors().then(setStatus).catch(() => {});
+  const refresh = () =>
+    api
+      .getConnectors()
+      .then(setStatus)
+      .catch(() => {});
 
   useEffect(() => {
     refresh();
@@ -905,7 +963,10 @@ function ConnectorsSection() {
     }
   };
 
-  const configure = async (kind: ConnectorKind, config: { enabled?: boolean; intervalMinutes?: number }) => {
+  const configure = async (
+    kind: ConnectorKind,
+    config: { enabled?: boolean; intervalMinutes?: number },
+  ) => {
     setError(null);
     try {
       setStatus(await api.configureConnectorKind(kind, config));
@@ -928,24 +989,28 @@ function ConnectorsSection() {
   return (
     <section className="rise flex flex-col gap-5">
       <PanelIntro>
-        Connect a Google account to turn the people you know into entities — enriched with their contact
-        details, the events you shared, and who you email. Contact details and email metadata stay private
-        (searchable, but kept out of the synced wiki).
+        Connect a Google account to turn the people you know into entities — enriched with their
+        contact details, the events you shared, and who you email. Contact details and email
+        metadata stay private (searchable, but kept out of the synced wiki).
       </PanelIntro>
 
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 text-sm">
           <span
-            className={cn(
-              "size-2 rounded-full",
-              google?.connected ? "bg-emerald-500" : "bg-dim",
-            )}
+            className={cn("size-2 rounded-full", google?.connected ? "bg-emerald-500" : "bg-dim")}
           />
           <span className="text-faded">
-            {google?.connected ? `Connected${google.accountEmail ? ` — ${google.accountEmail}` : ""}` : "Not connected"}
+            {google?.connected
+              ? `Connected${google.accountEmail ? ` — ${google.accountEmail}` : ""}`
+              : "Not connected"}
           </span>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => setShowHelp(true)} className="text-dim hover:text-paper">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowHelp(true)}
+          className="text-dim hover:text-paper"
+        >
           Show me how
         </Button>
       </div>
@@ -956,7 +1021,9 @@ function ConnectorsSection() {
         <Input
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          placeholder={google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"}
+          placeholder={
+            google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
+          }
           className={inputClass}
         />
         <div className="flex items-center gap-3">
@@ -964,7 +1031,11 @@ function ConnectorsSection() {
             value={clientSecret}
             onChange={(e) => setClientSecret(e.target.value)}
             type="password"
-            placeholder={google?.hasCredentials ? "•••• client secret saved — paste to replace" : "Client secret"}
+            placeholder={
+              google?.hasCredentials
+                ? "•••• client secret saved — paste to replace"
+                : "Client secret"
+            }
             className={inputClass}
           />
           <Button
@@ -1061,16 +1132,16 @@ function ConnectorsSection() {
         <span className="text-faded">What synced Google data can do</span>
         <ul className="flex flex-col gap-1">
           <li>
-            <span className="text-paper">Searchable &amp; answerable</span> — yes. Synced people
-            and events become entities your chat can find and cite.
+            <span className="text-paper">Searchable &amp; answerable</span> — yes. Synced people and
+            events become entities your chat can find and cite.
           </li>
           <li>
             <span className="text-paper">Wiki</span> — non-private facts may appear on a person's
             page; contact details and email metadata are kept off it.
           </li>
           <li>
-            <span className="text-paper">Sync &amp; export</span> — no. Connector-derived content
-            is never written to the git-synced wiki/digests or any export. It stays on this device.
+            <span className="text-paper">Sync &amp; export</span> — no. Connector-derived content is
+            never written to the git-synced wiki/digests or any export. It stays on this device.
           </li>
         </ul>
       </div>
@@ -1082,7 +1153,8 @@ function ConnectorsSection() {
           <DialogHeader>
             <DialogTitle>Connect Google in a few steps</DialogTitle>
             <DialogDescription>
-              MeOS uses your own Google Cloud OAuth client, so your data never passes through anyone else.
+              MeOS uses your own Google Cloud OAuth client, so your data never passes through anyone
+              else.
             </DialogDescription>
           </DialogHeader>
           <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-faded">
@@ -1105,7 +1177,11 @@ function ConnectorsSection() {
             <li>Paste the client ID and secret above, then click Connect Google.</li>
           </ol>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowHelp(false)} className={actionButtonClass}>
+            <Button
+              variant="outline"
+              onClick={() => setShowHelp(false)}
+              className={actionButtonClass}
+            >
               Got it
             </Button>
           </DialogFooter>
@@ -1128,7 +1204,10 @@ function GitSyncSection() {
   };
 
   useEffect(() => {
-    api.getGitStatus().then(apply).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    api
+      .getGitStatus()
+      .then(apply)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
   const wrap = (key: "init" | "remote" | "sync", run: () => Promise<GitStatus>) => async () => {
@@ -1149,14 +1228,16 @@ function GitSyncSection() {
     if (!status) return;
     const next = !status.autoSync;
     setStatus({ ...status, autoSync: next });
-    await api.setGitAutoSync(next).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    await api
+      .setGitAutoSync(next)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   };
 
   return (
     <section className="rise flex flex-col gap-4">
       <PanelIntro>
-        Version your wiki and digests as a Git repository — a portable, human-readable backup you can push
-        to GitHub. The database itself stays local; only the markdown is synced.
+        Version your wiki and digests as a Git repository — a portable, human-readable backup you
+        can push to GitHub. The database itself stays local; only the markdown is synced.
       </PanelIntro>
 
       {!status && !error && <p className="text-sm text-dim">Loading…</p>}
@@ -1187,7 +1268,9 @@ function GitSyncSection() {
               <span className="text-moss">up to date</span>
             )}
           </div>
-          {status.lastCommit && <p className="font-mono text-[11px] text-dim">{status.lastCommit}</p>}
+          {status.lastCommit && (
+            <p className="font-mono text-[11px] text-dim">{status.lastCommit}</p>
+          )}
 
           <div className="flex items-center gap-3">
             <Input
@@ -1199,7 +1282,9 @@ function GitSyncSection() {
             <Button
               variant="outline"
               onClick={wrap("remote", () => api.setGitRemote(remote.trim()))}
-              disabled={busy === "remote" || !remote.trim() || remote.trim() === (status.remote ?? "")}
+              disabled={
+                busy === "remote" || !remote.trim() || remote.trim() === (status.remote ?? "")
+              }
               className={actionButtonClass}
             >
               {busy === "remote" ? "Saving…" : "Save remote"}
@@ -1250,7 +1335,10 @@ function GitHistory({ refreshKey }: { refreshKey: string }) {
   const [patch, setPatch] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    api.getGitLog(30).then((r) => setCommits(r.commits)).catch(() => setCommits([]));
+    api
+      .getGitLog(30)
+      .then((r) => setCommits(r.commits))
+      .catch(() => setCommits([]));
   }, [refreshKey]);
 
   const toggle = async (hash: string) => {
@@ -1288,7 +1376,8 @@ function GitHistory({ refreshKey }: { refreshKey: string }) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm text-paper">{commit.subject}</span>
                 <span className="font-mono text-[11px] text-dim">
-                  {commit.hash} · {commit.relativeDate} · {commit.files} file{commit.files === 1 ? "" : "s"}
+                  {commit.hash} · {commit.relativeDate} · {commit.files} file
+                  {commit.files === 1 ? "" : "s"}
                 </span>
               </span>
             </button>
@@ -1350,8 +1439,8 @@ function ResetSection() {
           <div className="flex flex-col gap-1">
             <span className="text-sm text-paper">This cannot be undone</span>
             <span className="text-sm text-dim">
-              Your original files on disk are never touched — but everything MeOS derived from them is
-              permanently deleted.
+              Your original files on disk are never touched — but everything MeOS derived from them
+              is permanently deleted.
             </span>
           </div>
         </div>
@@ -1392,12 +1481,7 @@ function ResetSection() {
           {error && <p className="text-sm text-ember">⚠ {error}</p>}
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={close}
-              disabled={busy}
-              className={actionButtonClass}
-            >
+            <Button variant="outline" onClick={close} disabled={busy} className={actionButtonClass}>
               Cancel
             </Button>
             <Button

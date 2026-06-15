@@ -48,9 +48,14 @@ export class ConnectorManager {
       if (!account) return;
       try {
         const result = await syncConnector(this.deps, account, kind);
-        console.log(`[connectors] ${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`);
+        console.log(
+          `[connectors] ${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
+        );
       } catch (error) {
-        console.error(`[connectors] ${kind} sync failed:`, error instanceof Error ? error.message : error);
+        console.error(
+          `[connectors] ${kind} sync failed:`,
+          error instanceof Error ? error.message : error,
+        );
       }
     });
   }
@@ -67,6 +72,11 @@ export class ConnectorManager {
   stop(): void {
     for (const timer of this.timers.values()) clearInterval(timer);
     this.timers.clear();
+  }
+
+  /** How many per-kind sync timers are currently armed (runtime introspection). */
+  activeTimerCount(): number {
+    return this.timers.size;
   }
 
   /**

@@ -20,24 +20,37 @@ export type QueryIntent =
 
 /** Ordered most-specific first; the first matching pattern wins. */
 const RULES: Array<{ intent: QueryIntent; pattern: RegExp }> = [
-  { intent: "update_memory", pattern: /^\s*(remember|note that|fyi[:,\s]|actually[:,\s]|update:|for the record)/i },
+  {
+    intent: "update_memory",
+    pattern: /^\s*(remember|note that|fyi[:,\s]|actually[:,\s]|update:|for the record)/i,
+  },
   {
     intent: "generate_output",
-    pattern: /\b(write|generate|draft|create|make|produce|prepare)\b.{0,30}\b(brief|timeline|table|report|summary|digest|deck|slides|export|overview document)\b/i,
+    pattern:
+      /\b(write|generate|draft|create|make|produce|prepare)\b.{0,30}\b(brief|timeline|table|report|summary|digest|deck|slides|export|overview document)\b/i,
   },
-  { intent: "find_contradictions", pattern: /\b(contradict\w*|conflict\w*|inconsisten\w*|disagree\w*)\b/i },
-  { intent: "compare", pattern: /\b(compare|comparison|versus|vs\.?|difference between|differ\b|trade-?offs?)\b/i },
+  {
+    intent: "find_contradictions",
+    pattern: /\b(contradict\w*|conflict\w*|inconsisten\w*|disagree\w*)\b/i,
+  },
+  {
+    intent: "compare",
+    pattern: /\b(compare|comparison|versus|vs\.?|difference between|differ\b|trade-?offs?)\b/i,
+  },
   {
     intent: "trace_timeline",
-    pattern: /\b(timeline|history of|over time|chronolog\w*|evolv\w*|evolution|when did|what changed|recently|latest|so far)\b/i,
+    pattern:
+      /\b(timeline|history of|over time|chronolog\w*|evolv\w*|evolution|when did|what changed|recently|latest|so far)\b/i,
   },
   {
     intent: "find_source",
-    pattern: /\b(where did i|where do i|which (document|source|file|note|doc)|what (document|source|file|note)|find (the )?(source|document|note|file)|cite|citation)\b/i,
+    pattern:
+      /\b(where did i|where do i|which (document|source|file|note|doc)|what (document|source|file|note)|find (the )?(source|document|note|file)|cite|citation)\b/i,
   },
   {
     intent: "summarize_entity",
-    pattern: /\b(summar\w+|tell me about|who is|who'?s|what is|what'?s|overview of|profile of|brief me on)\b/i,
+    pattern:
+      /\b(summar\w+|tell me about|who is|who'?s|what is|what'?s|overview of|profile of|brief me on)\b/i,
   },
 ];
 

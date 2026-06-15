@@ -47,7 +47,9 @@ export class StubLlmClient implements LlmClient {
     this.requests.push({ kind: "structured", request });
     const raw = this.handlers.onStructured?.(request);
     if (raw === undefined) {
-      throw new Error(`StubLlmClient has no handler for structured request "${request.schemaName}"`);
+      throw new Error(
+        `StubLlmClient has no handler for structured request "${request.schemaName}"`,
+      );
     }
     return request.schema.parse(raw);
   }
@@ -79,7 +81,12 @@ export class StubLlmClient implements LlmClient {
           toolCallId: chunk.toolCallId ?? "stub",
           messages: [],
         });
-        yield { type: "tool-result", toolCallId: chunk.toolCallId, toolName: chunk.toolName, output };
+        yield {
+          type: "tool-result",
+          toolCallId: chunk.toolCallId,
+          toolName: chunk.toolName,
+          output,
+        };
       }
     }
   }

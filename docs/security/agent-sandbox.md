@@ -25,7 +25,7 @@ The agent never touches the real data directory. `WikiWriter.regenerate` builds 
 `bash-tool` sandbox with:
 
 ```ts
-createBashTool({ uploadDirectory: { source: this.wikiDir, include: "**/*.md" } })
+createBashTool({ uploadDirectory: { source: this.wikiDir, include: "**/*.md" } });
 ```
 
 This is an **in-memory, copy-on-write overlay** populated with a copy of only the
@@ -37,23 +37,23 @@ tokens, no profile documents, and no host-filesystem path.
 Privacy at the data layer reinforces this: the prompt is built only from
 `store.visibleObservations(entityId)` and `store.relationshipsFor(entityId)` —
 private/secret claims (schema sensitivity rules) and non-`wiki_eligible` sources
-(migration 18 source visibility) are filtered out *before* anything reaches the
+(migration 18 source visibility) are filtered out _before_ anything reaches the
 agent.
 
 ## Read / write / execute / never-touch matrix
 
-| Resource                                   | Read | Write | Execute | Notes |
-|--------------------------------------------|:----:|:-----:|:-------:|-------|
-| Wiki Markdown copy (`**/*.md` in sandbox)  |  ✅  |  ✅   |  ✅ (cat/grep/ls) | Only ever a temp copy, not the live files |
-| `SUMMARY.txt` in sandbox                   |  ✅  |  ✅   |    —    | Directory summary the agent writes |
-| Host filesystem outside the workspace      |  ❌  |  ❌   |    ❌   | Blocked by the allowlist guard |
-| Raw watched/source files                   |  ❌  |  ❌   |    ❌   | Never uploaded to the sandbox |
-| SQLite database (`meos.db`)                |  ❌  |  ❌   |    ❌   | No handle in the sandbox |
-| Connector metadata / OAuth tokens          |  ❌  |  ❌   |    ❌   | Live in the DB only |
-| Private profile documents                  |  ❌  |  ❌   |    ❌   | Not uploaded; not in the prompt |
-| Credentials / secrets / env                |  ❌  |  ❌   |    ❌   | Not present in the sandbox |
-| Private / secret observations              |  ❌  |  ❌   |    ❌   | Filtered by `visibleObservations` |
-| Network                                    |  ❌  |  ❌   |    ❌   | `just-bash` sandbox has no real network/FS egress |
+| Resource                                  | Read | Write |     Execute      | Notes                                             |
+| ----------------------------------------- | :--: | :---: | :--------------: | ------------------------------------------------- |
+| Wiki Markdown copy (`**/*.md` in sandbox) |  ✅  |  ✅   | ✅ (cat/grep/ls) | Only ever a temp copy, not the live files         |
+| `SUMMARY.txt` in sandbox                  |  ✅  |  ✅   |        —         | Directory summary the agent writes                |
+| Host filesystem outside the workspace     |  ❌  |  ❌   |        ❌        | Blocked by the allowlist guard                    |
+| Raw watched/source files                  |  ❌  |  ❌   |        ❌        | Never uploaded to the sandbox                     |
+| SQLite database (`meos.db`)               |  ❌  |  ❌   |        ❌        | No handle in the sandbox                          |
+| Connector metadata / OAuth tokens         |  ❌  |  ❌   |        ❌        | Live in the DB only                               |
+| Private profile documents                 |  ❌  |  ❌   |        ❌        | Not uploaded; not in the prompt                   |
+| Credentials / secrets / env               |  ❌  |  ❌   |        ❌        | Not present in the sandbox                        |
+| Private / secret observations             |  ❌  |  ❌   |        ❌        | Filtered by `visibleObservations`                 |
+| Network                                   |  ❌  |  ❌   |        ❌        | `just-bash` sandbox has no real network/FS egress |
 
 The agent **never** receives, and must never be able to reach: raw watched files,
 private profile docs, connector metadata, credentials, or the SQLite DB.
@@ -81,12 +81,12 @@ read-back paths the writer uses are also asserted with `assertInWorkspace`.
 `WikiSandboxLimits` (defaults in `DEFAULT_WIKI_SANDBOX_LIMITS`), enforced by
 `RunLimitTracker`:
 
-| Limit             | Default  | Enforced |
-|-------------------|----------|----------|
-| `runTimeoutMs`    | 120 000  | Wall-clock budget (race + per-tool check) |
-| `maxOutputBytes`  | 256 KiB  | Per write content / command size (also `bash-tool` `maxOutputLength`) |
-| `maxFilesTouched` | 32       | Distinct files mutated in a run |
-| `maxPageDiffBytes`| 128 KiB  | Bytes the new page body may differ from the prior body |
+| Limit              | Default | Enforced                                                              |
+| ------------------ | ------- | --------------------------------------------------------------------- |
+| `runTimeoutMs`     | 120 000 | Wall-clock budget (race + per-tool check)                             |
+| `maxOutputBytes`   | 256 KiB | Per write content / command size (also `bash-tool` `maxOutputLength`) |
+| `maxFilesTouched`  | 32      | Distinct files mutated in a run                                       |
+| `maxPageDiffBytes` | 128 KiB | Bytes the new page body may differ from the prior body                |
 
 Defaults are deliberately generous so legitimate multi-section, multi-page edits
 always succeed. On any breach the run aborts (`WikiLimitExceededError`), the

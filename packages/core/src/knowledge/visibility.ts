@@ -40,7 +40,11 @@ const ALL_TRUE: SourceVisibility = {
 };
 
 /** Connector source types whose data stays off portable, remote-pushed artifacts. */
-export const CONNECTOR_SOURCE_TYPES = ["google:contacts", "google:calendar", "google:gmail"] as const;
+export const CONNECTOR_SOURCE_TYPES = [
+  "google:contacts",
+  "google:calendar",
+  "google:gmail",
+] as const;
 
 /** The profile-context source type (kept in sync with the server's profile route). */
 export const PROFILE_SOURCE_TYPE = "profile_context";

@@ -445,9 +445,9 @@ export class KnowledgeStore {
    * UI distinguish "newly ingested" from "changed and re-read".
    */
   upsertInboxItemForFile(filePath: string, title: string): { id: number; isUpdate: boolean } {
-    const existing = this.db
-      .prepare("SELECT id FROM inbox_items WHERE path = ?")
-      .get(filePath) as { id: number } | undefined;
+    const existing = this.db.prepare("SELECT id FROM inbox_items WHERE path = ?").get(filePath) as
+      | { id: number }
+      | undefined;
     if (existing) {
       this.db
         .prepare(
@@ -517,7 +517,9 @@ export class KnowledgeStore {
   }
 
   getEntityBySlug(slug: string): EntityRow | undefined {
-    return this.db.prepare("SELECT * FROM entities WHERE slug = ?").get(slug) as EntityRow | undefined;
+    return this.db.prepare("SELECT * FROM entities WHERE slug = ?").get(slug) as
+      | EntityRow
+      | undefined;
   }
 
   listEntities(): EntityRow[] {
@@ -543,29 +545,52 @@ export class KnowledgeStore {
 
     const run = this.db.transaction(() => {
       // Names/aliases: the loser's name and aliases become the winner's aliases.
-      this.db.prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)").run(winnerId, loser.name);
-      this.db.prepare("UPDATE OR IGNORE entity_aliases SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db
+        .prepare("INSERT OR IGNORE INTO entity_aliases (entity_id, alias) VALUES (?, ?)")
+        .run(winnerId, loser.name);
+      this.db
+        .prepare("UPDATE OR IGNORE entity_aliases SET entity_id = ? WHERE entity_id = ?")
+        .run(winnerId, loserId);
       this.db.prepare("DELETE FROM entity_aliases WHERE entity_id = ?").run(loserId);
 
       // Observations (and their sources via observation_id) move wholesale.
-      this.db.prepare("UPDATE observations SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db
+        .prepare("UPDATE observations SET entity_id = ? WHERE entity_id = ?")
+        .run(winnerId, loserId);
 
       // Relationships: re-point loser's edges to the winner, skipping the
       // self-edges and duplicates that would create (OR IGNORE drops those),
       // then delete whatever couldn't be re-pointed.
-      this.db.prepare("UPDATE OR IGNORE relationships SET from_entity = ? WHERE from_entity = ? AND to_entity <> ?").run(winnerId, loserId, winnerId);
-      this.db.prepare("UPDATE OR IGNORE relationships SET to_entity = ? WHERE to_entity = ? AND from_entity <> ?").run(winnerId, loserId, winnerId);
-      this.db.prepare("DELETE FROM relationships WHERE from_entity = ? OR to_entity = ?").run(loserId, loserId);
+      this.db
+        .prepare(
+          "UPDATE OR IGNORE relationships SET from_entity = ? WHERE from_entity = ? AND to_entity <> ?",
+        )
+        .run(winnerId, loserId, winnerId);
+      this.db
+        .prepare(
+          "UPDATE OR IGNORE relationships SET to_entity = ? WHERE to_entity = ? AND from_entity <> ?",
+        )
+        .run(winnerId, loserId, winnerId);
+      this.db
+        .prepare("DELETE FROM relationships WHERE from_entity = ? OR to_entity = ?")
+        .run(loserId, loserId);
 
       // Wiki bookkeeping and history.
-      this.db.prepare("UPDATE OR IGNORE wiki_stale_sources SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db
+        .prepare("UPDATE OR IGNORE wiki_stale_sources SET entity_id = ? WHERE entity_id = ?")
+        .run(winnerId, loserId);
       this.db.prepare("DELETE FROM wiki_stale_sources WHERE entity_id = ?").run(loserId);
-      this.db.prepare("UPDATE wiki_commit_changes SET entity_id = ? WHERE entity_id = ?").run(winnerId, loserId);
+      this.db
+        .prepare("UPDATE wiki_commit_changes SET entity_id = ? WHERE entity_id = ?")
+        .run(winnerId, loserId);
       this.db.prepare("DELETE FROM wiki_pages WHERE entity_id = ?").run(loserId);
 
       this.db.prepare("DELETE FROM entities WHERE id = ?").run(loserId);
       this.db.prepare("UPDATE entities SET wiki_stale = 1 WHERE id = ?").run(winnerId);
-      this.logAudit("merge_entity", `"${loser.name}" (#${loserId}) merged into "${winner.name}" (#${winnerId})`);
+      this.logAudit(
+        "merge_entity",
+        `"${loser.name}" (#${loserId}) merged into "${winner.name}" (#${winnerId})`,
+      );
     });
     run();
     return true;
@@ -603,7 +628,9 @@ export class KnowledgeStore {
 
   aliasesFor(entityId: number): string[] {
     return (
-      this.db.prepare("SELECT alias FROM entity_aliases WHERE entity_id = ?").all(entityId) as Array<{
+      this.db
+        .prepare("SELECT alias FROM entity_aliases WHERE entity_id = ?")
+        .all(entityId) as Array<{
         alias: string;
       }>
     ).map((row) => row.alias);
@@ -726,11 +753,15 @@ export class KnowledgeStore {
 
   /** The run feed, newest first. */
   listWikiRuns(limit = 100): WikiRunRow[] {
-    return this.db.prepare("SELECT * FROM wiki_runs ORDER BY id DESC LIMIT ?").all(limit) as WikiRunRow[];
+    return this.db
+      .prepare("SELECT * FROM wiki_runs ORDER BY id DESC LIMIT ?")
+      .all(limit) as WikiRunRow[];
   }
 
   getWikiRun(id: number): WikiRunRow | undefined {
-    return this.db.prepare("SELECT * FROM wiki_runs WHERE id = ?").get(id) as WikiRunRow | undefined;
+    return this.db.prepare("SELECT * FROM wiki_runs WHERE id = ?").get(id) as
+      | WikiRunRow
+      | undefined;
   }
 
   /** A run's full transcript in order. */
@@ -747,7 +778,12 @@ export class KnowledgeStore {
    * edge's confidence (like an observation); the same source never inflates it.
    * Returns true only when the edge was newly created.
    */
-  upsertRelationship(fromEntity: number, toEntity: number, label: string, sourceId?: number): boolean {
+  upsertRelationship(
+    fromEntity: number,
+    toEntity: number,
+    label: string,
+    sourceId?: number,
+  ): boolean {
     const existing = this.db
       .prepare("SELECT id FROM relationships WHERE from_entity = ? AND to_entity = ? AND label = ?")
       .get(fromEntity, toEntity, label) as { id: number } | undefined;
@@ -755,11 +791,15 @@ export class KnowledgeStore {
       if (sourceId !== undefined) {
         const isNewSource =
           this.db
-            .prepare("INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)")
+            .prepare(
+              "INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)",
+            )
             .run(existing.id, sourceId).changes > 0;
         if (isNewSource) {
           this.db
-            .prepare(`UPDATE relationships SET confidence = MIN(${CONFIDENCE_CAP}, confidence + ${REINFORCE_STEP}) WHERE id = ?`)
+            .prepare(
+              `UPDATE relationships SET confidence = MIN(${CONFIDENCE_CAP}, confidence + ${REINFORCE_STEP}) WHERE id = ?`,
+            )
             .run(existing.id);
         }
       }
@@ -767,12 +807,16 @@ export class KnowledgeStore {
     }
     const id = Number(
       this.db
-        .prepare("INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)")
+        .prepare(
+          "INSERT INTO relationships (from_entity, to_entity, label, source_id) VALUES (?, ?, ?, ?)",
+        )
         .run(fromEntity, toEntity, label, sourceId ?? null).lastInsertRowid,
     );
     if (sourceId !== undefined) {
       this.db
-        .prepare("INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)")
+        .prepare(
+          "INSERT OR IGNORE INTO relationship_sources (relationship_id, source_id) VALUES (?, ?)",
+        )
         .run(id, sourceId);
     }
     return true;
@@ -924,7 +968,9 @@ export class KnowledgeStore {
   /** Record a document as backing an observation; true when it is a new source. */
   recordObservationSource(observationId: number, sourceId: number): boolean {
     const result = this.db
-      .prepare("INSERT OR IGNORE INTO observation_sources (observation_id, source_id) VALUES (?, ?)")
+      .prepare(
+        "INSERT OR IGNORE INTO observation_sources (observation_id, source_id) VALUES (?, ?)",
+      )
       .run(observationId, sourceId);
     return result.changes > 0;
   }
@@ -1015,7 +1061,9 @@ export class KnowledgeStore {
   }
 
   /** The most recent audit entries, newest first. */
-  recentAudit(limit = 100): Array<{ id: number; op: string; detail: string | null; created_at: string }> {
+  recentAudit(
+    limit = 100,
+  ): Array<{ id: number; op: string; detail: string | null; created_at: string }> {
     return this.db
       .prepare("SELECT id, op, detail, created_at FROM audit_log ORDER BY id DESC LIMIT ?")
       .all(limit) as Array<{ id: number; op: string; detail: string | null; created_at: string }>;
@@ -1075,7 +1123,14 @@ export class KnowledgeStore {
          WHERE c.id = ?`,
       )
       .get(id) as
-      | { id: number; entity_id: number; observation_a: number; observation_b: number; note: string | null; resolved: number }
+      | {
+          id: number;
+          entity_id: number;
+          observation_a: number;
+          observation_b: number;
+          note: string | null;
+          resolved: number;
+        }
       | undefined;
   }
 
@@ -1208,7 +1263,13 @@ export class KnowledgeStore {
   }
 
   /** Per active claim: its kind, source type, and distinct source count — drives tier reclassification. */
-  observationTierInputs(): Array<{ id: number; kind: string; source_type: string | null; source_count: number; memory_tier: string }> {
+  observationTierInputs(): Array<{
+    id: number;
+    kind: string;
+    source_type: string | null;
+    source_count: number;
+    memory_tier: string;
+  }> {
     return this.db
       .prepare(
         `SELECT o.id, o.kind, o.memory_tier, s.type AS source_type,
@@ -1216,7 +1277,13 @@ export class KnowledgeStore {
          FROM observations o LEFT JOIN sources s ON s.id = o.source_id
          WHERE o.status = 'active'`,
       )
-      .all() as Array<{ id: number; kind: string; source_type: string | null; source_count: number; memory_tier: string }>;
+      .all() as Array<{
+      id: number;
+      kind: string;
+      source_type: string | null;
+      source_count: number;
+      memory_tier: string;
+    }>;
   }
 
   /** Wiki pages with no connections to the rest of the graph, surfaced for review. */
@@ -1244,13 +1311,22 @@ export class KnowledgeStore {
     sinceIso: string,
     scope?: "export" | "activity",
   ): Array<{ id: number; title: string; type: string; created_at: string }> {
-    const flag = scope === "export" ? " AND exportable = 1" : scope === "activity" ? " AND activity_visible = 1" : "";
+    const flag =
+      scope === "export"
+        ? " AND exportable = 1"
+        : scope === "activity"
+          ? " AND activity_visible = 1"
+          : "";
     return this.db
-      .prepare(`SELECT id, title, type, created_at FROM sources WHERE created_at >= ?${flag} ORDER BY id DESC`)
+      .prepare(
+        `SELECT id, title, type, created_at FROM sources WHERE created_at >= ?${flag} ORDER BY id DESC`,
+      )
       .all(sinceIso) as Array<{ id: number; title: string; type: string; created_at: string }>;
   }
 
-  recentObservations(sinceIso: string): Array<{ text: string; entity_name: string; confidence: number }> {
+  recentObservations(
+    sinceIso: string,
+  ): Array<{ text: string; entity_name: string; confidence: number }> {
     return this.db
       .prepare(
         `SELECT o.text, o.confidence, e.name AS entity_name
@@ -1261,7 +1337,9 @@ export class KnowledgeStore {
       .all(sinceIso) as Array<{ text: string; entity_name: string; confidence: number }>;
   }
 
-  recentlySuperseded(sinceIso: string): Array<{ old_text: string; new_text: string; entity_name: string }> {
+  recentlySuperseded(
+    sinceIso: string,
+  ): Array<{ old_text: string; new_text: string; entity_name: string }> {
     return this.db
       .prepare(
         `SELECT old.text AS old_text, new.text AS new_text, e.name AS entity_name
@@ -1283,15 +1361,17 @@ export class KnowledgeStore {
   }
 
   latestDigest(): { date: string; content: string } | undefined {
-    return this.db
-      .prepare("SELECT date, content FROM digests ORDER BY date DESC LIMIT 1")
-      .get() as { date: string; content: string } | undefined;
+    return this.db.prepare("SELECT date, content FROM digests ORDER BY date DESC LIMIT 1").get() as
+      | { date: string; content: string }
+      | undefined;
   }
 
   // --- conversations ---
 
   createConversation(title?: string): number {
-    const result = this.db.prepare("INSERT INTO conversations (title) VALUES (?)").run(title ?? null);
+    const result = this.db
+      .prepare("INSERT INTO conversations (title) VALUES (?)")
+      .run(title ?? null);
     return Number(result.lastInsertRowid);
   }
 
@@ -1339,7 +1419,9 @@ export class KnowledgeStore {
     sources: SourceRef[];
   }> {
     const messages = this.db
-      .prepare("SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id")
+      .prepare(
+        "SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY id",
+      )
       .all(conversationId) as Array<{
       id: number;
       role: "user" | "assistant";
@@ -1384,7 +1466,8 @@ export class KnowledgeStore {
    * Re-confirmation always refreshes recency so the fact resists decay.
    */
   reinforceObservation(id: number, sourceId?: number): void {
-    const distinctSource = sourceId === undefined ? true : this.recordObservationSource(id, sourceId);
+    const distinctSource =
+      sourceId === undefined ? true : this.recordObservationSource(id, sourceId);
     this.db
       .prepare(
         distinctSource
@@ -1436,7 +1519,9 @@ export class KnowledgeStore {
   }
 
   /** Pages below a quality threshold, worst first — surfaced for review. */
-  lowQualityPages(threshold = 0.6): Array<{ entity_id: number; entity_name: string; quality: number }> {
+  lowQualityPages(
+    threshold = 0.6,
+  ): Array<{ entity_id: number; entity_name: string; quality: number }> {
     return this.db
       .prepare(
         `SELECT w.entity_id, w.quality, e.name AS entity_name
@@ -1668,7 +1753,12 @@ export class KnowledgeStore {
 
   updateConnectorTokens(
     accountId: number,
-    tokens: { accessToken: string; refreshToken?: string | null; expiry?: string | null; scopes?: string | null },
+    tokens: {
+      accessToken: string;
+      refreshToken?: string | null;
+      expiry?: string | null;
+      scopes?: string | null;
+    },
   ): void {
     this.db
       .prepare(
@@ -1680,7 +1770,13 @@ export class KnowledgeStore {
            status = 'connected'
          WHERE id = ?`,
       )
-      .run(tokens.accessToken, tokens.refreshToken ?? null, tokens.expiry ?? null, tokens.scopes ?? null, accountId);
+      .run(
+        tokens.accessToken,
+        tokens.refreshToken ?? null,
+        tokens.expiry ?? null,
+        tokens.scopes ?? null,
+        accountId,
+      );
   }
 
   deleteConnectorAccount(provider: string): void {
@@ -1723,9 +1819,11 @@ export class KnowledgeStore {
     const next = {
       enabled: patch.enabled !== undefined ? Number(patch.enabled) : (existing?.enabled ?? 0),
       intervalMinutes: patch.intervalMinutes ?? existing?.interval_minutes ?? 15,
-      syncToken: "syncToken" in patch ? patch.syncToken ?? null : existing?.sync_token ?? null,
-      lastSyncedAt: "lastSyncedAt" in patch ? patch.lastSyncedAt ?? null : existing?.last_synced_at ?? null,
-      lastStatus: "lastStatus" in patch ? patch.lastStatus ?? null : existing?.last_status ?? null,
+      syncToken: "syncToken" in patch ? (patch.syncToken ?? null) : (existing?.sync_token ?? null),
+      lastSyncedAt:
+        "lastSyncedAt" in patch ? (patch.lastSyncedAt ?? null) : (existing?.last_synced_at ?? null),
+      lastStatus:
+        "lastStatus" in patch ? (patch.lastStatus ?? null) : (existing?.last_status ?? null),
     };
     this.db
       .prepare(
@@ -1750,7 +1848,12 @@ export class KnowledgeStore {
       );
   }
 
-  connectorItemUnchanged(accountId: number, kind: string, externalId: string, contentHash: string): boolean {
+  connectorItemUnchanged(
+    accountId: number,
+    kind: string,
+    externalId: string,
+    contentHash: string,
+  ): boolean {
     const row = this.db
       .prepare(
         "SELECT content_hash FROM connector_items WHERE account_id = ? AND kind = ? AND external_id = ?",

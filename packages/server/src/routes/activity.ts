@@ -1,15 +1,17 @@
+import { activity } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 export function registerActivityRoutes(app: FastifyInstance, ctx: AppContext): void {
   // The run feed (newest first) — each row becomes a card in the Activity view.
   app.get("/api/activity", async () => ({ runs: ctx.store.listWikiRuns() }));
 
   // A single run's persisted transcript, for replaying a run you didn't watch live.
-  app.get<{ Params: { id: string } }>("/api/activity/:id/events", async (request, reply) => {
-    const id = Number(request.params.id);
+  app.get<{ Params: { id: string } }>("/api/activity/:id/events", async (request) => {
+    const { id } = parseOrThrow(activity.RunEventsParams, request.params, "params");
     const run = ctx.store.getWikiRun(id);
-    if (!run) return reply.code(404).send({ error: "No such run" });
+    if (!run) throw httpError.notFound("No such run");
     return { run, events: ctx.store.getWikiRunEvents(id) };
   });
 

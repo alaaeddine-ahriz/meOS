@@ -69,7 +69,13 @@ export class ActivityBus {
       slug: start.slug,
       sourceIds: start.sourceIds,
     });
-    this.publish({ type: "run-start", runId, name: start.name, entityType: start.type, slug: start.slug });
+    this.publish({
+      type: "run-start",
+      runId,
+      name: start.name,
+      entityType: start.type,
+      slug: start.slug,
+    });
 
     // Persist coalesced rows (consecutive reasoning/text deltas merge into one),
     // but publish deltas live for an incremental, IDE-like stream.
@@ -96,11 +102,25 @@ export class ActivityBus {
           flush();
           const isCall = chunk.type === "tool-call";
           const payload = stringify(isCall ? chunk.input : chunk.output);
-          this.store.appendWikiRunEvent(runId, { seq: seq++, kind: chunk.type, toolName: chunk.toolName, payload });
-          this.publish({ type: "event", runId, kind: chunk.type, toolName: chunk.toolName, payload });
+          this.store.appendWikiRunEvent(runId, {
+            seq: seq++,
+            kind: chunk.type,
+            toolName: chunk.toolName,
+            payload,
+          });
+          this.publish({
+            type: "event",
+            runId,
+            kind: chunk.type,
+            toolName: chunk.toolName,
+            payload,
+          });
         } catch (error) {
           // A persistence/broadcast hiccup must never break the agent run.
-          console.error("[activity] failed to record run event:", error instanceof Error ? error.message : error);
+          console.error(
+            "[activity] failed to record run event:",
+            error instanceof Error ? error.message : error,
+          );
         }
       },
       finish: (status) => {
@@ -108,7 +128,10 @@ export class ActivityBus {
           flush();
           this.store.finishWikiRun(runId, status);
         } catch (error) {
-          console.error("[activity] failed to finish run:", error instanceof Error ? error.message : error);
+          console.error(
+            "[activity] failed to finish run:",
+            error instanceof Error ? error.message : error,
+          );
         }
         this.publish({ type: "run-finish", runId, status });
       },

@@ -6,7 +6,9 @@ import { cn } from "@/lib/utils";
  * Activity hub and the Conflicts sub-tabs so the pattern lives in one place.
  */
 export function HubTabs({ children, className }: { children: ReactNode; className?: string }) {
-  return <nav className={cn("flex flex-wrap gap-1 border-b border-line", className)}>{children}</nav>;
+  return (
+    <nav className={cn("flex flex-wrap gap-1 border-b border-line", className)}>{children}</nav>
+  );
 }
 
 /** One tab: a label, an optional count badge, and an active underline. */

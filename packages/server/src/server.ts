@@ -6,6 +6,8 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type { AppContext } from "./context.js";
+import { registerErrorHandler } from "./errors.js";
+import { registerOpenApi } from "./openapi.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerConnectorRoutes } from "./routes/connectors.js";
@@ -14,6 +16,7 @@ import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
 import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerProfileRoutes } from "./routes/profile.js";
+import { registerRuntimeRoutes } from "./routes/runtime.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerVaultRoutes } from "./routes/vault.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
@@ -36,7 +39,25 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   });
   await app.register(multipart, { limits: { fileSize: 100 * 1024 * 1024 } });
 
-  app.get("/api/health", async () => ({ ok: true, llmProvider: ctx.config.llm.provider }));
+  // Every thrown error — typed ApiError, validation failures, uncaught — is
+  // turned into the single error envelope, tagged with request.id.
+  registerErrorHandler(app);
+
+  // OpenAPI spec + docs, generated from the route schemas. Registered before the
+  // routes so each can attach its own JSON schema for richer documentation.
+  await registerOpenApi(app);
+
+  // Keep `ok` + `llmProvider` intact (the CI web-smoke depends on `ok`); add a
+  // compact `workers` status list so a basic health check sees the runtime too.
+  app.get("/api/health", async () => ({
+    ok: true,
+    llmProvider: ctx.config.llm.provider,
+    workers: ctx.workers.health().map((w) => ({ name: w.name, status: w.status })),
+  }));
+
+  // The machine-readable spec; @fastify/swagger has assembled it by the time the
+  // server is ready (it builds lazily from registered routes + components).
+  app.get("/api/openapi.json", async () => app.swagger());
 
   registerIngestRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
@@ -49,6 +70,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerSettingsRoutes(app, ctx);
   registerConnectorRoutes(app, ctx);
   registerGitRoutes(app, ctx);
+  registerRuntimeRoutes(app, ctx);
 
   // In production the built web app is served from this same process; in dev
   // the Vite server proxies /api here instead and this block is skipped. The
@@ -60,7 +82,12 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
     await app.register(fastifyStatic, { root: webDist });
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith("/api/")) {
-        return reply.code(404).send({ error: "Not found" });
+        return reply.code(404).send({
+          code: "NOT_FOUND",
+          message: "Not found",
+          requestId: request.id,
+          recoverable: false,
+        });
       }
       return reply.sendFile("index.html");
     });

@@ -1,5 +1,7 @@
+import { ingest } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.post("/api/ingest/upload", async (request, reply) => {
@@ -16,7 +18,7 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
       accepted.push({ inboxItemId, filename });
     }
     if (accepted.length === 0) {
-      return reply.code(400).send({ error: "No files in request" });
+      throw httpError.badRequest("No files in request");
     }
     return reply.code(202).send({ accepted });
   });
@@ -28,11 +30,11 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
 
   // What a single document created/changed in the wiki: its commits, each
   // scoped (via path filtering) to just this document's pages, with the diff.
-  app.get<{ Params: { id: string } }>("/api/sources/:id/diff", async (request, reply) => {
-    const id = Number(request.params.id);
-    const source = Number.isInteger(id) ? ctx.store.getSource(id) : undefined;
+  app.get<{ Params: { id: string } }>("/api/sources/:id/diff", async (request) => {
+    const { id } = parseOrThrow(ingest.SourceDiffParams, request.params, "params");
+    const source = ctx.store.getSource(id);
     if (!source) {
-      return reply.code(404).send({ error: "No such document" });
+      throw httpError.notFound("No such document");
     }
 
     // Group this source's recorded file changes by the commit they landed in,

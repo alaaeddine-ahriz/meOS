@@ -17,7 +17,9 @@ export async function googleGet<T>(url: string, accessToken: string): Promise<T>
   });
   if (response.status === 410) throw new SyncTokenExpiredError();
   if (!response.ok) {
-    throw new Error(`Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`);
+    throw new Error(
+      `Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`,
+    );
   }
   return (await response.json()) as T;
 }

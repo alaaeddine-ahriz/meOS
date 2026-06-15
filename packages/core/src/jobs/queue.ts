@@ -60,6 +60,11 @@ export class JobQueue {
     return this.pendingCount;
   }
 
+  /** How many jobs are executing right now (for runtime introspection). */
+  get active(): number {
+    return this.running;
+  }
+
   /** Resolves once every job queued so far has finished. */
   onIdle(): Promise<void> {
     if (this.running === 0 && this.waiting.length === 0) return Promise.resolve();

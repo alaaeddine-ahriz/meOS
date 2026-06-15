@@ -11,7 +11,11 @@ function store() {
 }
 
 function extraction(observations: Extraction["observations"]): Extraction {
-  return { entities: [{ name: "Dana", type: "person", aliases: [], summary: "" }], relationships: [], observations };
+  return {
+    entities: [{ name: "Dana", type: "person", aliases: [], summary: "" }],
+    relationships: [],
+    observations,
+  };
 }
 
 describe("rich-claim provenance", () => {
@@ -45,7 +49,9 @@ describe("rich-claim provenance", () => {
     expect(obs.confidence).toBeCloseTo(0.8, 5);
     expect(obs.valid_from).toBe("2024-03-01");
     // the char span points back at the exact supporting sentence
-    expect(sourceText.slice(obs.char_start!, obs.char_end!)).toBe("Dana joined the Orion team in March 2024.");
+    expect(sourceText.slice(obs.char_start!, obs.char_end!)).toBe(
+      "Dana joined the Orion team in March 2024.",
+    );
   });
 });
 
@@ -79,13 +85,17 @@ describe("privacy at ingest", () => {
     expect(obs.text).not.toContain(secret);
     expect(obs.text).toContain("[REDACTED]");
     // sensitive claims are filtered out of the material the wiki writer sees
-    expect(s.activeObservations(obs.entity_id).filter((o) => o.sensitivity === "normal")).toHaveLength(0);
+    expect(
+      s.activeObservations(obs.entity_id).filter((o) => o.sensitivity === "normal"),
+    ).toHaveLength(0);
   });
 
   it("detects and redacts common secret shapes, leaving prose intact", () => {
     expect(containsSecret("here is AKIAIOSFODNN7EXAMPLE for aws")).toBe(true);
     expect(containsSecret("just a normal sentence about Berlin")).toBe(false);
-    expect(redactSecrets("token=ghp_0123456789012345678901234567890123456 done")).toContain("[REDACTED]");
+    expect(redactSecrets("token=ghp_0123456789012345678901234567890123456 done")).toContain(
+      "[REDACTED]",
+    );
     expect(redactSecrets("nothing secret here")).toBe("nothing secret here");
   });
 });

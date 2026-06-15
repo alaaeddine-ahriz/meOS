@@ -80,7 +80,9 @@ export interface GuardAuditEvent {
  * so even a bypass cannot reach raw watched files, the DB, or credentials — this
  * is the explicit defence-in-depth layer the writer applies on top.)
  */
-export function checkWorkspacePath(rawPath: string): Extract<GuardViolation, { kind: "path-escape" }> | null {
+export function checkWorkspacePath(
+  rawPath: string,
+): Extract<GuardViolation, { kind: "path-escape" }> | null {
   const reason = (r: string) => ({ kind: "path-escape" as const, path: rawPath, reason: r });
   if (typeof rawPath !== "string" || rawPath.length === 0) return reason("empty path");
   // Reject control characters (incl. NUL) used to smuggle or truncate paths.
@@ -88,7 +90,11 @@ export function checkWorkspacePath(rawPath: string): Extract<GuardViolation, { k
     if (rawPath.charCodeAt(i) < 0x20) return reason("control characters in path");
   }
   // Absolute (posix or windows-drive or UNC) — the agent must stay relative.
-  if (path.posix.isAbsolute(rawPath) || /^[a-zA-Z]:[\\/]/.test(rawPath) || rawPath.startsWith("\\\\")) {
+  if (
+    path.posix.isAbsolute(rawPath) ||
+    /^[a-zA-Z]:[\\/]/.test(rawPath) ||
+    rawPath.startsWith("\\\\")
+  ) {
     return reason("absolute path");
   }
   // Normalise with posix semantics and forbid any climb above the root. A
@@ -122,14 +128,24 @@ export class RunLimitTracker {
   assertWithinTime(): void {
     const elapsed = Date.now() - this.startedAt;
     if (elapsed > this.limits.runTimeoutMs) {
-      throw new WikiLimitExceededError({ kind: "limit", limit: "runTimeoutMs", value: elapsed, max: this.limits.runTimeoutMs });
+      throw new WikiLimitExceededError({
+        kind: "limit",
+        limit: "runTimeoutMs",
+        value: elapsed,
+        max: this.limits.runTimeoutMs,
+      });
     }
   }
 
   /** Throw if a single output (write content / stdout) exceeds the byte cap. */
   assertOutputSize(bytes: number): void {
     if (bytes > this.limits.maxOutputBytes) {
-      throw new WikiLimitExceededError({ kind: "limit", limit: "maxOutputBytes", value: bytes, max: this.limits.maxOutputBytes });
+      throw new WikiLimitExceededError({
+        kind: "limit",
+        limit: "maxOutputBytes",
+        value: bytes,
+        max: this.limits.maxOutputBytes,
+      });
     }
   }
 
@@ -137,15 +153,30 @@ export class RunLimitTracker {
   noteFileTouched(filePath: string): void {
     this.touched.add(path.posix.normalize(filePath.replaceAll("\\", "/")));
     if (this.touched.size > this.limits.maxFilesTouched) {
-      throw new WikiLimitExceededError({ kind: "limit", limit: "maxFilesTouched", value: this.touched.size, max: this.limits.maxFilesTouched });
+      throw new WikiLimitExceededError({
+        kind: "limit",
+        limit: "maxFilesTouched",
+        value: this.touched.size,
+        max: this.limits.maxFilesTouched,
+      });
     }
   }
 
   /** Validate the final page diff against the cap (checked at write-back). */
-  checkPageDiff(beforeBody: string | null, afterBody: string): Extract<GuardViolation, { kind: "limit" }> | null {
-    const diff = Math.abs(Buffer.byteLength(afterBody, "utf-8") - Buffer.byteLength(beforeBody ?? "", "utf-8"));
+  checkPageDiff(
+    beforeBody: string | null,
+    afterBody: string,
+  ): Extract<GuardViolation, { kind: "limit" }> | null {
+    const diff = Math.abs(
+      Buffer.byteLength(afterBody, "utf-8") - Buffer.byteLength(beforeBody ?? "", "utf-8"),
+    );
     if (diff > this.limits.maxPageDiffBytes) {
-      return { kind: "limit", limit: "maxPageDiffBytes", value: diff, max: this.limits.maxPageDiffBytes };
+      return {
+        kind: "limit",
+        limit: "maxPageDiffBytes",
+        value: diff,
+        max: this.limits.maxPageDiffBytes,
+      };
     }
     return null;
   }
@@ -188,7 +219,10 @@ export function guardTools(
     const inner = original.execute.bind(original);
     guarded[name] = {
       ...original,
-      execute: async (input: unknown, options: Parameters<NonNullable<typeof original.execute>>[1]) => {
+      execute: async (
+        input: unknown,
+        options: Parameters<NonNullable<typeof original.execute>>[1],
+      ) => {
         const targetPath = pathOf(input);
         try {
           tracker.assertWithinTime();
@@ -227,7 +261,12 @@ export function guardTools(
     },
     true,
   );
-  wrap("readFile", (input) => stringField(input, "path"), () => undefined, false);
+  wrap(
+    "readFile",
+    (input) => stringField(input, "path"),
+    () => undefined,
+    false,
+  );
   // bash: no single path to allowlist (commands are arbitrary), but cap the
   // command's declared size and time it; its stdout is already capped by
   // bash-tool's maxOutputLength.

@@ -33,9 +33,23 @@ describe("wiki-run transcripts", () => {
       slug: entity.slug,
       sourceIds: [],
     });
-    store.appendWikiRunEvent(runId, { seq: 0, kind: "reasoning", payload: "Let me check the page." });
-    store.appendWikiRunEvent(runId, { seq: 1, kind: "tool-call", toolName: "readFile", payload: '{"path":"person/ada.md"}' });
-    store.appendWikiRunEvent(runId, { seq: 2, kind: "tool-call", toolName: "writeFile", payload: '{"path":"person/ada.md"}' });
+    store.appendWikiRunEvent(runId, {
+      seq: 0,
+      kind: "reasoning",
+      payload: "Let me check the page.",
+    });
+    store.appendWikiRunEvent(runId, {
+      seq: 1,
+      kind: "tool-call",
+      toolName: "readFile",
+      payload: '{"path":"person/ada.md"}',
+    });
+    store.appendWikiRunEvent(runId, {
+      seq: 2,
+      kind: "tool-call",
+      toolName: "writeFile",
+      payload: '{"path":"person/ada.md"}',
+    });
     store.finishWikiRun(runId, "done");
 
     const runs = store.listWikiRuns();
@@ -51,14 +65,23 @@ describe("wiki-run transcripts", () => {
   it("streams the agent's activity to the run sink and finishes 'done'", async () => {
     const store = new KnowledgeStore(db);
     const entity = store.createEntity({ type: "person", name: "Ada Lovelace" });
-    store.insertObservation({ entityId: entity.id, text: "Ada wrote the first algorithm.", confidence: 0.9 });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Ada wrote the first algorithm.",
+      confidence: 0.9,
+    });
 
     // A stub agent that emits reasoning + a tool call, then writes the page.
     const llm = new StubLlmClient({
       onAgent: async (request) => {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-asserted-optional-chain -- test fixture: the match is guaranteed by the prompt template
         const relPath = request.prompt.match(/target file is "([^"]+)"/)?.[1]!;
         request.onActivity?.({ type: "reasoning", text: "Thinking about Ada…" });
-        request.onActivity?.({ type: "tool-call", toolName: "writeFile", input: { path: relPath } });
+        request.onActivity?.({
+          type: "tool-call",
+          toolName: "writeFile",
+          input: { path: relPath },
+        });
         await request.sandbox.writeFiles([
           { path: relPath, content: "Ada Lovelace wrote the first algorithm." },
           { path: "SUMMARY.txt", content: "Ada, a mathematician." },
