@@ -74,6 +74,11 @@ export class ConnectorManager {
     this.timers.clear();
   }
 
+  /** How many per-kind sync timers are currently armed (runtime introspection). */
+  activeTimerCount(): number {
+    return this.timers.size;
+  }
+
   /**
    * A Gmail thread fetcher for the chat agent, or undefined when Gmail isn't
    * connected/enabled — so the `fetch_email_threads` tool only appears when it
