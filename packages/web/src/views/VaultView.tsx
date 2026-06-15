@@ -43,7 +43,10 @@ export function VaultView() {
 
   useEffect(() => {
     refreshNotes();
-    api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
+    api
+      .listEntities()
+      .then((r) => setEntities(r.entities))
+      .catch(() => {});
   }, [refreshNotes]);
 
   // Load the selected note's contents whenever the active path changes.
@@ -147,7 +150,9 @@ export function VaultView() {
       if (t.kind === "note" && t.target) return void open(t.target);
       if (t.kind === "wiki" && t.target) return navigate(`/wiki/${t.target}`);
       const lower = t.label.trim().toLowerCase();
-      const noteHit = notes.find((n) => n.title.toLowerCase() === lower || baseName(n.path).toLowerCase() === lower);
+      const noteHit = notes.find(
+        (n) => n.title.toLowerCase() === lower || baseName(n.path).toLowerCase() === lower,
+      );
       if (noteHit) return void open(noteHit.path);
       const wikiHit = entities.find((e) => e.name.toLowerCase() === lower);
       if (wikiHit) return navigate(`/wiki/${wikiHit.slug}`);
@@ -223,7 +228,9 @@ export function VaultView() {
               onClick={() => open(n.path)}
               className={cn(
                 "group flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
-                n.path === activePath ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
+                n.path === activePath
+                  ? "bg-card text-paper"
+                  : "text-faded hover:bg-card/50 hover:text-paper",
               )}
             >
               <FileText className="size-4 shrink-0 text-dim transition-colors group-hover:text-lamp" />
@@ -251,7 +258,9 @@ export function VaultView() {
         ) : (
           <div className="flex h-full min-h-0 flex-col">
             <div className="flex shrink-0 items-center justify-between border-b border-line px-6 py-2.5">
-              <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-dim">{note.path}</span>
+              <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-dim">
+                {note.path}
+              </span>
               <div className="flex items-center gap-3">
                 <span className="text-[11px] text-dim">
                   {saved === "saving" ? "Saving…" : saved === "saved" ? "Saved" : ""}
@@ -267,7 +276,13 @@ export function VaultView() {
             </div>
 
             <div className="min-h-0 flex-1">
-              <SimpleEditor key={note.path} markdown={note.markdown} onChange={handleChange} suggest={suggest} onFollow={follow} />
+              <SimpleEditor
+                key={note.path}
+                markdown={note.markdown}
+                onChange={handleChange}
+                suggest={suggest}
+                onFollow={follow}
+              />
             </div>
 
             {note.backlinks.length > 0 && (

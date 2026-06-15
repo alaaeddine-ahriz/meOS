@@ -1,10 +1,6 @@
 "use client";
 
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import {
   CheckCircle2Icon,
@@ -17,11 +13,7 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 
 /** Lifecycle of a tool call, mirroring the AI SDK's tool-part states. */
-export type ToolState =
-  | "input-streaming"
-  | "input-available"
-  | "output-available"
-  | "output-error";
+export type ToolState = "input-streaming" | "input-available" | "output-available" | "output-error";
 
 export type ToolProps = ComponentProps<typeof Collapsible>;
 
@@ -87,7 +79,9 @@ export const ToolContent = ({ className, ...props }: ToolContentProps) => (
 /** The tool's input arguments, shown as compact JSON. */
 export const ToolInput = ({ input }: { input: unknown }) => (
   <div>
-    <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">Input</p>
+    <p className="mb-1 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+      Input
+    </p>
     <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-background/60 p-2 font-mono text-[11px] text-foreground">
       {formatValue(input)}
     </pre>

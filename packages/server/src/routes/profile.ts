@@ -39,7 +39,10 @@ function profileView(ctx: AppContext) {
 }
 
 /** Concatenate the stored profile_context documents — the corpus the assistant drafts from. */
-function uploadedContext(ctx: AppContext): { documents: Array<{ title: string; text: string }>; combined: string } {
+function uploadedContext(ctx: AppContext): {
+  documents: Array<{ title: string; text: string }>;
+  combined: string;
+} {
   const sources = ctx.store
     .recentSources("0000-00-00")
     .filter((s) => s.type === PROFILE_SOURCE_TYPE);
@@ -104,34 +107,40 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   app.get("/api/profile", async () => profileView(ctx));
 
   // Save one section. The store snapshots the prior version before overwriting.
-  app.put<{ Params: { id: string }; Body: { content?: string } }>("/api/profile/:id", async (request, reply) => {
-    const section = profileSection(request.params.id);
-    if (!section) return reply.code(404).send({ error: "No such profile section" });
-    const content = request.body?.content ?? "";
-    saveProfileSection(ctx.config.dataDir, section.id, content);
-    logProfileEdit(ctx, "edit_section", { section: section.id });
-    return profileView(ctx);
-  });
+  app.put<{ Params: { id: string }; Body: { content?: string } }>(
+    "/api/profile/:id",
+    async (request, reply) => {
+      const section = profileSection(request.params.id);
+      if (!section) return reply.code(404).send({ error: "No such profile section" });
+      const content = request.body?.content ?? "";
+      saveProfileSection(ctx.config.dataDir, section.id, content);
+      logProfileEdit(ctx, "edit_section", { section: section.id });
+      return profileView(ctx);
+    },
+  );
 
   // Apply a reviewed proposal (or hand edit): persist every changed section in
   // one shot, after the user has accepted the diff.
-  app.post<{ Body: { profile?: Partial<Profile> } }>("/api/profile/apply", async (request, reply) => {
-    const proposed = request.body?.profile;
-    if (!proposed || typeof proposed !== "object") {
-      return reply.code(400).send({ error: "Field 'profile' is required" });
-    }
-    const current = loadProfile(ctx.config.dataDir);
-    const applied: string[] = [];
-    for (const section of PROFILE_SECTIONS) {
-      const next = proposed[section.id];
-      if (typeof next !== "string") continue;
-      if (next.trim() === (current[section.id] ?? "").trim()) continue;
-      saveProfileSection(ctx.config.dataDir, section.id, next);
-      applied.push(section.id);
-    }
-    if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
-    return { ...profileView(ctx), applied };
-  });
+  app.post<{ Body: { profile?: Partial<Profile> } }>(
+    "/api/profile/apply",
+    async (request, reply) => {
+      const proposed = request.body?.profile;
+      if (!proposed || typeof proposed !== "object") {
+        return reply.code(400).send({ error: "Field 'profile' is required" });
+      }
+      const current = loadProfile(ctx.config.dataDir);
+      const applied: string[] = [];
+      for (const section of PROFILE_SECTIONS) {
+        const next = proposed[section.id];
+        if (typeof next !== "string") continue;
+        if (next.trim() === (current[section.id] ?? "").trim()) continue;
+        saveProfileSection(ctx.config.dataDir, section.id, next);
+        applied.push(section.id);
+      }
+      if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
+      return { ...profileView(ctx), applied };
+    },
+  );
 
   // Upload context documents: parse each, store as a private profile_context
   // source (never run through extraction), then propose a profile update for
@@ -144,13 +153,20 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       const mediaType = imageMediaType(filename);
       let parsed: { title: string; text: string } | null;
       if (mediaType) {
-        const text = await readImage(ctx.llm, filename, { mediaType, data: buffer.toString("base64") });
+        const text = await readImage(ctx.llm, filename, {
+          mediaType,
+          data: buffer.toString("base64"),
+        });
         parsed = { title: filename.replace(/\.[^.]+$/, ""), text };
       } else {
         parsed = await parseDocument(filename, buffer);
       }
       if (!parsed || !parsed.text.trim()) continue;
-      ctx.store.createSource({ type: PROFILE_SOURCE_TYPE, title: parsed.title, content: parsed.text });
+      ctx.store.createSource({
+        type: PROFILE_SOURCE_TYPE,
+        title: parsed.title,
+        content: parsed.text,
+      });
       stored.push(parsed);
     }
     if (stored.length === 0) {
@@ -166,7 +182,9 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       return reply.code(200).send({ proposal, documents: stored.map((d) => d.title) });
     } catch (error) {
-      return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(502)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -176,7 +194,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
     const knowledge = wikiKnowledge(ctx);
     if (!knowledge.trim()) {
       return reply.code(400).send({
-        error: "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
+        error:
+          "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
       });
     }
     try {
@@ -188,7 +207,9 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       logProfileEdit(ctx, "draft_from_wiki", {});
       return { proposal };
     } catch (error) {
-      return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(502)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -206,7 +227,9 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       });
       return { proposal };
     } catch (error) {
-      return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+      return reply
+        .code(502)
+        .send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 
@@ -221,11 +244,15 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
           llm: ctx.llm,
           currentProfile: loadProfile(ctx.config.dataDir),
           instruction,
-          uploadedContext: request.body?.useUploaded ? uploadedContext(ctx).combined || undefined : undefined,
+          uploadedContext: request.body?.useUploaded
+            ? uploadedContext(ctx).combined || undefined
+            : undefined,
         });
         return { proposal };
       } catch (error) {
-        return reply.code(502).send({ error: error instanceof Error ? error.message : String(error) });
+        return reply
+          .code(502)
+          .send({ error: error instanceof Error ? error.message : String(error) });
       }
     },
   );

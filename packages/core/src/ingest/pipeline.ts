@@ -101,13 +101,22 @@ export class IngestionPipeline {
     });
 
     const merge = await this.withMergeLock(async () => {
-      const merge = await mergeExtraction(store, embedder, input.extraction, sourceId, input.content);
+      const merge = await mergeExtraction(
+        store,
+        embedder,
+        input.extraction,
+        sourceId,
+        input.content,
+      );
       for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
       if (input.runPostMerge) await this.deps.postMerge?.({ sourceId, merge });
       return merge;
     });
 
-    await this.deps.events?.emit("onMemoryWrite", { sourceId, newObservationIds: merge.newObservationIds });
+    await this.deps.events?.emit("onMemoryWrite", {
+      sourceId,
+      newObservationIds: merge.newObservationIds,
+    });
     await this.deps.events?.emit("onNewSource", { sourceId, merge });
 
     if (this.deps.scheduleWikiRefresh) {
@@ -185,7 +194,10 @@ export class IngestionPipeline {
       // Automation hooks: a source landed, and memory was written. Subscribers
       // (contradiction checks, crystallization, etc.) react without the pipeline
       // knowing them. Awaited inside the try so failures surface on the item.
-      await this.deps.events?.emit("onMemoryWrite", { sourceId, newObservationIds: merge.newObservationIds });
+      await this.deps.events?.emit("onMemoryWrite", {
+        sourceId,
+        newObservationIds: merge.newObservationIds,
+      });
       await this.deps.events?.emit("onNewSource", { sourceId, merge });
 
       if (this.deps.scheduleWikiRefresh) {
@@ -204,7 +216,11 @@ export class IngestionPipeline {
       );
       return { inboxItemId, sourceId, status: "done" };
     } catch (error) {
-      store.updateInboxItem(inboxItemId, "failed", error instanceof Error ? error.message : String(error));
+      store.updateInboxItem(
+        inboxItemId,
+        "failed",
+        error instanceof Error ? error.message : String(error),
+      );
       return { inboxItemId, status: "failed" };
     }
   }

@@ -16,14 +16,20 @@ export function ChangesView() {
     setDiff(null);
     setError(null);
     if (!sourceId) return;
-    api.getSourceDiff(Number(sourceId)).then(setDiff).catch((e) => setError(String(e)));
+    api
+      .getSourceDiff(Number(sourceId))
+      .then(setDiff)
+      .catch((e) => setError(String(e)));
   }, [sourceId]);
 
   if (error) {
     return (
       <Page>
         <p className="text-sm text-faded">
-          Couldn't load this document's changes. <Link className="text-lamp" to="/activity?tab=feed">Back to the feed.</Link>
+          Couldn't load this document's changes.{" "}
+          <Link className="text-lamp" to="/activity?tab=feed">
+            Back to the feed.
+          </Link>
         </p>
       </Page>
     );
@@ -34,72 +40,72 @@ export function ChangesView() {
 
   return (
     <Page>
-        <PageHeader
-          breadcrumb={
-            <Breadcrumbs
-              className="rise"
-              items={[
-                { label: "Activity", to: "/activity?tab=feed", icon: Inbox },
-                { label: diff.source.title },
-              ]}
-            />
-          }
-          className="rise-1"
-          title={diff.source.title}
-          description={
-            empty
-              ? "This document didn't change any wiki pages."
-              : "What this document created or changed in the wiki."
-          }
-        />
+      <PageHeader
+        breadcrumb={
+          <Breadcrumbs
+            className="rise"
+            items={[
+              { label: "Activity", to: "/activity?tab=feed", icon: Inbox },
+              { label: diff.source.title },
+            ]}
+          />
+        }
+        className="rise-1"
+        title={diff.source.title}
+        description={
+          empty
+            ? "This document didn't change any wiki pages."
+            : "What this document created or changed in the wiki."
+        }
+      />
 
-        {diff.commits.map((commit) => (
-          <section key={commit.hash} className="rise rise-2 mt-8">
-            <div className="flex items-baseline justify-between font-mono text-[11px] text-dim">
-              <span>{commit.hash}</span>
-              <span>{utcDate(commit.committedAt).toLocaleString()}</span>
-            </div>
+      {diff.commits.map((commit) => (
+        <section key={commit.hash} className="rise rise-2 mt-8">
+          <div className="flex items-baseline justify-between font-mono text-[11px] text-dim">
+            <span>{commit.hash}</span>
+            <span>{utcDate(commit.committedAt).toLocaleString()}</span>
+          </div>
 
-            <ul className="mt-3 flex flex-wrap gap-2">
-              {commit.files.map((file) => {
-                const label = (
-                  <>
-                    <span
-                      className={cn(
-                        "font-mono text-[10px] uppercase tracking-wider",
-                        file.kind === "created" ? "text-moss" : "text-lamp",
-                      )}
-                    >
-                      {file.kind}
-                    </span>
-                    <span className="text-paper">{file.entityName ?? file.path}</span>
-                    {file.entitySlug && <ChevronRight className="size-3 text-dim" />}
-                  </>
-                );
-                return (
-                  <li key={file.path}>
-                    {file.entitySlug ? (
-                      <Link
-                        to={`/wiki/${file.entitySlug}`}
-                        className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm transition-colors hover:border-lamp-dim"
-                      >
-                        {label}
-                      </Link>
-                    ) : (
-                      <span className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm">
-                        {label}
-                      </span>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {commit.files.map((file) => {
+              const label = (
+                <>
+                  <span
+                    className={cn(
+                      "font-mono text-[10px] uppercase tracking-wider",
+                      file.kind === "created" ? "text-moss" : "text-lamp",
                     )}
-                  </li>
-                );
-              })}
-            </ul>
+                  >
+                    {file.kind}
+                  </span>
+                  <span className="text-paper">{file.entityName ?? file.path}</span>
+                  {file.entitySlug && <ChevronRight className="size-3 text-dim" />}
+                </>
+              );
+              return (
+                <li key={file.path}>
+                  {file.entitySlug ? (
+                    <Link
+                      to={`/wiki/${file.entitySlug}`}
+                      className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm transition-colors hover:border-lamp-dim"
+                    >
+                      {label}
+                    </Link>
+                  ) : (
+                    <span className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm">
+                      {label}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
 
-            <div className="mt-4">
-              <DiffView patch={commit.patch} />
-            </div>
-          </section>
-        ))}
+          <div className="mt-4">
+            <DiffView patch={commit.patch} />
+          </div>
+        </section>
+      ))}
     </Page>
   );
 }

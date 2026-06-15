@@ -39,14 +39,14 @@ export const PROFILE_SECTIONS: readonly ProfileSectionDef[] = [
     file: "about-me.md",
     title: "About Me",
     description: "Who you are, your role, your expertise, how you like to work.",
-    placeholder:
-      "I'm a … working on … My background is … I care about …",
+    placeholder: "I'm a … working on … My background is … I care about …",
   },
   {
     id: "work-context",
     file: "work-context.md",
     title: "Work / Mission Context",
-    description: "Your current work, mission, the organisations and people around it, and your goals.",
+    description:
+      "Your current work, mission, the organisations and people around it, and your goals.",
     placeholder:
       "I'm currently … My mission is … The key people and organisations are … My goals this quarter are …",
   },
@@ -108,7 +108,11 @@ export function loadProfile(dataDir: string): Profile {
  * (so the user can restore an earlier version). Returns the version id of the
  * snapshot that was taken, or null when there was nothing worth snapshotting.
  */
-export function saveProfileSection(dataDir: string, id: ProfileSectionId, content: string): string | null {
+export function saveProfileSection(
+  dataDir: string,
+  id: ProfileSectionId,
+  content: string,
+): string | null {
   const section = SECTION_BY_ID.get(id);
   if (!section) throw new Error(`Unknown profile section: ${id}`);
 
@@ -174,7 +178,11 @@ export function listProfileHistory(dataDir: string, id: ProfileSectionId): Profi
 }
 
 /** Read a specific historical version's content, or null when absent. */
-export function readProfileVersion(dataDir: string, id: ProfileSectionId, version: string): string | null {
+export function readProfileVersion(
+  dataDir: string,
+  id: ProfileSectionId,
+  version: string,
+): string | null {
   // Guard against path traversal in the version id (it comes from the client).
   if (!/^[\w.-]+$/.test(version)) return null;
   try {

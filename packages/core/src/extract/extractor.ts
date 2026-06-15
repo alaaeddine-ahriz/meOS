@@ -1,4 +1,9 @@
-import { DEFAULT_SCHEMA_MD, OBSERVATION_KINDS, RELATIONSHIP_VOCABULARY, withSchema } from "../knowledge/schema-doc.js";
+import {
+  DEFAULT_SCHEMA_MD,
+  OBSERVATION_KINDS,
+  RELATIONSHIP_VOCABULARY,
+  withSchema,
+} from "../knowledge/schema-doc.js";
 import { withProfile } from "../profile/profile-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import { extractionSchema, type Extraction } from "./schema.js";

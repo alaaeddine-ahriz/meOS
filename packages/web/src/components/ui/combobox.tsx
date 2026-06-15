@@ -57,7 +57,9 @@ export function Combobox({
   // commit a model identifier the provider didn't return.
   const trimmed = query.trim();
   const showCustom =
-    allowCustom && trimmed.length > 0 && !options.some((o) => o.toLowerCase() === trimmed.toLowerCase());
+    allowCustom &&
+    trimmed.length > 0 &&
+    !options.some((o) => o.toLowerCase() === trimmed.toLowerCase());
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -88,7 +90,11 @@ export function Combobox({
             {!showCustom && <CommandEmpty>{emptyText}</CommandEmpty>}
             <CommandGroup>
               {showCustom && (
-                <CommandItem value={trimmed} onSelect={() => choose(trimmed)} className="font-mono text-[13px]">
+                <CommandItem
+                  value={trimmed}
+                  onSelect={() => choose(trimmed)}
+                  className="font-mono text-[13px]"
+                >
                   <Check className="size-3.5 opacity-0" />
                   Use “{trimmed}”
                 </CommandItem>
@@ -100,7 +106,9 @@ export function Combobox({
                   onSelect={() => choose(option)}
                   className="font-mono text-[13px]"
                 >
-                  <Check className={cn("size-3.5", value === option ? "opacity-100" : "opacity-0")} />
+                  <Check
+                    className={cn("size-3.5", value === option ? "opacity-100" : "opacity-0")}
+                  />
                   {option}
                 </CommandItem>
               ))}

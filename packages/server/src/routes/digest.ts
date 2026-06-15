@@ -1,9 +1,21 @@
 import path from "node:path";
 import type { FastifyInstance } from "fastify";
-import { applyResolution, loadProfileContext, loadSchema, proposeResolution, runConsolidation, type ResolutionAction } from "@meos/core";
+import {
+  applyResolution,
+  loadProfileContext,
+  loadSchema,
+  proposeResolution,
+  runConsolidation,
+  type ResolutionAction,
+} from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
 
-const RESOLUTION_ACTIONS = new Set<ResolutionAction>(["supersede_a", "supersede_b", "keep_both", "context_specific"]);
+const RESOLUTION_ACTIONS = new Set<ResolutionAction>([
+  "supersede_a",
+  "supersede_b",
+  "keep_both",
+  "context_specific",
+]);
 
 export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get("/api/digest/latest", async (_request, reply) => {
@@ -57,7 +69,10 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
       const id = Number(request.params.id);
       const action = request.body?.action;
       if (!action || !RESOLUTION_ACTIONS.has(action)) {
-        return reply.code(400).send({ error: "Field 'action' must be one of supersede_a, supersede_b, keep_both, context_specific" });
+        return reply.code(400).send({
+          error:
+            "Field 'action' must be one of supersede_a, supersede_b, keep_both, context_specific",
+        });
       }
       if (!applyResolution(ctx.store, id, action)) {
         return reply.code(404).send({ error: "No such open contradiction" });

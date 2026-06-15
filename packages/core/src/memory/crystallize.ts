@@ -77,7 +77,9 @@ export async function crystallizeSession(deps: {
   const messages = store.listMessages(conversationId);
   if (messages.length === 0) return undefined;
 
-  const transcript = messages.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
+  const transcript = messages
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n\n");
   const distilled = await llm.completeStructured({
     system: withProfile(withSchema(DIGEST_SYSTEM_PROMPT, schema), profile),
     cacheSystem: true,
@@ -95,7 +97,9 @@ export async function crystallizeSession(deps: {
   if (!hasContent) return undefined;
 
   const digest = renderDigest(distilled);
-  const title = distilled.question.trim() ? `Session: ${distilled.question.slice(0, 80)}` : `Session ${conversationId}`;
+  const title = distilled.question.trim()
+    ? `Session: ${distilled.question.slice(0, 80)}`
+    : `Session ${conversationId}`;
   const sourceId = store.createSource({ type: "session", title, content: digest });
 
   // Extract knowledge from the digest and merge it like any source. "session"

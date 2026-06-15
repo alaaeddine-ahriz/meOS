@@ -137,12 +137,17 @@ export function loadConfig(rootDir: string): MeosConfig {
  * only infrastructure config. MEOS_LLM_PROVIDER still wins for one-off runs
  * and tests.
  */
-export function overlayStoredLlmConfig(config: MeosConfig, stored: Partial<LlmConfig> | undefined): void {
+export function overlayStoredLlmConfig(
+  config: MeosConfig,
+  stored: Partial<LlmConfig> | undefined,
+): void {
   if (stored) {
     // Migrate settings saved under the old "ollama" provider: fold its endpoint
     // into the generic local provider so existing users aren't reset.
     const legacy = stored as Partial<LlmConfig> & { ollama?: { baseUrl?: string; model?: string } };
-    const provider = (legacy.provider === ("ollama" as LlmProvider) ? "local" : legacy.provider) ?? config.llm.provider;
+    const provider =
+      (legacy.provider === ("ollama" as LlmProvider) ? "local" : legacy.provider) ??
+      config.llm.provider;
     config.llm = {
       provider,
       anthropic: { ...config.llm.anthropic, ...stored.anthropic },

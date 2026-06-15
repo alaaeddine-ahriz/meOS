@@ -8,7 +8,11 @@
     "dialog:allow-open",
     {
       "identifier": "opener:allow-open-url",
-      "allow": [{ "url": "https://*" }, { "url": "http://127.0.0.1:*" }, { "url": "http://localhost:*" }]
+      "allow": [
+        { "url": "https://*" },
+        { "url": "http://127.0.0.1:*" },
+        { "url": "http://localhost:*" }
+      ]
     },
     {
       "identifier": "opener:allow-reveal-item-in-dir",

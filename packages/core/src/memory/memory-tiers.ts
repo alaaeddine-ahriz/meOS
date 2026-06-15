@@ -11,7 +11,14 @@ import type { KnowledgeStore } from "../knowledge/store.js";
  */
 export type MemoryTier = "working" | "episodic" | "semantic" | "procedural";
 
-const SEMANTIC_KINDS = new Set(["fact", "decision", "requirement", "preference", "risk", "open_question"]);
+const SEMANTIC_KINDS = new Set([
+  "fact",
+  "decision",
+  "requirement",
+  "preference",
+  "risk",
+  "open_question",
+]);
 const EPISODIC_KINDS = new Set(["event", "task"]);
 const EPISODIC_SOURCE_TYPES = new Set(["conversation", "session"]);
 
@@ -28,8 +35,12 @@ export function classifyMemoryTier(input: {
   sourceCount: number;
 }): MemoryTier {
   if (input.kind === "procedure") return "procedural";
-  if (input.sourceCount >= SEMANTIC_SOURCE_THRESHOLD && SEMANTIC_KINDS.has(input.kind)) return "semantic";
-  if (EPISODIC_KINDS.has(input.kind) || (input.sourceType && EPISODIC_SOURCE_TYPES.has(input.sourceType))) {
+  if (input.sourceCount >= SEMANTIC_SOURCE_THRESHOLD && SEMANTIC_KINDS.has(input.kind))
+    return "semantic";
+  if (
+    EPISODIC_KINDS.has(input.kind) ||
+    (input.sourceType && EPISODIC_SOURCE_TYPES.has(input.sourceType))
+  ) {
     return "episodic";
   }
   return "working";

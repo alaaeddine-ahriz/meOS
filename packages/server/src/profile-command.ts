@@ -91,7 +91,10 @@ async function applyInstruction(ctx: AppContext, instruction: string): Promise<s
     return `I didn't change anything — your profile already reflects that.${summary ? `\n\n${summary}` : ""}`;
   }
 
-  ctx.store.logAudit("profile_edit", JSON.stringify({ action: "chat_edit", instruction, sections: applied }));
+  ctx.store.logAudit(
+    "profile_edit",
+    JSON.stringify({ action: "chat_edit", instruction, sections: applied }),
+  );
   // The summary renders as prose; the diff block is parsed out by the chat UI
   // and shown as a red/green diff with a button to open the full profile.
   return [

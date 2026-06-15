@@ -49,7 +49,9 @@ describe("memory maintenance", () => {
     const { entity, oldId, newId } = await seedEntityWithObservations();
     const llm = new StubLlmClient({
       onStructured: () => ({
-        conflicts: [{ new_id: newId, existing_id: oldId, kind: "supersedes", note: "moved cities" }],
+        conflicts: [
+          { new_id: newId, existing_id: oldId, kind: "supersedes", note: "moved cities" },
+        ],
       }),
     });
 
@@ -68,7 +70,9 @@ describe("memory maintenance", () => {
     const { oldId, newId } = await seedEntityWithObservations();
     const llm = new StubLlmClient({
       onStructured: () => ({
-        conflicts: [{ new_id: newId, existing_id: oldId, kind: "contradicts", note: "conflicting cities" }],
+        conflicts: [
+          { new_id: newId, existing_id: oldId, kind: "contradicts", note: "conflicting cities" },
+        ],
       }),
     });
 
@@ -83,7 +87,9 @@ describe("memory maintenance", () => {
   it("decays unconfirmed knowledge and promotes corroborated observations", async () => {
     const { oldId, newId } = await seedEntityWithObservations();
     // backdate one observation far beyond the decay window
-    db.prepare("UPDATE observations SET last_confirmed_at = datetime('now', '-90 days') WHERE id = ?").run(oldId);
+    db.prepare(
+      "UPDATE observations SET last_confirmed_at = datetime('now', '-90 days') WHERE id = ?",
+    ).run(oldId);
     // corroborate the other past the promotion threshold
     db.prepare("UPDATE observations SET confidence = 0.8 WHERE id = ?").run(newId);
 
@@ -118,7 +124,10 @@ describe("memory maintenance", () => {
     const digest = store.latestDigest()!;
     expect(digest.content).toContain("morning digest");
     // portable artifact written to disk alongside the database
-    const onDisk = fs.readFileSync(path.join(tmpDir, "digests", `${report.digestDate}.md`), "utf-8");
+    const onDisk = fs.readFileSync(
+      path.join(tmpDir, "digests", `${report.digestDate}.md`),
+      "utf-8",
+    );
     expect(onDisk).toBe(digest.content);
   });
 

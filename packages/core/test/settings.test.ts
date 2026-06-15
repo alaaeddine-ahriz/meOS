@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultConfig, overlayStoredLlmConfig, type LlmConfig, type MeosConfig } from "../src/config.js";
+import {
+  defaultConfig,
+  overlayStoredLlmConfig,
+  type LlmConfig,
+  type MeosConfig,
+} from "../src/config.js";
 import { openDatabase } from "../src/db/database.js";
 import { KnowledgeStore } from "../src/knowledge/store.js";
 
