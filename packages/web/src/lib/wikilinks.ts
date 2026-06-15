@@ -12,6 +12,11 @@ export function resolveWikiLinks(text: string, entities: EntitySummary[]): strin
   });
 }
 
+/** "/wiki/orion" -> "orion" — the inverse of the links resolveWikiLinks emits. */
+export function wikiSlugFromHref(href: string): string {
+  return href.replace(/^\/wiki\//, "");
+}
+
 /** Plain-text rendering of [[wiki-link]] markup, for one-line summaries. */
 export function stripWikiMarkup(text: string): string {
   return text.replace(/\[\[([^\]]+)\]\]/g, "$1");

@@ -1,7 +1,7 @@
 import { tool, type ToolSet } from "ai";
 import { z } from "zod";
 import type { Embedder } from "../embedding/embedder.js";
-import type { KnowledgeStore, SourceRef, SubgraphEdge, SubgraphNode } from "../knowledge/store.js";
+import { slugify, type KnowledgeStore, type SourceRef, type SubgraphEdge, type SubgraphNode } from "../knowledge/store.js";
 import { temporalTag } from "../memory/temporal.js";
 import { buildContextPack } from "./retrieval.js";
 
@@ -30,7 +30,7 @@ export interface ChatTools {
 
 /** Resolve an entity by exact/auto name first, then by slug — what users type. */
 function resolveEntity(store: KnowledgeStore, name: string) {
-  return store.findEntityByName(name) ?? store.getEntityBySlug(name.toLowerCase().replace(/\s+/g, "-"));
+  return store.findEntityByName(name) ?? store.getEntityBySlug(slugify(name));
 }
 
 export function buildChatTools(store: KnowledgeStore, embedder: Embedder): ChatTools {
@@ -63,7 +63,7 @@ export function buildChatTools(store: KnowledgeStore, embedder: Embedder): ChatT
       execute: async ({ entity }) => {
         const row = resolveEntity(store, entity);
         if (!row) return `No entity named "${entity}" exists in the knowledge base.`;
-        const page = store.wikiPageBodies().find((p) => p.entity_id === row.id);
+        const page = store.wikiPageBody(row.id);
         if (!page || !page.body.trim()) {
           return `"${row.name}" exists but has no wiki page yet. Try get_entity for its raw facts.`;
         }

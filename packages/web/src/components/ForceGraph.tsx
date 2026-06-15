@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { ENTITY_TYPES } from "@/lib/entity-meta";
+import { typeColor } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
 import type { GraphLink, GraphNode } from "../api.js";
 
@@ -35,14 +35,9 @@ const LINK_DISTANCE = 90;
 // Cap per-tick speed so the explicit integrator can't diverge: with many nodes
 // the repulsion impulses overshoot and positions otherwise explode to infinity.
 const MAX_SPEED = 30;
-const FALLBACK_COLOR = "#8f8779";
 
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
-function typeColor(type: string): string {
-  return ENTITY_TYPES[type]?.color ?? FALLBACK_COLOR;
 }
 
 /** One step of a small force simulation: repulsion, link springs, weak gravity. */
@@ -204,6 +199,22 @@ export function ForceGraph({
     const observer = new ResizeObserver(resize);
     observer.observe(container);
 
+    // Theme tokens are constant between theme switches; reading them via
+    // getComputedStyle forces a style recalc, so cache them and refresh only when
+    // the <html> mode/palette actually changes rather than five reads per frame.
+    const readTheme = () => ({
+      line: cssVar("--line"),
+      lamp: cssVar("--lamp"),
+      faded: cssVar("--faded"),
+      paper: cssVar("--paper"),
+      ink: cssVar("--ink"),
+    });
+    let theme = readTheme();
+    const themeObserver = new MutationObserver(() => {
+      theme = readTheme();
+    });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-palette"] });
+
     let raf = 0;
     const draw = () => {
       raf = requestAnimationFrame(draw);
@@ -213,11 +224,7 @@ export function ForceGraph({
       const dpr = window.devicePixelRatio || 1;
       const view = viewRef.current;
       const hover = hoverRef.current;
-      const lineColor = cssVar("--line");
-      const lampColor = cssVar("--lamp");
-      const fadedColor = cssVar("--faded");
-      const paperColor = cssVar("--paper");
-      const inkColor = cssVar("--ink");
+      const { line: lineColor, lamp: lampColor, faded: fadedColor, paper: paperColor, ink: inkColor } = theme;
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -378,6 +385,7 @@ export function ForceGraph({
     return () => {
       cancelAnimationFrame(raf);
       observer.disconnect();
+      themeObserver.disconnect();
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);

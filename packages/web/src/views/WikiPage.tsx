@@ -6,7 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
-import { stripWikiMarkup } from "@/lib/wikilinks";
+import { stripWikiMarkup, wikiSlugFromHref } from "@/lib/wikilinks";
 import { pushWikiTrail, readWikiTrail, type TrailEntry } from "@/lib/wiki-trail";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { utcDate } from "../lib/datetime.js";
@@ -22,10 +22,6 @@ function pageBody(markdown: string): string {
     .trim();
 }
 
-/** "/wiki/orion" -> "orion" — the slug a host passes back to open in the same panel. */
-function slugFromHref(href: string): string {
-  return href.replace(/^\/wiki\//, "");
-}
 
 export interface WikiPageViewProps {
   /** Render this slug instead of the route param — for the chat's side panel. */
@@ -144,7 +140,7 @@ export function WikiPageView({ slug: slugProp, embedded = false, onNavigate, onC
           <Markdown
             text={pageBody(page.markdown)}
             entities={entities}
-            onInternalLink={embedded && onNavigate ? (href) => onNavigate(slugFromHref(href)) : undefined}
+            onInternalLink={embedded && onNavigate ? (href) => onNavigate(wikiSlugFromHref(href)) : undefined}
           />
         ) : (
           <p className="text-sm text-dim">This page hasn't been written yet — it will be after the next update.</p>
