@@ -249,7 +249,7 @@ export function guardTools(
           throw error;
         }
       },
-    } as ToolSet[string];
+    };
   };
 
   wrap(

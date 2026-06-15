@@ -127,7 +127,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         "body",
       );
       const llm = ctx.config.llm;
-      llm.provider = provider as LlmProvider;
+      llm.provider = provider;
 
       if (provider === "local") {
         if (model?.trim()) llm.local.model = model.trim();
@@ -140,7 +140,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
           );
         }
       } else {
-        const cloud = provider as CloudProvider;
+        const cloud = provider;
         // Models are discovered live from the provider, so we trust any non-empty
         // identifier here rather than gate it against a list we'd have to keep current.
         if (model?.trim()) {
