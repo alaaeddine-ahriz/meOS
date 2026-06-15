@@ -12,7 +12,9 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "desktop": "pnpm --filter @meos/desktop dev",
-    "desktop:build": "pnpm --filter @meos/desktop bundle"
+    "desktop:build": "pnpm --filter @meos/desktop bundle",
+    "audit": "pnpm audit --prod",
+    "audit:licenses": "pnpm licenses list --prod"
   },
   "devDependencies": {
     "shadcn": "^4.11.0"

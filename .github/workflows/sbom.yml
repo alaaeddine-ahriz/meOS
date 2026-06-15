@@ -1,0 +1,56 @@
+# Generates a Software Bill of Materials (SBOM) for release artifacts. Mirrors
+# desktop-build.yml's `v*` tag trigger so every tagged release gets a dependency
+# inventory. Syft scans the whole workspace (installed pnpm deps + the Rust
+# Cargo manifest) and emits SPDX JSON, which is attached as a release asset and
+# a build artifact. Consumers can diff SBOMs across releases to spot newly
+# introduced or vulnerable components.
+name: SBOM
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # to attach the SBOM to the GitHub release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # Install so the SBOM captures the fully resolved dependency tree, not
+      # just declared ranges.
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+
+      # Syft produces an SPDX-JSON SBOM covering the npm + cargo ecosystems.
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: meos-sbom.spdx.json
+          artifact-name: meos-sbom.spdx.json
+
+      - name: Attach SBOM to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: meos-sbom.spdx.json
