@@ -1,17 +1,13 @@
 import { connectors as connectorsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import {
-  buildAuthUrl,
-  createPkcePair,
-  exchangeCode,
-  fetchSelf,
-  revokeToken,
-  type ConnectorKind,
-} from "@meos/core";
+import { connectorRegistry, createPkcePair, fetchSelf } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 
-const KINDS: ConnectorKind[] = ["contacts", "calendar", "gmail"];
+// The Google connector drives this route's auth flow, kinds, and validation —
+// the framework owns "what Google is", the route owns the HTTP surface (#5).
+const google = connectorRegistry.require("google");
+const KINDS: string[] = google.manifest.kinds.map((k) => k.kind);
 
 /**
  * Google connector setup + control. OAuth is loopback + PKCE for an installed
@@ -28,12 +24,13 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   const statusView = () => {
     const account = ctx.store.getConnectorAccount("google");
     const connected = Boolean(account?.refresh_token || account?.access_token);
-    const kinds = KINDS.map((kind) => {
+    const kinds = google.manifest.kinds.map((manifest) => {
+      const kind = manifest.kind;
       const state = account ? ctx.store.getSyncState(account.id, kind) : undefined;
       return {
         kind,
         enabled: state?.enabled === 1,
-        intervalMinutes: state?.interval_minutes ?? 15,
+        intervalMinutes: state?.interval_minutes ?? manifest.defaultIntervalMinutes,
         lastSyncedAt: state?.last_synced_at ?? null,
         lastStatus: state?.last_status ?? null,
       };
@@ -75,7 +72,12 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     pending.set(state, verifier);
     // Don't leak verifiers forever if the user abandons the flow.
     setTimeout(() => pending.delete(state), 10 * 60_000).unref();
-    const url = buildAuthUrl({ clientId: account.client_id, redirectUri, challenge, state });
+    const url = google.oauth.buildAuthUrl({
+      clientId: account.client_id,
+      redirectUri,
+      challenge,
+      state,
+    });
     return { url };
   });
 
@@ -106,7 +108,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         return page("Authorization failed", "Google credentials are missing.");
       }
       try {
-        const tokens = await exchangeCode({
+        const tokens = await google.oauth.exchangeCode({
           clientId: account.client_id,
           clientSecret: account.client_secret,
           code,
@@ -138,7 +140,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     "/api/connectors/google/:kind/config",
     async (request) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
-      const kind = params.kind as ConnectorKind;
+      const kind = params.kind;
       if (!KINDS.includes(kind)) throw httpError.badRequest(`Unknown kind: ${kind}`);
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
@@ -155,7 +157,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       });
       ctx.connectors.reschedule();
       // Pull immediately on first enable so the user sees data without waiting.
-      if (enabled) ctx.connectors.enqueueSync(kind);
+      if (enabled) ctx.connectors.enqueueSync("google", kind);
       return statusView();
     },
   );
@@ -165,11 +167,11 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     "/api/connectors/google/:kind/sync",
     async (request, reply) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
-      const kind = params.kind as ConnectorKind;
+      const kind = params.kind;
       if (!KINDS.includes(kind)) throw httpError.badRequest(`Unknown kind: ${kind}`);
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
-      ctx.connectors.enqueueSync(kind);
+      ctx.connectors.enqueueSync("google", kind);
       return reply.code(202).send({ syncing: true });
     },
   );
@@ -177,7 +179,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   // Disconnect: revoke the token, stop timers, forget the account.
   app.delete("/api/connectors/google", async () => {
     const account = ctx.store.getConnectorAccount("google");
-    if (account?.access_token) await revokeToken(account.access_token);
+    if (account?.access_token) await google.oauth.revokeToken(account.access_token);
     ctx.store.deleteConnectorAccount("google");
     ctx.connectors.reschedule();
     return { disconnected: true };

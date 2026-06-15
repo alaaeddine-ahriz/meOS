@@ -1,10 +1,11 @@
 import {
-  CONNECTOR_KINDS,
+  connectorRegistry,
   ensureAccessToken,
   IngestPriority,
   searchThreadsText,
   syncConnector,
-  type ConnectorKind,
+  type Connector,
+  type ConnectorRegistry,
   type IngestionPipeline,
   type JobQueue,
   type KnowledgeStore,
@@ -16,48 +17,74 @@ import {
  * (so connector merges serialise with file ingest). Built inside the app context
  * so it closes over the live store/pipeline/queue; started from main.ts and
  * stopped on shutdown. Also vends the per-turn Gmail fetcher for the chat agent.
+ *
+ * Driven through the {@link ConnectorRegistry} (#5): kinds and OAuth all come
+ * from a resolved {@link Connector}, so this manager names no specific provider.
  */
 export class ConnectorManager {
-  private timers = new Map<ConnectorKind, NodeJS.Timeout>();
+  private timers = new Map<string, NodeJS.Timeout>();
+  private readonly registry: ConnectorRegistry;
+  /** The connectors with a stored account, scheduled on (re)start. */
+  private readonly providers: string[];
 
   constructor(
     private readonly deps: { store: KnowledgeStore; pipeline: IngestionPipeline; queue: JobQueue },
-  ) {}
+    registry: ConnectorRegistry = connectorRegistry,
+  ) {
+    this.registry = registry;
+    this.providers = registry.list().map((c) => c.manifest.id);
+  }
 
   start(): void {
     this.reschedule();
   }
 
-  /** Rebuild every timer from the persisted per-kind schedule. */
+  /** The connector + account for a provider, when an account exists. */
+  private resolve(provider: string): { connector: Connector; accountId: number } | undefined {
+    const connector = this.registry.get(provider);
+    const account = this.deps.store.getConnectorAccount(provider);
+    if (!connector || !account) return undefined;
+    return { connector, accountId: account.id };
+  }
+
+  private timerKey(provider: string, kind: string): string {
+    return `${provider}:${kind}`;
+  }
+
+  /** Rebuild every timer from the persisted per-kind schedule across all connectors. */
   reschedule(): void {
     this.stop();
-    const account = this.deps.store.getConnectorAccount("google");
-    if (!account) return;
-    for (const state of this.deps.store.listSyncState(account.id)) {
-      if (!state.enabled) continue;
-      const ms = Math.max(1, state.interval_minutes) * 60_000;
-      const timer = setInterval(() => this.enqueueSync(state.kind as ConnectorKind), ms);
-      timer.unref();
-      this.timers.set(state.kind as ConnectorKind, timer);
+    for (const provider of this.providers) {
+      const resolved = this.resolve(provider);
+      if (!resolved) continue;
+      for (const state of this.deps.store.listSyncState(resolved.accountId)) {
+        if (!state.enabled) continue;
+        const ms = Math.max(1, state.interval_minutes) * 60_000;
+        const timer = setInterval(() => this.enqueueSync(provider, state.kind), ms);
+        timer.unref();
+        this.timers.set(this.timerKey(provider, state.kind), timer);
+      }
     }
   }
 
   /** Queue a sync of one kind now (used by "Sync now" and the timers). */
-  enqueueSync(kind: ConnectorKind): void {
+  enqueueSync(provider: string, kind: string): void {
     // Background connector sync rides below user uploads and watched files (#18),
     // so a large mailbox pull never delays the document the user just dropped in.
     this.deps.queue.push(
       async () => {
-        const account = this.deps.store.getConnectorAccount("google");
+        const resolved = this.resolve(provider);
+        if (!resolved) return;
+        const account = this.deps.store.getConnectorAccount(provider);
         if (!account) return;
         try {
-          const result = await syncConnector(this.deps, account, kind);
+          const result = await syncConnector(this.deps, account, kind, resolved.connector);
           console.log(
-            `[connectors] ${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
+            `[connectors] ${provider}/${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
           );
         } catch (error) {
           console.error(
-            `[connectors] ${kind} sync failed:`,
+            `[connectors] ${provider}/${kind} sync failed:`,
             error instanceof Error ? error.message : error,
           );
         }
@@ -68,10 +95,12 @@ export class ConnectorManager {
 
   /** A nightly delta pass over every enabled kind (wired to onSchedule). */
   syncAllEnabled(): void {
-    const account = this.deps.store.getConnectorAccount("google");
-    if (!account) return;
-    for (const state of this.deps.store.listSyncState(account.id)) {
-      if (state.enabled) this.enqueueSync(state.kind as ConnectorKind);
+    for (const provider of this.providers) {
+      const resolved = this.resolve(provider);
+      if (!resolved) continue;
+      for (const state of this.deps.store.listSyncState(resolved.accountId)) {
+        if (state.enabled) this.enqueueSync(provider, state.kind);
+      }
     }
   }
 
@@ -92,16 +121,15 @@ export class ConnectorManager {
    */
   gmailFetcher(): ((query: string) => Promise<string>) | undefined {
     const account = this.deps.store.getConnectorAccount("google");
-    if (!account) return undefined;
+    const connector = this.registry.get("google");
+    if (!account || !connector) return undefined;
     const state = this.deps.store.getSyncState(account.id, "gmail");
     if (!state?.enabled) return undefined;
     return async (query: string) => {
       const fresh = this.deps.store.getConnectorAccount("google");
       if (!fresh) return "Gmail is no longer connected.";
-      const token = await ensureAccessToken(this.deps.store, fresh);
+      const token = await ensureAccessToken(this.deps.store, fresh, connector);
       return searchThreadsText(token, query);
     };
   }
 }
-
-export { CONNECTOR_KINDS };
