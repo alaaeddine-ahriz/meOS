@@ -9,8 +9,8 @@ import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import type { LlmClient } from "../llm/types.js";
 import type { WikiWriter } from "../wiki/writer.js";
-import { chunkText } from "./chunk.js";
-import { imageMediaType, parseDocument } from "./parse.js";
+import { chunkBlocks } from "./chunk.js";
+import { blocksFromText, imageMediaType, parseDocument, type Block } from "./parse.js";
 
 export type IngestInput =
   | { kind: "file"; filename: string; buffer: Buffer; origin?: string; path?: string }
@@ -135,7 +135,7 @@ export class IngestionPipeline {
 
     try {
       store.updateInboxItem(inboxItemId, "parsing");
-      let parsed: { title: string; text: string } | null;
+      let parsed: { title: string; text: string; blocks?: Block[] } | null;
       if (input.kind === "file") {
         const mediaType = imageMediaType(input.filename);
         if (mediaType) {
@@ -169,11 +169,26 @@ export class IngestionPipeline {
       });
       store.updateInboxItem(inboxItemId, "parsing", undefined, sourceId);
 
-      const chunks = chunkText(parsed.text);
-      const vectors = await embedder.embed(chunks);
+      // Structure-aware chunking (#14): use the parser's blocks when available
+      // (PDF pages, DOCX headings, CSV/JSON rows), else derive blocks from the
+      // normalized text. Chunks carry section/page/span metadata for citations.
+      const blocks = parsed.blocks?.length ? parsed.blocks : blocksFromText(parsed.text);
+      const chunks = chunkBlocks(blocks);
+      const vectors = await embedder.embed(chunks.map((c) => c.text));
       store.addChunks(
         sourceId,
-        chunks.map((text, i) => ({ text, embedding: vectors[i]! })),
+        chunks.map((chunk, i) => ({
+          text: chunk.text,
+          embedding: vectors[i]!,
+          sourceBlockIds: chunk.sourceBlockIds,
+          sectionTitle: chunk.sectionTitle,
+          pageStart: chunk.pageStart,
+          pageEnd: chunk.pageEnd,
+          charStart: chunk.charStart,
+          charEnd: chunk.charEnd,
+          tokenEstimate: chunk.tokenEstimate,
+          contentType: chunk.contentType,
+        })),
       );
 
       store.updateInboxItem(inboxItemId, "extracting");

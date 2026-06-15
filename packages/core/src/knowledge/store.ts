@@ -93,6 +93,43 @@ export interface ChunkWithVector {
   source_path: string | null;
   text: string;
   vector: Float32Array;
+  /** Structure-aware metadata (#14); null on chunks written before migration 19. */
+  section_title: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  char_start: number | null;
+  char_end: number | null;
+}
+
+/** A chunk row to persist. Metadata fields (#14) are optional for back-compat. */
+export interface ChunkInput {
+  text: string;
+  embedding: Float32Array;
+  sourceBlockIds?: string[];
+  sectionTitle?: string | null;
+  pageStart?: number | null;
+  pageEnd?: number | null;
+  charStart?: number | null;
+  charEnd?: number | null;
+  tokenEstimate?: number | null;
+  contentType?: string | null;
+}
+
+/** A chunk's persisted structure metadata, for citation + chunk↔source navigation. */
+export interface ChunkMetadataRow {
+  id: number;
+  source_id: number;
+  seq: number;
+  source_block_ids: string | null;
+  section_title: string | null;
+  page_start: number | null;
+  page_end: number | null;
+  char_start: number | null;
+  char_end: number | null;
+  token_estimate: number | null;
+  content_type: string | null;
+  /** Placeholder for #16 (source revisions); always null until then. */
+  source_revision_id: number | null;
 }
 
 export interface SourceRef {
@@ -105,6 +142,16 @@ export interface SourceRef {
    * source list uses it to render provider-aware, deep-linkable chips.
    */
   type?: string;
+  /**
+   * Structure-aware citation locators (#14): the page/section/char-span of the
+   * cited excerpt within the source. Set by retrieval from the backing chunk's
+   * metadata; all optional, so a citation that has only a document still works.
+   */
+  section?: string | null;
+  pageStart?: number | null;
+  pageEnd?: number | null;
+  charStart?: number | null;
+  charEnd?: number | null;
 }
 
 /** A connected external account (one row per provider). Carries OAuth secrets. */
@@ -241,6 +288,12 @@ export class KnowledgeStore {
     path?: string;
     mime?: string;
     content: string;
+    /**
+     * The unnormalized source text, stored alongside `content` so future
+     * parsers can be re-run without re-reading the original file. Optional;
+     * when omitted, `raw_content` stays null and `content` is the only copy.
+     */
+    rawContent?: string;
     /** Override the per-type visibility defaults (rarely needed). */
     visibility?: Partial<SourceVisibility>;
   }): number {
@@ -250,9 +303,9 @@ export class KnowledgeStore {
     const result = this.db
       .prepare(
         `INSERT INTO sources
-           (type, title, path, mime, content,
+           (type, title, path, mime, content, raw_content,
             searchable, answerable, wiki_eligible, syncable, exportable, activity_visible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.type,
@@ -260,6 +313,7 @@ export class KnowledgeStore {
         input.path ?? null,
         input.mime ?? null,
         input.content,
+        input.rawContent ?? null,
         v.searchable ? 1 : 0,
         v.answerable ? 1 : 0,
         v.wikiEligible ? 1 : 0,
@@ -354,6 +408,14 @@ export class KnowledgeStore {
     return row?.content ?? undefined;
   }
 
+  /** A source's raw (unnormalized) text, when stored — lets parsers be re-run later. */
+  getSourceRawContent(id: number): string | undefined {
+    const row = this.db.prepare("SELECT raw_content FROM sources WHERE id = ?").get(id) as
+      | { raw_content: string | null }
+      | undefined;
+    return row?.raw_content ?? undefined;
+  }
+
   /** A source's type (file/image/conversation/session…) — drives source quality and tiering. */
   getSourceType(id: number): string | undefined {
     const row = this.db.prepare("SELECT type FROM sources WHERE id = ?").get(id) as
@@ -362,22 +424,71 @@ export class KnowledgeStore {
     return row?.type;
   }
 
-  addChunks(sourceId: number, chunks: Array<{ text: string; embedding: Float32Array }>): void {
+  /**
+   * Persist a source's chunks with their embeddings and, when provided, the
+   * structure-aware metadata (#14) that lets a result navigate chunk → section →
+   * source and lets citations cite a page/section/span. The metadata fields are
+   * all optional, so existing callers passing `{ text, embedding }` keep working
+   * and the extra columns stay null.
+   */
+  addChunks(sourceId: number, chunks: ChunkInput[]): void {
     const insert = this.db.prepare(
-      "INSERT INTO chunks (source_id, seq, text, embedding) VALUES (?, ?, ?, ?)",
+      `INSERT INTO chunks
+         (source_id, seq, text, embedding, source_block_ids, section_title,
+          page_start, page_end, char_start, char_end, token_estimate, content_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertAll = this.db.transaction(() => {
       chunks.forEach((chunk, seq) => {
-        insert.run(sourceId, seq, chunk.text, serializeVector(chunk.embedding));
+        insert.run(
+          sourceId,
+          seq,
+          chunk.text,
+          serializeVector(chunk.embedding),
+          chunk.sourceBlockIds ? JSON.stringify(chunk.sourceBlockIds) : null,
+          chunk.sectionTitle ?? null,
+          chunk.pageStart ?? null,
+          chunk.pageEnd ?? null,
+          chunk.charStart ?? null,
+          chunk.charEnd ?? null,
+          chunk.tokenEstimate ?? null,
+          chunk.contentType ?? null,
+        );
       });
     });
     insertAll();
   }
 
+  /** A chunk's structure-aware metadata (#14), for citation/navigation. */
+  chunkMetadata(chunkId: number): ChunkMetadataRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, seq, source_block_ids, section_title,
+                page_start, page_end, char_start, char_end, token_estimate,
+                content_type, source_revision_id
+         FROM chunks WHERE id = ?`,
+      )
+      .get(chunkId) as ChunkMetadataRow | undefined;
+  }
+
+  /** The chunks belonging to a source, in document order — chunk ↔ source navigation. */
+  chunksForSource(sourceId: number): ChunkMetadataRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, source_id, seq, source_block_ids, section_title,
+                page_start, page_end, char_start, char_end, token_estimate,
+                content_type, source_revision_id
+         FROM chunks WHERE source_id = ? ORDER BY seq`,
+      )
+      .all(sourceId) as ChunkMetadataRow[];
+  }
+
   allChunks(): ChunkWithVector[] {
     const rows = this.db
       .prepare(
-        `SELECT c.id, c.source_id, c.text, c.embedding, s.title AS source_title, s.path AS source_path
+        `SELECT c.id, c.source_id, c.text, c.embedding,
+                c.section_title, c.page_start, c.page_end, c.char_start, c.char_end,
+                s.title AS source_title, s.path AS source_path
          FROM chunks c JOIN sources s ON s.id = c.source_id
          WHERE c.embedding IS NOT NULL`,
       )
@@ -386,6 +497,11 @@ export class KnowledgeStore {
       source_id: number;
       text: string;
       embedding: Buffer;
+      section_title: string | null;
+      page_start: number | null;
+      page_end: number | null;
+      char_start: number | null;
+      char_end: number | null;
       source_title: string;
       source_path: string | null;
     }>;
@@ -396,6 +512,11 @@ export class KnowledgeStore {
       source_path: row.source_path,
       text: row.text,
       vector: deserializeVector(row.embedding),
+      section_title: row.section_title,
+      page_start: row.page_start,
+      page_end: row.page_end,
+      char_start: row.char_start,
+      char_end: row.char_end,
     }));
   }
 

@@ -31,6 +31,24 @@ function hybridRank(vectorIds: number[], keywordIds: number[]): number[] {
   return reciprocalRankFusion([vectorIds, keywordIds]);
 }
 
+/** A human-readable " (Section · p.N)" locator for a chunk, or "" when unknown. */
+function citationLocator(chunk: {
+  section_title: string | null;
+  page_start: number | null;
+  page_end: number | null;
+}): string {
+  const parts: string[] = [];
+  if (chunk.section_title) parts.push(chunk.section_title);
+  if (chunk.page_start != null) {
+    parts.push(
+      chunk.page_end != null && chunk.page_end !== chunk.page_start
+        ? `p.${chunk.page_start}–${chunk.page_end}`
+        : `p.${chunk.page_start}`,
+    );
+  }
+  return parts.length ? ` (${parts.join(" · ")})` : "";
+}
+
 /**
  * Hybrid retrieval over the *compiled* knowledge first, raw sources last.
  *
@@ -63,8 +81,23 @@ export async function buildContextPack(
   // --- rank each id-space (vector ∪ BM25, fused) ---
   const allChunks = store.allChunks().filter((c) => !nonSearchable.has(c.source_id));
   const chunkById = new Map(allChunks.map((c) => [c.id, c]));
+  // Title/heading boost (#14 acceptance): a chunk whose source title or section
+  // heading literally matches a query term leads its retrieval stream, surfacing
+  // the right section even when the body wording diverges.
+  const queryTerms = query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const headingMatches = (c: (typeof allChunks)[number]): boolean => {
+    const hay = `${c.source_title} ${c.section_title ?? ""}`.toLowerCase();
+    return queryTerms.some((t) => t.length > 1 && hay.includes(t));
+  };
+  const titleBoost = allChunks.filter(headingMatches).map((c) => c.id);
+  // Dedupe within the ranking (boosted ids ahead of their vector position) so
+  // reciprocal-rank fusion scores each chunk once, at its best rank.
+  const vectorRanked = [
+    ...titleBoost,
+    ...topK(allChunks, qv, (c) => c.vector, 30).map((h) => h.item.id),
+  ];
   const chunkOrder = hybridRank(
-    topK(allChunks, qv, (c) => c.vector, 30).map((h) => h.item.id),
+    [...new Set(vectorRanked)],
     store.chunkFtsSearch(query, 30).filter((id) => chunkById.has(id)),
   );
 
@@ -197,8 +230,20 @@ export async function buildContextPack(
     if (chunksShown >= chunkCount) break;
     const chunk = chunkById.get(chunkId);
     if (!chunk) continue;
-    addSource({ id: chunk.source_id, title: chunk.source_title, path: chunk.source_path });
-    chunkLines.push(`[from "${chunk.source_title}"]\n${chunk.text}`);
+    // Carry the chunk's page/section/span onto the citation so the answer can
+    // point at exactly where the excerpt lives, not just the document (#14).
+    addSource({
+      id: chunk.source_id,
+      title: chunk.source_title,
+      path: chunk.source_path,
+      section: chunk.section_title,
+      pageStart: chunk.page_start,
+      pageEnd: chunk.page_end,
+      charStart: chunk.char_start,
+      charEnd: chunk.char_end,
+    });
+    const locator = citationLocator(chunk);
+    chunkLines.push(`[from "${chunk.source_title}"${locator}]\n${chunk.text}`);
     chunksShown++;
   }
   if (chunksShown > 0) sections.push(chunkLines.join("\n\n"));

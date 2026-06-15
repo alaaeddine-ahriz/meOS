@@ -18,9 +18,18 @@ export {
   topK,
 } from "./embedding/vectors.js";
 export * from "./llm/index.js";
-export { imageMediaType, parseDocument, SUPPORTED_EXTENSIONS } from "./ingest/parse.js";
-export type { ParsedDocument } from "./ingest/parse.js";
-export { chunkText } from "./ingest/chunk.js";
+export {
+  blocksFromDocxHtml,
+  blocksFromText,
+  imageMediaType,
+  parseCsv,
+  parseDocument,
+  parseJson,
+  SUPPORTED_EXTENSIONS,
+} from "./ingest/parse.js";
+export type { Block, BlockType, ParsedDocument } from "./ingest/parse.js";
+export { chunkBlocks, chunkText, estimateTokens } from "./ingest/chunk.js";
+export type { ChunkOptions, ChunkWithMetadata } from "./ingest/chunk.js";
 export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
 export {
@@ -42,6 +51,8 @@ export { extractKnowledge } from "./extract/extractor.js";
 export { readImage } from "./extract/image.js";
 export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
+  ChunkInput,
+  ChunkMetadataRow,
   ChunkWithVector,
   ConnectorAccountRow,
   ConnectorSyncStateRow,

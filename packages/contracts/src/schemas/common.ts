@@ -20,6 +20,16 @@ export const SourceRefSchema = z.object({
   path: z.string().nullable(),
   /** Origin: file/image/conversation, or a connector kind like "google:gmail". */
   type: z.string().optional(),
+  /**
+   * Structure-aware citation locators (#14): where in the source the cited
+   * excerpt lives. All optional/back-compatible — present only when the backing
+   * chunk carried the metadata, so a plain-text source still cites cleanly.
+   */
+  section: z.string().nullable().optional(),
+  pageStart: z.number().nullable().optional(),
+  pageEnd: z.number().nullable().optional(),
+  charStart: z.number().nullable().optional(),
+  charEnd: z.number().nullable().optional(),
 });
 
 export const GraphNodeSchema = z.object({

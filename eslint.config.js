@@ -14,6 +14,9 @@ export default tseslint.config(
       "**/data/**",
       "packages/desktop/src-tauri/target/**",
       "packages/desktop/src-tauri/gen/**",
+      // The desktop build copies the bundled, minified web app here; like
+      // target/ and gen/ above it is a gitignored build artifact, not source.
+      "packages/desktop/src-tauri/payload/**",
       "**/*.d.ts",
     ],
   },
