@@ -122,7 +122,8 @@ export function ForceGraph({
   // Rebuild the simulation only when the actual graph content changes, not on
   // every render (the node/link arrays are fresh objects each time).
   const signature = useMemo(
-    () => `${nodeData.map((n) => n.id).join(",")}|${linkData.map((l) => `${l.from}-${l.to}-${l.label}`).join(",")}`,
+    () =>
+      `${nodeData.map((n) => n.id).join(",")}|${linkData.map((l) => `${l.from}-${l.to}-${l.label}`).join(",")}`,
     [nodeData, linkData],
   );
 
@@ -163,7 +164,10 @@ export function ForceGraph({
     // fit the settled layout into the viewport
     const canvas = canvasRef.current;
     if (canvas && sim.nodes.length > 0) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
       for (const node of sim.nodes) {
         minX = Math.min(minX, node.x);
         minY = Math.min(minY, node.y);
@@ -213,7 +217,10 @@ export function ForceGraph({
     const themeObserver = new MutationObserver(() => {
       theme = readTheme();
     });
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-palette"] });
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "data-palette"],
+    });
 
     let raf = 0;
     const draw = () => {
@@ -224,7 +231,13 @@ export function ForceGraph({
       const dpr = window.devicePixelRatio || 1;
       const view = viewRef.current;
       const hover = hoverRef.current;
-      const { line: lineColor, lamp: lampColor, faded: fadedColor, paper: paperColor, ink: inkColor } = theme;
+      const {
+        line: lineColor,
+        lamp: lampColor,
+        faded: fadedColor,
+        paper: paperColor,
+        ink: inkColor,
+      } = theme;
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);

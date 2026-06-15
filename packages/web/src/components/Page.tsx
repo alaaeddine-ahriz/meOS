@@ -19,10 +19,13 @@ export function Page({
   className?: string;
   bleed?: boolean;
 }) {
-  if (bleed) return <div className={cn("relative h-full overflow-hidden", className)}>{children}</div>;
+  if (bleed)
+    return <div className={cn("relative h-full overflow-hidden", className)}>{children}</div>;
   return (
     <div className="h-full overflow-y-auto">
-      <div className={cn("mx-auto w-full max-w-[var(--page-max)] px-10 py-10", className)}>{children}</div>
+      <div className={cn("mx-auto w-full max-w-[var(--page-max)] px-10 py-10", className)}>
+        {children}
+      </div>
     </div>
   );
 }

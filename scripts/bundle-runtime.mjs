@@ -84,7 +84,10 @@ async function findFilesByName(dir, filename, acc = []) {
 }
 
 async function fileExists(p) {
-  return fs.access(p).then(() => true, () => false);
+  return fs.access(p).then(
+    () => true,
+    () => false,
+  );
 }
 
 async function restoreCompatibleOnnxRuntimePayload(packageDir, expectedBinding) {
@@ -96,7 +99,9 @@ async function restoreCompatibleOnnxRuntimePayload(packageDir, expectedBinding) 
 
   if (!compatible) {
     if (candidates.length > 0) {
-      console.warn(`Found onnxruntime native candidates, but none for darwin/x64:\n${candidates.join("\n")}`);
+      console.warn(
+        `Found onnxruntime native candidates, but none for darwin/x64:\n${candidates.join("\n")}`,
+      );
     }
     return false;
   }
@@ -119,17 +124,28 @@ async function ensureOnnxRuntimeNativeBinary(app) {
   const packageJson = resolveFromApp(app, "onnxruntime-node/package.json");
   const packageDir = path.dirname(packageJson);
   const pkg = await readJson(packageJson);
-  const binding = path.join(packageDir, "bin", "napi-v6", "darwin", "x64", "onnxruntime_binding.node");
+  const binding = path.join(
+    packageDir,
+    "bin",
+    "napi-v6",
+    "darwin",
+    "x64",
+    "onnxruntime_binding.node",
+  );
 
   if (await fileExists(binding)) return;
   if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
 
-  console.warn(`onnxruntime-node native binary missing at ${binding}; rebuilding ${pkg.name}@${pkg.version}.`);
+  console.warn(
+    `onnxruntime-node native binary missing at ${binding}; rebuilding ${pkg.name}@${pkg.version}.`,
+  );
   run(npmCmd(), ["rebuild", "onnxruntime-node", "--foreground-scripts"], { cwd: app });
   if (await fileExists(binding)) return;
   if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
 
-  console.warn(`onnxruntime-node rebuild did not restore the native binary; reinstalling ${pkg.name}@${pkg.version}.`);
+  console.warn(
+    `onnxruntime-node rebuild did not restore the native binary; reinstalling ${pkg.name}@${pkg.version}.`,
+  );
   run(
     npmCmd(),
     ["install", `${pkg.name}@${pkg.version}`, "--no-audit", "--no-fund", "--foreground-scripts"],
@@ -142,7 +158,9 @@ async function ensureOnnxRuntimeNativeBinary(app) {
   const candidates = await findFilesByName(packageDir, "onnxruntime_binding.node");
   throw new Error(
     `onnxruntime-node native binary is still missing after rebuild/reinstall: ${binding}` +
-      (candidates.length ? `\nAvailable candidates:\n${candidates.join("\n")}` : "\nNo onnxruntime_binding.node candidates were found."),
+      (candidates.length
+        ? `\nAvailable candidates:\n${candidates.join("\n")}`
+        : "\nNo onnxruntime_binding.node candidates were found."),
   );
 }
 
@@ -167,7 +185,13 @@ async function installRuntimeDeps() {
   await fs.writeFile(
     path.join(app, "package.json"),
     JSON.stringify(
-      { name: "meos-runtime", private: true, version: core.version, type: "module", dependencies: deps },
+      {
+        name: "meos-runtime",
+        private: true,
+        version: core.version,
+        type: "module",
+        dependencies: deps,
+      },
       null,
       2,
     ),
@@ -199,7 +223,9 @@ async function vendorBuilds() {
   await fs.cp(path.join(pkgDir("core"), "dist"), path.join(coreDest, "dist"), { recursive: true });
   await fs.cp(path.join(pkgDir("core"), "package.json"), path.join(coreDest, "package.json"));
 
-  await fs.cp(path.join(pkgDir("server"), "dist"), path.join(app, "server", "dist"), { recursive: true });
+  await fs.cp(path.join(pkgDir("server"), "dist"), path.join(app, "server", "dist"), {
+    recursive: true,
+  });
   await fs.cp(path.join(pkgDir("web"), "dist"), path.join(app, "web"), { recursive: true });
 }
 

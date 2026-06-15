@@ -100,7 +100,9 @@ describe("profile assistant", () => {
     const result = await draftProfileFromContext({
       llm,
       currentProfile: loadProfile(dir),
-      documents: [{ title: "Onboarding", text: "I'm building a local-first second brain called MeOS." }],
+      documents: [
+        { title: "Onboarding", text: "I'm building a local-first second brain called MeOS." },
+      ],
     });
     expect(result.profile["key-projects"]).toContain("MeOS");
     expect(result.summary).toContain("Drafted");
@@ -111,7 +113,11 @@ describe("profile assistant", () => {
     const llm = new StubLlmClient({
       onStructured: (req) => {
         // The wiki summary should reach the model as grounding.
-        if (req.messages.some((m) => typeof m.content === "string" && m.content.includes("MeOS is a second brain"))) {
+        if (
+          req.messages.some(
+            (m) => typeof m.content === "string" && m.content.includes("MeOS is a second brain"),
+          )
+        ) {
           sawKnowledge = true;
         }
         return proposal;
@@ -149,8 +155,20 @@ describe("relevance gate", () => {
       embedder,
       {
         entities: [
-          { name: "MeOS", type: "project", aliases: [], summary: "The project.", relevance: "high" },
-          { name: "Kubernetes", type: "concept", aliases: [], summary: "Generic tech.", relevance: "low" },
+          {
+            name: "MeOS",
+            type: "project",
+            aliases: [],
+            summary: "The project.",
+            relevance: "high",
+          },
+          {
+            name: "Kubernetes",
+            type: "concept",
+            aliases: [],
+            summary: "Generic tech.",
+            relevance: "low",
+          },
         ],
         relationships: [],
         observations: [],

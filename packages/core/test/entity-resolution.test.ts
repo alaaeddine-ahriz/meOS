@@ -109,7 +109,12 @@ describe("mergeEntities", () => {
     expect(s.getEntity(elin.id)).toBeUndefined();
     expect(s.findEntityByName("Alaa El Elin")!.id).toBe(ahriz.id);
     // both observations now sit on the survivor
-    expect(s.activeObservations(ahriz.id).map((o) => o.text).sort()).toEqual(["Ahriz fact.", "Elin fact."]);
+    expect(
+      s
+        .activeObservations(ahriz.id)
+        .map((o) => o.text)
+        .sort(),
+    ).toEqual(["Ahriz fact.", "Elin fact."]);
     // the duplicate "founded" edge collapsed to one
     expect(s.relationshipsFor(ahriz.id).filter((r) => r.label === "founded")).toHaveLength(1);
     // survivor flagged for a page rewrite, and the merge is audited
@@ -198,8 +203,14 @@ describe("wiki backfill", () => {
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
     // a synthetic page with the old Connections format, and an agent page with [[links]]
-    fs.writeFileSync(path.join(dir, `${dana.slug}.md`), `---\nentity_id: ${dana.id}\n---\n# Dana\n\nA designer.\n\n## Connections\n- Dana works on Orion\n`);
-    fs.writeFileSync(path.join(dir, `${marcus.slug}.md`), `---\nentity_id: ${marcus.id}\n---\n# Marcus\n\nMarcus collaborates with [[Dana]].\n`);
+    fs.writeFileSync(
+      path.join(dir, `${dana.slug}.md`),
+      `---\nentity_id: ${dana.id}\n---\n# Dana\n\nA designer.\n\n## Connections\n- Dana works on Orion\n`,
+    );
+    fs.writeFileSync(
+      path.join(dir, `${marcus.slug}.md`),
+      `---\nentity_id: ${marcus.id}\n---\n# Marcus\n\nMarcus collaborates with [[Dana]].\n`,
+    );
     const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
 
     expect(await wiki.refreshSyntheticPages()).toBe(1); // only Dana's synthetic page

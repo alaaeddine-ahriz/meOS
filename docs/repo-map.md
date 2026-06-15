@@ -5,12 +5,12 @@ picture, read [architecture.md](./architecture.md) first.
 
 The monorepo is a pnpm workspace with four packages:
 
-| Package | What it is |
-|---|---|
-| `@meos/core` (`packages/core`) | Domain logic, runtime-agnostic. No HTTP, no process orchestration. |
-| `@meos/server` (`packages/server`) | Fastify API + background workers. Wires `core` into a running process. |
-| `@meos/web` (`packages/web`) | React + Vite SPA. Talks to the server over a typed HTTP boundary. |
-| `@meos/desktop` (`packages/desktop`) | Tauri 2 Rust shell. Owns the native window and server lifecycle. |
+| Package                              | What it is                                                             |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| `@meos/core` (`packages/core`)       | Domain logic, runtime-agnostic. No HTTP, no process orchestration.     |
+| `@meos/server` (`packages/server`)   | Fastify API + background workers. Wires `core` into a running process. |
+| `@meos/web` (`packages/web`)         | React + Vite SPA. Talks to the server over a typed HTTP boundary.      |
+| `@meos/desktop` (`packages/desktop`) | Tauri 2 Rust shell. Owns the native window and server lifecycle.       |
 
 ## Where does new code go?
 
@@ -69,12 +69,12 @@ server needs from `core/src/index.ts` — that barrel is `core`'s public API.
 
 ## Package ownership table
 
-| Package | Responsibility | Allowed dependencies | Forbidden dependencies |
-|---|---|---|---|
-| `@meos/core` | All domain logic: ingestion, extraction, knowledge store, memory, embeddings, wiki writer, chat/retrieval, connectors, vault, profile, jobs, LLM client. Runtime-agnostic. | Third-party libs (`ai`, `zod`, `better-sqlite3`, `@huggingface/transformers`, `bash-tool`, …). Node built-ins. | `@meos/server`, `@meos/web`, `@meos/desktop`. No HTTP framework. No process orchestration (watch/cron/spawn). |
-| `@meos/server` | Fastify API (`routes/`), composition root (`context.ts`), background workers (watcher, scheduler, connector-manager), git sync, activity bus. Turns `core` into a running process. | `@meos/core` (via its public barrel `core/src/index.ts`), Fastify, `chokidar`, `croner`, Node built-ins. | `@meos/web`, `@meos/desktop`. Deep imports into `core` internals (e.g. `@meos/core/src/...`). |
-| `@meos/web` | React + Vite SPA: views, components, hooks. The only consumer of the API contract, via the typed fetch client `src/api.ts`. | The server's HTTP API through `src/api.ts`. React, Vite, UI libs, Tauri JS plugins. | `@meos/core`, `@meos/server` (no source imports — talk over HTTP only). Server internals. |
-| `@meos/desktop` | Tauri 2 Rust shell: native window + server lifecycle (spawn/health-check/teardown, per-user paths). | Tauri, the built web UI and server bundle as resources. | Any domain logic. Importing `core`/`server`/`web` source. |
+| Package         | Responsibility                                                                                                                                                                     | Allowed dependencies                                                                                           | Forbidden dependencies                                                                                        |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `@meos/core`    | All domain logic: ingestion, extraction, knowledge store, memory, embeddings, wiki writer, chat/retrieval, connectors, vault, profile, jobs, LLM client. Runtime-agnostic.         | Third-party libs (`ai`, `zod`, `better-sqlite3`, `@huggingface/transformers`, `bash-tool`, …). Node built-ins. | `@meos/server`, `@meos/web`, `@meos/desktop`. No HTTP framework. No process orchestration (watch/cron/spawn). |
+| `@meos/server`  | Fastify API (`routes/`), composition root (`context.ts`), background workers (watcher, scheduler, connector-manager), git sync, activity bus. Turns `core` into a running process. | `@meos/core` (via its public barrel `core/src/index.ts`), Fastify, `chokidar`, `croner`, Node built-ins.       | `@meos/web`, `@meos/desktop`. Deep imports into `core` internals (e.g. `@meos/core/src/...`).                 |
+| `@meos/web`     | React + Vite SPA: views, components, hooks. The only consumer of the API contract, via the typed fetch client `src/api.ts`.                                                        | The server's HTTP API through `src/api.ts`. React, Vite, UI libs, Tauri JS plugins.                            | `@meos/core`, `@meos/server` (no source imports — talk over HTTP only). Server internals.                     |
+| `@meos/desktop` | Tauri 2 Rust shell: native window + server lifecycle (spawn/health-check/teardown, per-user paths).                                                                                | Tauri, the built web UI and server bundle as resources.                                                        | Any domain logic. Importing `core`/`server`/`web` source.                                                     |
 
 ## The cross-package dependency rule
 

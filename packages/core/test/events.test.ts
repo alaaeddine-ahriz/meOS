@@ -47,7 +47,15 @@ describe("MeosEvents", () => {
       done = true;
     });
 
-    await bus.emit("onNewSource", { sourceId: 1, merge: { affectedEntityIds: [], staleEntityIds: [], newObservationIds: [], reinforcedObservationIds: [] } });
+    await bus.emit("onNewSource", {
+      sourceId: 1,
+      merge: {
+        affectedEntityIds: [],
+        staleEntityIds: [],
+        newObservationIds: [],
+        reinforcedObservationIds: [],
+      },
+    });
 
     expect(done).toBe(true);
   });

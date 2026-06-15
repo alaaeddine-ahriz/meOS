@@ -120,7 +120,10 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         } catch {
           // Non-fatal — the connection still works without the display email.
         }
-        return page("Connected ✓", "MeOS can now sync your Google data. You can close this window.");
+        return page(
+          "Connected ✓",
+          "MeOS can now sync your Google data. You can close this window.",
+        );
       } catch (err) {
         return page("Authorization failed", err instanceof Error ? err.message : String(err));
       }
@@ -139,7 +142,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       const { enabled, intervalMinutes } = request.body ?? {};
       ctx.store.setSyncState(account.id, kind, {
         enabled,
-        intervalMinutes: intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
+        intervalMinutes:
+          intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
       });
       ctx.connectors.reschedule();
       // Pull immediately on first enable so the user sees data without waiting.
@@ -149,14 +153,17 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   );
 
   // Sync one kind now.
-  app.post<{ Params: { kind: string } }>("/api/connectors/google/:kind/sync", async (request, reply) => {
-    const kind = request.params.kind as ConnectorKind;
-    if (!KINDS.includes(kind)) return reply.code(400).send({ error: `Unknown kind: ${kind}` });
-    const account = ctx.store.getConnectorAccount("google");
-    if (!account) return reply.code(400).send({ error: "Google is not connected" });
-    ctx.connectors.enqueueSync(kind);
-    return reply.code(202).send({ syncing: true });
-  });
+  app.post<{ Params: { kind: string } }>(
+    "/api/connectors/google/:kind/sync",
+    async (request, reply) => {
+      const kind = request.params.kind as ConnectorKind;
+      if (!KINDS.includes(kind)) return reply.code(400).send({ error: `Unknown kind: ${kind}` });
+      const account = ctx.store.getConnectorAccount("google");
+      if (!account) return reply.code(400).send({ error: "Google is not connected" });
+      ctx.connectors.enqueueSync(kind);
+      return reply.code(202).send({ syncing: true });
+    },
+  );
 
   // Disconnect: revoke the token, stop timers, forget the account.
   app.delete("/api/connectors/google", async () => {

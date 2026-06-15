@@ -27,7 +27,7 @@ export function ActivityHub() {
   const raw = params.get("tab");
   const tab: HubTabId = TAB_IDS.includes(raw as HubTabId)
     ? (raw as HubTabId)
-    : TAB_ALIASES[raw ?? ""] ?? "feed";
+    : (TAB_ALIASES[raw ?? ""] ?? "feed");
 
   const [reviewCount, setReviewCount] = useState(0);
 
@@ -35,8 +35,14 @@ export function ActivityHub() {
   // the same on every tab, so fetch it once on mount rather than on each switch.
   useEffect(() => {
     Promise.all([
-      api.getContradictions().then((r) => r.contradictions.length).catch(() => 0),
-      api.getDuplicates().then((r) => r.duplicates.length).catch(() => 0),
+      api
+        .getContradictions()
+        .then((r) => r.contradictions.length)
+        .catch(() => 0),
+      api
+        .getDuplicates()
+        .then((r) => r.duplicates.length)
+        .catch(() => 0),
     ]).then(([c, d]) => setReviewCount(c + d));
   }, []);
 
