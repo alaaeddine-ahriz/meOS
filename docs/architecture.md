@@ -127,7 +127,7 @@ The user's hand-authored notes, distinct from the system-compiled wiki.
 
 ### Profile — `core/src/profile/`
 
-The *lens* every LLM stage reads through. `profile-doc.ts` loads/saves profile
+The _lens_ every LLM stage reads through. `profile-doc.ts` loads/saves profile
 sections (work context, projects, focus rules) with version history;
 `profile-assistant.ts` drafts and edits the profile from context documents or
 natural-language instructions, returning a reviewable `ProfileProposal`.
@@ -136,8 +136,8 @@ natural-language instructions, returning a reviewable `ProfileProposal`.
 
 `queue.ts` provides `JobQueue` (bounded concurrency) and `SerialQueue`. These
 are the primitives the server uses to bound ingest concurrency and serialize
-wiki regeneration. The domain-level *building block* is here; the *schedule and
-triggers* that drive it live in the server.
+wiki regeneration. The domain-level _building block_ is here; the _schedule and
+triggers_ that drive it live in the server.
 
 ### Events & outputs — `core/src/events.ts`, `core/src/outputs.ts`
 

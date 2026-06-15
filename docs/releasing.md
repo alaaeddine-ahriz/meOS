@@ -74,7 +74,7 @@ Run through this before pushing a release tag.
       locally for the host: `node scripts/bundle-runtime.mjs` then
       `pnpm desktop:build`. Confirm the payload verification step passes
       (better-sqlite3 `.node`, bundled Node, server/web builds, seeded model).
-- [ ] **DB migration smoke test.** Open a database created by the *previous*
+- [ ] **DB migration smoke test.** Open a database created by the _previous_
       release and confirm it upgrades cleanly to the new schema version (the
       migration runner in
       [`packages/core/src/db/database.ts`](../packages/core/src/db/database.ts)
@@ -104,12 +104,12 @@ can't be cross-compiled). The matrix and outputs come from
 [`.github/workflows/desktop-build.yml`](../.github/workflows/desktop-build.yml);
 the product name is **`MeOS`** and the version is taken from `tauri.conf.json`.
 
-| Platform              | Runner          | Bundle  | Artifact (uploaded as `meos-<os>`)        |
-| --------------------- | --------------- | ------- | ----------------------------------------- |
-| macOS (Apple Silicon) | `macos-14`      | DMG     | `MeOS_<version>_aarch64.dmg`              |
-| macOS (Intel)         | `macos-15-intel`| DMG     | `MeOS_<version>_x64.dmg`                  |
-| Windows               | `windows-latest`| NSIS    | `MeOS_<version>_x64-setup.exe`           |
-| Linux                 | `ubuntu-22.04`  | AppImage (fallback: DEB) | `MeOS_<version>_amd64.AppImage` (fallback `MeOS_<version>_amd64.deb`) |
+| Platform              | Runner           | Bundle                   | Artifact (uploaded as `meos-<os>`)                                    |
+| --------------------- | ---------------- | ------------------------ | --------------------------------------------------------------------- |
+| macOS (Apple Silicon) | `macos-14`       | DMG                      | `MeOS_<version>_aarch64.dmg`                                          |
+| macOS (Intel)         | `macos-15-intel` | DMG                      | `MeOS_<version>_x64.dmg`                                              |
+| Windows               | `windows-latest` | NSIS                     | `MeOS_<version>_x64-setup.exe`                                        |
+| Linux                 | `ubuntu-22.04`   | AppImage (fallback: DEB) | `MeOS_<version>_amd64.AppImage` (fallback `MeOS_<version>_amd64.deb`) |
 
 Notes on the naming convention (these are Tauri's standard bundle names — keep
 them as-is so they stay predictable):
@@ -120,7 +120,7 @@ them as-is so they stay predictable):
   one for Linux. The upload glob in the workflow accepts `*.dmg`, `*.exe`,
   `*.AppImage`, and `*.deb`.
 - The CI **upload artifact name** is `meos-<os>` (e.g. `meos-macos-14`); the
-  files *inside* it use the Tauri names above.
+  files _inside_ it use the Tauri names above.
 - Arch tokens follow Tauri/platform conventions: macOS uses `aarch64` / `x64`,
   Debian/AppImage use `amd64` for x86-64.
 - Nothing is code-signed yet (see [Future hardening](#future-hardening)).
@@ -136,7 +136,7 @@ open, the runner applies every migration from the database's current
 Compatibility rules:
 
 - **Upgrades are automatic and forward-only.** Adding a migration is a backward-
-  compatible (MINOR) change for *new* installs and for users moving forward.
+  compatible (MINOR) change for _new_ installs and for users moving forward.
 - **There is no downgrade path.** Once a database is upgraded, an older app
   build will see a `user_version` higher than it understands and will not
   re-apply or roll back. Reinstalling an older version against an upgraded

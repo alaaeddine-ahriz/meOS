@@ -13,14 +13,14 @@ Migrations are forward-only, tracked by SQLite's `user_version`.
 
 ## Core tables
 
-| Table | Purpose |
-|---|---|
-| `sources` | Every ingested document (watched file, upload, connector item). Holds title, path, mime, content. |
-| `chunks` | Embedded text segments of a source (`embedding` BLOB), with a `chunks_fts` FTS5 index for BM25. |
-| `entities` | The graph nodes: `person`, `project`, `organisation`, `concept`, `place`, `decision`. Have a unique `slug` and `entity_aliases`. |
-| `observations` | Atomic claims about an entity. Carry confidence, status (`active`/`superseded`/`contradicted`), provenance, and a `sensitivity` tier. |
-| `relationships` | Typed edges between entities, with confidence, status, and per-source provenance. |
-| `wiki_pages` | The compiled per-entity Markdown `body` (+ embedding, quality score), indexed by `wiki_fts`. |
+| Table           | Purpose                                                                                                                               |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `sources`       | Every ingested document (watched file, upload, connector item). Holds title, path, mime, content.                                     |
+| `chunks`        | Embedded text segments of a source (`embedding` BLOB), with a `chunks_fts` FTS5 index for BM25.                                       |
+| `entities`      | The graph nodes: `person`, `project`, `organisation`, `concept`, `place`, `decision`. Have a unique `slug` and `entity_aliases`.      |
+| `observations`  | Atomic claims about an entity. Carry confidence, status (`active`/`superseded`/`contradicted`), provenance, and a `sensitivity` tier. |
+| `relationships` | Typed edges between entities, with confidence, status, and per-source provenance.                                                     |
+| `wiki_pages`    | The compiled per-entity Markdown `body` (+ embedding, quality score), indexed by `wiki_fts`.                                          |
 
 ## Provenance & confidence
 

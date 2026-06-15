@@ -10,7 +10,7 @@ MeOS is a personal second brain: it ingests a person's documents and connected
 accounts, maintains a compounding knowledge base, writes a wiki it keeps
 rewriting, and answers questions over that corpus. The data is inherently
 private — someone's whole working life — and the value proposition is that
-*your data stays yours*.
+_your data stays yours_.
 
 The naïve "scale-out" instinct would split this into services: an ingestion
 worker, a vector database, a separate LLM gateway, a job broker, a sync service,

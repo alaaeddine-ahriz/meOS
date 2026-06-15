@@ -31,7 +31,7 @@ background after ingestion; give the Activity → Feed a moment. A page only sho
 
 ## Connectors
 
-**OAuth won't complete.** Connectors use loopback + PKCE against *your own*
+**OAuth won't complete.** Connectors use loopback + PKCE against _your own_
 Google Cloud "Desktop app" client. Make sure you created a Desktop-app OAuth
 client and entered its credentials. See [`connectors.md`](connectors.md).
 
@@ -54,8 +54,8 @@ list in `.github/workflows/desktop-build.yml`); CI falls back to a `.deb` when
 the AppImage step fails.
 
 **App won't open after install.** Builds are unsigned. macOS:
-`xattr -dr com.apple.quarantine /Applications/MeOS.app`. Windows: *More info →
-Run anyway*.
+`xattr -dr com.apple.quarantine /Applications/MeOS.app`. Windows: _More info →
+Run anyway_.
 
 ## Tests
 

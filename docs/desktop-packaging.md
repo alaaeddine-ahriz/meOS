@@ -47,15 +47,15 @@ Node we ship. So the bundled Node is pinned (default `22.12.0`, override with
 runs the steps above on a matrix — each target on its own **native** runner,
 since native modules can't be cross-compiled:
 
-| Runner | Output |
-|---|---|
-| `macos-14` (Apple Silicon) | `.dmg` |
-| `macos-15-intel` (Intel) | `.dmg` |
-| `windows-latest` | `.exe` (NSIS) |
-| `ubuntu-22.04` | `.AppImage` (falls back to `.deb`) |
+| Runner                     | Output                             |
+| -------------------------- | ---------------------------------- |
+| `macos-14` (Apple Silicon) | `.dmg`                             |
+| `macos-15-intel` (Intel)   | `.dmg`                             |
+| `windows-latest`           | `.exe` (NSIS)                      |
+| `ubuntu-22.04`             | `.AppImage` (falls back to `.deb`) |
 
 Linux installs the WebKitGTK/AppImage system libs first. Trigger from the
-**Actions** tab (*Run workflow*) or by pushing a `v*` tag, then download the
+**Actions** tab (_Run workflow_) or by pushing a `v*` tag, then download the
 per-platform artifacts from the run summary.
 
 ## Runtime layout
@@ -68,4 +68,4 @@ and `MEOS_WEB_DIST`.
 
 Builds are unsigned for now: on first open, macOS users run
 `xattr -dr com.apple.quarantine /Applications/MeOS.app`; Windows users choose
-*More info → Run anyway*.
+_More info → Run anyway_.

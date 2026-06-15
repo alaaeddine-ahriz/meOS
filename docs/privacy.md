@@ -1,7 +1,7 @@
 # Privacy
 
 MeOS is local-first: your data lives in `data/` in portable formats and nothing
-requires MeOS to read. This page covers the *sensitivity* boundary that keeps
+requires MeOS to read. This page covers the _sensitivity_ boundary that keeps
 private knowledge out of shareable artifacts.
 
 ## Observation sensitivity
@@ -9,11 +9,11 @@ private knowledge out of shareable artifacts.
 Every observation carries a `sensitivity` tier
 ([`db/database.ts`](../packages/core/src/db/database.ts), migration 8):
 
-| Tier | Meaning |
-|---|---|
-| `normal` | Default. Safe to compile into portable artifacts (the wiki, exported briefs). |
+| Tier      | Meaning                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `normal`  | Default. Safe to compile into portable artifacts (the wiki, exported briefs).                                               |
 | `private` | Searchable on this machine, but kept out of the git-synced wiki. Used for connector data — contact details, email metadata. |
-| `secret` | Most restrictive; excluded from portable artifacts. |
+| `secret`  | Most restrictive; excluded from portable artifacts.                                                                         |
 
 ## The `visibleObservations` filter
 
@@ -36,7 +36,7 @@ drift caller to caller.
 
 ## Git sync
 
-Git sync (Settings → *Sync*) versions only the human-readable knowledge —
+Git sync (Settings → _Sync_) versions only the human-readable knowledge —
 `data/wiki/`, `data/digests/`, `data/vault/`. Because only `normal` observations
 reach the wiki, enabling sync (and pushing to a remote) never exports your
 `private`/`secret` claims. Auth flows through your normal git setup (SSH agent,

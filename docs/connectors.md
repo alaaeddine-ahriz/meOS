@@ -18,7 +18,7 @@ Three kinds, all **read-only**:
 
 ## OAuth
 
-Auth is loopback + PKCE (S256) against your *own* Google Cloud "Desktop app"
+Auth is loopback + PKCE (S256) against your _own_ Google Cloud "Desktop app"
 client, so tokens never pass through anyone else
 ([`google/oauth.ts`](../packages/core/src/connectors/google/oauth.ts)). Scopes
 are read-only: `contacts.readonly`, `calendar.readonly`, `gmail.readonly`, plus

@@ -13,7 +13,7 @@ inspect, and must not export private knowledge.
 ## Decision
 
 Version the human-readable knowledge as a plain Git repository rooted at `data/`.
-Git sync (Settings → *Sync*) makes the first commit, optionally points an `origin`
+Git sync (Settings → _Sync_) makes the first commit, optionally points an `origin`
 remote at GitHub, and on demand (or nightly) commit-pull-pushes the Markdown. The
 SQLite DB is `.gitignore`d. Auth flows through the user's existing git setup (SSH
 agent, credential helper, or a token in the remote URL).
