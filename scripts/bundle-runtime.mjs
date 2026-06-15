@@ -41,9 +41,20 @@ function arg(name, fallback) {
 const platform = arg("platform", process.platform); // darwin | win32 | linux
 const arch = arg("arch", process.arch); // arm64 | x64
 const isWin = platform === "win32";
+const hostIsWin = process.platform === "win32";
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(" ")}`);
+
+  // Recent Node versions reject direct execution of .cmd/.bat files on Windows
+  // through execFile/spawn without a shell. npm is exposed as npm.cmd there, so
+  // run Windows command shims through cmd.exe while keeping normal executables
+  // shell-free on every platform.
+  if (hostIsWin && /\.(cmd|bat)$/i.test(cmd)) {
+    execFileSync("cmd.exe", ["/d", "/s", "/c", cmd, ...args], { stdio: "inherit", ...opts });
+    return;
+  }
+
   execFileSync(cmd, args, { stdio: "inherit", ...opts });
 }
 
@@ -90,9 +101,7 @@ async function installRuntimeDeps() {
         `Run under Node ${bundleMajor}.x or set MEOS_BUNDLE_NODE_VERSION to ${hostMajor}.x.`,
     );
   }
-  // npm ships as a .cmd shim on Windows, which execFile (no shell) can't
-  // resolve — CreateProcess only auto-appends .exe, not .cmd.
-  run(isWin ? "npm.cmd" : "npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
+  run(hostIsWin ? "npm.cmd" : "npm", ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
 }
 
 // ---------------------------------------------------------------------------
