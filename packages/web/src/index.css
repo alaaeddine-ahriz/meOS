@@ -159,6 +159,38 @@
   --grain-opacity: 0.025;
 }
 
+/* shadcn — the stock shadcn/ui "neutral" theme, verbatim (no personalization).
+   Role variables are mapped onto shadcn's canonical greyscale so both ui/
+   components and the role-based views render as plain shadcn. */
+[data-palette="shadcn"] {
+  --ink: oklch(1 0 0);
+  --desk: oklch(1 0 0);
+  --card: oklch(0.97 0 0);
+  --line: oklch(0.922 0 0);
+  --paper: oklch(0.145 0 0);
+  --faded: oklch(0.556 0 0);
+  --dim: oklch(0.708 0 0);
+  --lamp: oklch(0.205 0 0);
+  --lamp-dim: oklch(0.708 0 0);
+  --ember: oklch(0.577 0.245 27.325);
+  --moss: oklch(0.627 0.194 149.214);
+  --grain-opacity: 0;
+}
+.dark[data-palette="shadcn"] {
+  --ink: oklch(0.145 0 0);
+  --desk: oklch(0.205 0 0);
+  --card: oklch(0.205 0 0);
+  --line: oklch(0.269 0 0);
+  --paper: oklch(0.985 0 0);
+  --faded: oklch(0.708 0 0);
+  --dim: oklch(0.556 0 0);
+  --lamp: oklch(0.922 0 0);
+  --lamp-dim: oklch(0.556 0 0);
+  --ember: oklch(0.704 0.191 22.216);
+  --moss: oklch(0.696 0.17 162.48);
+  --grain-opacity: 0;
+}
+
 /* ── typography presets ───────────────────────────────────── */
 [data-font="clean"] {
   --font-display: "IBM Plex Sans Variable", system-ui, sans-serif;
@@ -171,6 +203,17 @@
 [data-font="mono"] {
   --font-display: "IBM Plex Mono", monospace;
   --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
+}
+
+/* shadcn locks to the stock Tailwind/shadcn font stack regardless of the
+   typeface picker — selector is more specific than [data-font] so it wins. */
+:root[data-palette="shadcn"] {
+  --font-display: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-body: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono-set: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 /* ── density presets ──────────────────────────────────────── */

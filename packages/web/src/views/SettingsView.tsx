@@ -81,6 +81,7 @@ const PALETTES: Array<{ value: Palette; label: string }> = [
   { value: "warm", label: "Warm" },
   { value: "neutral", label: "Neutral" },
   { value: "cool", label: "Cool" },
+  { value: "shadcn", label: "shadcn" },
 ];
 
 const FONTS: Array<{ value: FontPreset; label: string }> = [

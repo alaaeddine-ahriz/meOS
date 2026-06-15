@@ -3,7 +3,7 @@
 // motion (data-attributes the stylesheet keys off). See index.css for the tokens.
 
 export type ThemePreference = "light" | "dark" | "system";
-export type Palette = "warm" | "neutral" | "cool";
+export type Palette = "warm" | "neutral" | "cool" | "shadcn";
 export type FontPreset = "editorial" | "clean" | "literary" | "mono";
 export type Density = "spaced" | "compact";
 export type Width = "readable" | "full";
@@ -29,7 +29,7 @@ export function storedTheme(): ThemePreference {
 }
 
 export function storedPalette(): Palette {
-  return read(PALETTE_KEY, ["warm", "neutral", "cool"] as const, "warm");
+  return read(PALETTE_KEY, ["warm", "neutral", "cool", "shadcn"] as const, "warm");
 }
 
 export function storedFont(): FontPreset {
