@@ -1,0 +1,58 @@
+# Dependabot keeps meOS's dependencies current across all three ecosystems we
+# ship: the pnpm JavaScript workspace, the GitHub Actions we run in CI, and the
+# Rust crate behind the Tauri desktop shell. Updates are grouped to keep PR
+# noise low and capped with open-PR limits.
+version: 2
+
+updates:
+  # --- JavaScript / pnpm workspace -----------------------------------------
+  # `directories` globbing covers the repo root plus every package in
+  # packages/* (matching pnpm-workspace.yaml) without one entry per package.
+  - package-ecosystem: npm
+    directories:
+      - "/"
+      - "/packages/*"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Batch routine minor/patch bumps so reviewers see one PR, not dozens.
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+      # Major bumps stay separate so breaking changes get individual review.
+      npm-major:
+        update-types:
+          - major
+    labels:
+      - dependencies
+      - javascript
+
+  # --- GitHub Actions -------------------------------------------------------
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - github-actions
+
+  # --- Rust / Cargo (Tauri desktop crate) -----------------------------------
+  - package-ecosystem: cargo
+    directory: "/packages/desktop/src-tauri"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - rust

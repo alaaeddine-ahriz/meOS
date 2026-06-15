@@ -20,6 +20,8 @@
     "desktop": "pnpm --filter @meos/desktop dev",
     "desktop:build": "pnpm --filter @meos/desktop bundle",
     "dev:container": "docker compose -f docker/docker-compose.dev.yml up",
+    "audit": "pnpm audit --prod",
+    "audit:licenses": "pnpm licenses list --prod",
     "prepare": "simple-git-hooks"
   },
   "lint-staged": {
