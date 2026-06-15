@@ -16,12 +16,14 @@ if (!ctx.git.isInitialized()) {
   }
 }
 ctx.watcher.start();
+ctx.connectors.start();
 const scheduler = startScheduler(ctx);
 
 await app.listen({ port: ctx.config.server.port, host: "127.0.0.1" });
 
 const shutdown = async () => {
   scheduler.stop();
+  ctx.connectors.stop();
   await ctx.watcher.close();
   await app.close();
   ctx.db.close();

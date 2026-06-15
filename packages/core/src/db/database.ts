@@ -344,6 +344,50 @@ const migrations: string[] = [
   ALTER TABLE ingested_files ADD COLUMN content_hash TEXT;
   CREATE INDEX idx_ingested_files_hash ON ingested_files(content_hash);
   `,
+  // 17 — external connectors (Google Contacts/Calendar/Gmail). One account row
+  // per connected provider (tokens live in the DB, never near source files — same
+  // rationale as the settings table at #5); a per-kind sync cursor + schedule; and
+  // a content-hash ledger modelled on ingested_files so an unchanged item is
+  // skipped on re-sync rather than re-merged. Each ledger row points at the source
+  // it created (ON DELETE SET NULL) so deletions don't orphan the link.
+  `
+  CREATE TABLE connector_accounts (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    account_email TEXT,
+    access_token TEXT,
+    refresh_token TEXT,
+    expiry TEXT,
+    scopes TEXT,
+    client_id TEXT,
+    client_secret TEXT,
+    status TEXT NOT NULL DEFAULT 'connected',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(provider)
+  );
+
+  CREATE TABLE connector_sync_state (
+    account_id INTEGER NOT NULL REFERENCES connector_accounts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('contacts','calendar','gmail')),
+    enabled INTEGER NOT NULL DEFAULT 0,
+    interval_minutes INTEGER NOT NULL DEFAULT 15,
+    sync_token TEXT,
+    last_synced_at TEXT,
+    last_status TEXT,
+    UNIQUE(account_id, kind)
+  );
+
+  CREATE TABLE connector_items (
+    account_id INTEGER NOT NULL REFERENCES connector_accounts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    content_hash TEXT,
+    source_id INTEGER REFERENCES sources(id) ON DELETE SET NULL,
+    last_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(account_id, kind, external_id)
+  );
+  CREATE INDEX idx_connector_items_lookup ON connector_items(account_id, kind, external_id);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

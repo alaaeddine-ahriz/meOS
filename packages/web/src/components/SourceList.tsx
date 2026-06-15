@@ -1,13 +1,21 @@
-import { ChevronDown, FileText } from "lucide-react";
+import { Calendar, ChevronDown, Contact, FileText, Mail, type LucideIcon } from "lucide-react";
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
-import { isRevealablePath, isTauri, revealInFinder } from "@/lib/platform";
+import { isRevealablePath, isTauri, openExternal, revealInFinder } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SourceRef } from "../api.js";
 
+/** Provider chip presentation for a connector source (icon + deep-link). */
+const CONNECTOR_ICONS: Record<string, LucideIcon> = {
+  "google:contacts": Contact,
+  "google:calendar": Calendar,
+  "google:gmail": Mail,
+};
+
 /**
- * Collapsible list of the documents an answer or wiki page draws on. In the
- * desktop app, clicking a source reveals the original file in Finder; sources
- * without a file on disk are inert.
+ * Collapsible list of the documents an answer or wiki page draws on. File
+ * sources reveal the original in Finder (desktop only); connector sources
+ * (Google Contacts/Calendar/Gmail) are clickable chips that open the underlying
+ * item in the system browser.
  */
 export function SourceList({ sources, defaultOpen = false }: { sources: SourceRef[]; defaultOpen?: boolean }) {
   if (sources.length === 0) return null;
@@ -25,22 +33,29 @@ export function SourceList({ sources, defaultOpen = false }: { sources: SourceRe
       </SourcesTrigger>
       <SourcesContent>
         {sources.map((source) => {
-          const revealable = isTauri && isRevealablePath(source.path);
+          const ConnectorIcon = source.type ? CONNECTOR_ICONS[source.type] : undefined;
+          // A connector chip links out to Google when its path holds a URL.
+          const linkUrl =
+            ConnectorIcon && source.path && /^https?:\/\//.test(source.path) ? source.path : null;
+          const revealable = !ConnectorIcon && isTauri && isRevealablePath(source.path);
+          const clickable = Boolean(linkUrl) || revealable;
+          const Icon = ConnectorIcon ?? FileText;
           return (
             <Source
               key={source.id}
-              href="#"
+              href={linkUrl ?? "#"}
               onClick={(event) => {
                 event.preventDefault();
-                if (revealable) void revealInFinder(source.path!);
+                if (linkUrl) void openExternal(linkUrl);
+                else if (revealable) void revealInFinder(source.path!);
               }}
               title={source.path ?? undefined}
               className={cn(
                 "text-[13px] text-faded transition-colors",
-                revealable ? "cursor-pointer hover:text-paper" : "cursor-default",
+                clickable ? "cursor-pointer hover:text-paper" : "cursor-default",
               )}
             >
-              <FileText className="size-3.5 shrink-0 text-dim" />
+              <Icon className="size-3.5 shrink-0 text-dim" />
               <span className="truncate">{source.title}</span>
             </Source>
           );

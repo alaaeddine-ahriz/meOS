@@ -1,6 +1,7 @@
 import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
 import { extractKnowledge } from "../extract/extractor.js";
+import type { Extraction } from "../extract/schema.js";
 import { readImage } from "../extract/image.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
 import { loadProfileContext } from "../profile/profile-doc.js";
@@ -66,6 +67,56 @@ export class IngestionPipeline {
       () => undefined,
     );
     return result;
+  }
+
+  /**
+   * Deterministic sibling of {@link ingest}: integrate a pre-built extraction
+   * (e.g. a Google contact mapped without an LLM) through the *same* merge seam —
+   * the shared `mergeLock`, the `onMemoryWrite`/`onNewSource` events, and the
+   * batched wiki refresh. No parse/chunk/embed of `content` (observations are
+   * already embedded + FTS-indexed by `mergeExtraction`; chunking the small
+   * metadata blob would add cost for no retrieval benefit) and no inbox row
+   * (connectors aren't documents). `postMerge` (contradiction detection, an LLM
+   * call) is skipped by default — running it per email would defeat the
+   * deterministic, no-LLM-cost design.
+   */
+  async ingestExtraction(input: {
+    /** Source origin, e.g. "google:contacts" — surfaces as a typed source chip. */
+    type: string;
+    title: string;
+    /** A small metadata blob kept for provenance/citation (not chunked). */
+    content: string;
+    /** A deep link back to the underlying item (Gmail/Calendar/Contacts URL). */
+    path?: string;
+    extraction: Extraction;
+    /** Opt in to contradiction detection (off by default — no per-item LLM cost). */
+    runPostMerge?: boolean;
+  }): Promise<{ sourceId: number; merge: MergeResult }> {
+    const { store, embedder } = this.deps;
+    const sourceId = store.createSource({
+      type: input.type,
+      title: input.title,
+      path: input.path,
+      content: input.content,
+    });
+
+    const merge = await this.withMergeLock(async () => {
+      const merge = await mergeExtraction(store, embedder, input.extraction, sourceId, input.content);
+      for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
+      if (input.runPostMerge) await this.deps.postMerge?.({ sourceId, merge });
+      return merge;
+    });
+
+    await this.deps.events?.emit("onMemoryWrite", { sourceId, newObservationIds: merge.newObservationIds });
+    await this.deps.events?.emit("onNewSource", { sourceId, merge });
+
+    if (this.deps.scheduleWikiRefresh) {
+      this.deps.scheduleWikiRefresh();
+    } else {
+      await this.deps.wiki.regenerateStale();
+    }
+
+    return { sourceId, merge };
   }
 
   async ingest(input: IngestInput, existingInboxItemId?: number): Promise<IngestOutcome> {

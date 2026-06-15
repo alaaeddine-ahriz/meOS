@@ -9,8 +9,12 @@ import {
   History,
   Laptop,
   type LucideIcon,
+  Calendar,
+  Contact,
+  Mail,
   Moon,
   Palette as PaletteIcon,
+  Plug,
   RefreshCw,
   Search,
   Sparkles,
@@ -32,7 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import { isTauri } from "@/lib/platform";
+import { isTauri, openExternal } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
 import {
@@ -56,7 +60,16 @@ import {
   type Width,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-import { api, type GitCommit, type GitStatus, type LlmProvider, type LlmSettings, type WatchedFolder } from "../api.js";
+import {
+  api,
+  type ConnectorKind,
+  type ConnectorStatus,
+  type GitCommit,
+  type GitStatus,
+  type LlmProvider,
+  type LlmSettings,
+  type WatchedFolder,
+} from "../api.js";
 
 const THEMES: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
   { value: "light", label: "Light", icon: Sun },
@@ -101,7 +114,7 @@ type SettingsItem = {
   blurb: string;
 };
 
-type TabId = "profile" | "appearance" | "intelligence" | "folders" | "sync" | "reset";
+type TabId = "profile" | "appearance" | "intelligence" | "folders" | "connectors" | "sync" | "reset";
 
 /**
  * The sections of Settings, presented as a grouped left rail — a focused panel
@@ -125,6 +138,12 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
     heading: "Knowledge",
     items: [
       { id: "folders", label: "Folders", icon: FolderOpen, blurb: "The folders MeOS reads and keeps watching." },
+      {
+        id: "connectors",
+        label: "Connectors",
+        icon: Plug,
+        blurb: "Sync people from Google Contacts, Calendar and Mail.",
+      },
       { id: "sync", label: "Sync", icon: GitBranch, blurb: "Version your wiki and digests with Git." },
     ],
   },
@@ -262,6 +281,7 @@ export function SettingsView() {
             {tab === "appearance" && <AppearanceSection />}
             {tab === "intelligence" && <IntelligenceSection />}
             {tab === "folders" && <FoldersSection />}
+            {tab === "connectors" && <ConnectorsSection />}
             {tab === "sync" && <GitSyncSection />}
             {tab === "reset" && <ResetSection />}
           </div>
@@ -812,6 +832,264 @@ function FoldersSection() {
       <p className="font-mono text-[11px] text-dim">
         reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left alone
       </p>
+    </section>
+  );
+}
+
+const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb: string }> = {
+  contacts: { label: "Contacts", icon: Contact, blurb: "People, with email and phone (kept private)." },
+  calendar: { label: "Calendar", icon: Calendar, blurb: "Events and who you met with." },
+  gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
+};
+
+function ConnectorsSection() {
+  const [status, setStatus] = useState<ConnectorStatus | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  const [busy, setBusy] = useState<null | "creds" | "connect">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+
+  const refresh = () => api.getConnectors().then(setStatus).catch(() => {});
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const google = status?.google;
+
+  const saveCredentials = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    setBusy("creds");
+    setError(null);
+    try {
+      setStatus(await api.saveGoogleCredentials(clientId.trim(), clientSecret.trim()));
+      setClientSecret("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const connect = async () => {
+    setBusy("connect");
+    setError(null);
+    try {
+      const { url } = await api.startGoogleAuth();
+      await openExternal(url);
+      // Poll until the loopback callback records tokens (or the user gives up).
+      const started = Date.now();
+      const poll = setInterval(async () => {
+        const next = await api.getConnectors().catch(() => null);
+        if (next?.google.connected || Date.now() - started > 3 * 60_000) {
+          clearInterval(poll);
+          if (next) setStatus(next);
+          setBusy(null);
+        }
+      }, 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(null);
+    }
+  };
+
+  const disconnect = async () => {
+    setError(null);
+    try {
+      await api.disconnectGoogle();
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const configure = async (kind: ConnectorKind, config: { enabled?: boolean; intervalMinutes?: number }) => {
+    setError(null);
+    try {
+      setStatus(await api.configureConnectorKind(kind, config));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const syncNow = async (kind: ConnectorKind) => {
+    setError(null);
+    try {
+      await api.syncConnectorKind(kind);
+      // Status (last-synced) updates a moment after the queued sync runs.
+      setTimeout(refresh, 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <section className="rise flex flex-col gap-5">
+      <PanelIntro>
+        Connect a Google account to turn the people you know into entities — enriched with their contact
+        details, the events you shared, and who you email. Contact details and email metadata stay private
+        (searchable, but kept out of the synced wiki).
+      </PanelIntro>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-sm">
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              google?.connected ? "bg-emerald-500" : "bg-dim",
+            )}
+          />
+          <span className="text-faded">
+            {google?.connected ? `Connected${google.accountEmail ? ` — ${google.accountEmail}` : ""}` : "Not connected"}
+          </span>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setShowHelp(true)} className="text-dim hover:text-paper">
+          Show me how
+        </Button>
+      </div>
+
+      {/* Credentials — the user's own Google OAuth desktop client. */}
+      <div className="flex flex-col gap-3 border-y border-line py-4">
+        <span className="text-sm text-faded">Google OAuth credentials (Desktop app client)</span>
+        <Input
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          placeholder={google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"}
+          className={inputClass}
+        />
+        <div className="flex items-center gap-3">
+          <Input
+            value={clientSecret}
+            onChange={(e) => setClientSecret(e.target.value)}
+            type="password"
+            placeholder={google?.hasCredentials ? "•••• client secret saved — paste to replace" : "Client secret"}
+            className={inputClass}
+          />
+          <Button
+            variant="outline"
+            onClick={() => void saveCredentials()}
+            disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
+            className={actionButtonClass}
+          >
+            {busy === "creds" ? "Saving…" : "Save"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Connect / disconnect. */}
+      <div className="flex items-center gap-3">
+        {google?.connected ? (
+          <Button variant="outline" onClick={() => void disconnect()} className={actionButtonClass}>
+            Disconnect
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            onClick={() => void connect()}
+            disabled={!google?.hasCredentials || busy === "connect"}
+            className={actionButtonClass}
+          >
+            {busy === "connect" ? "Waiting for Google…" : "Connect Google"}
+          </Button>
+        )}
+      </div>
+
+      {/* Per-kind sync controls — only meaningful once connected. */}
+      {google?.connected && (
+        <ul className="flex flex-col divide-y divide-line border-y border-line">
+          {google.kinds.map((k) => {
+            const meta = KIND_META[k.kind];
+            const Icon = meta.icon;
+            return (
+              <li key={k.kind} className="flex flex-col gap-2 py-3.5">
+                <div className="flex items-center gap-3">
+                  <Icon className="size-4 shrink-0 text-dim" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-paper">{meta.label}</div>
+                    <div className="text-[12px] text-dim">{meta.blurb}</div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void configure(k.kind, { enabled: !k.enabled })}
+                    className={cn(actionButtonClass, k.enabled && "border-lamp-dim text-paper")}
+                  >
+                    {k.enabled ? "On" : "Off"}
+                  </Button>
+                </div>
+                {k.enabled && (
+                  <div className="flex flex-wrap items-center gap-3 pl-7">
+                    <label className="flex items-center gap-2 text-[12px] text-dim">
+                      every
+                      <Input
+                        type="number"
+                        min={1}
+                        defaultValue={k.intervalMinutes}
+                        onBlur={(e) => {
+                          const value = Number(e.target.value);
+                          if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
+                            void configure(k.kind, { intervalMinutes: value });
+                          }
+                        }}
+                        className={cn(inputClass, "h-7 w-16")}
+                      />
+                      min
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void syncNow(k.kind)}
+                      className="text-dim hover:text-paper"
+                    >
+                      <RefreshCw className="size-3.5" />
+                      Sync now
+                    </Button>
+                    {k.lastStatus && <span className="text-[11px] text-dim">{k.lastStatus}</span>}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+
+      <Dialog open={showHelp} onOpenChange={setShowHelp}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Connect Google in a few steps</DialogTitle>
+            <DialogDescription>
+              MeOS uses your own Google Cloud OAuth client, so your data never passes through anyone else.
+            </DialogDescription>
+          </DialogHeader>
+          <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-faded">
+            <li>
+              Open the{" "}
+              <button
+                type="button"
+                onClick={() => void openExternal("https://console.cloud.google.com/")}
+                className="text-lamp underline-offset-2 hover:underline"
+              >
+                Google Cloud Console
+              </button>{" "}
+              and create (or pick) a project.
+            </li>
+            <li>Enable the People API, Google Calendar API, and Gmail API.</li>
+            <li>Configure the OAuth consent screen (External, add yourself as a test user).</li>
+            <li>
+              Create an OAuth client ID of type <strong>Desktop app</strong>.
+            </li>
+            <li>Paste the client ID and secret above, then click Connect Google.</li>
+          </ol>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowHelp(false)} className={actionButtonClass}>
+              Got it
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

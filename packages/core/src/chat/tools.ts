@@ -33,7 +33,17 @@ function resolveEntity(store: KnowledgeStore, name: string) {
   return store.findEntityByName(name) ?? store.getEntityBySlug(name.toLowerCase().replace(/\s+/g, "-"));
 }
 
-export function buildChatTools(store: KnowledgeStore, embedder: Embedder): ChatTools {
+/** Optional capabilities a turn may have — e.g. a live Gmail thread fetcher. */
+export interface ChatToolDeps {
+  /**
+   * Fetch email-thread text for a query, when a Gmail account is connected.
+   * Returns prose for the model to cite; nothing is persisted (the thread has no
+   * `sources` row), so its provenance lives in the answer text, not the citations.
+   */
+  gmail?: (query: string) => Promise<string>;
+}
+
+export function buildChatTools(store: KnowledgeStore, embedder: Embedder, deps: ChatToolDeps = {}): ChatTools {
   const sources = new Map<number, SourceRef>();
   const remember = (refs: SourceRef[]) => {
     for (const source of refs) sources.set(source.id, source);
@@ -131,6 +141,28 @@ export function buildChatTools(store: KnowledgeStore, embedder: Embedder): ChatT
       },
     }),
   };
+
+  // Only offered when a Gmail account is connected. Unlike the knowledge tools,
+  // this reaches outside the stored knowledge base to pull live thread text the
+  // model can quote — email bodies aren't ingested, so this is how the agent
+  // reads them when a question needs the actual correspondence.
+  if (deps.gmail) {
+    const fetchGmail = deps.gmail;
+    tools.fetch_email_threads = tool({
+      description:
+        "Fetch the text of the user's actual email threads matching a query (a contact name, subject, or keywords). Use when a question needs the contents of correspondence — email bodies are not in the knowledge base, so this is the only way to read them. Cite what you find in prose.",
+      inputSchema: z.object({
+        query: z.string().describe("Gmail search query — a contact, subject, or keywords."),
+      }),
+      execute: async ({ query }) => {
+        try {
+          return await fetchGmail(query);
+        } catch (error) {
+          return `Couldn't fetch email threads: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    });
+  }
 
   return { tools, sources, graph };
 }
