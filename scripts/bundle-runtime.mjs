@@ -21,7 +21,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const require = createRequire(import.meta.url);
 const root = path.resolve(fileURLToPath(import.meta.url), "../..");
@@ -154,8 +154,9 @@ async function seedModel() {
   const transformers = require.resolve("@huggingface/transformers", {
     paths: [path.join(payload, "app")],
   });
+  const transformersSpecifier = pathToFileURL(transformers).href;
   const script = `
-    import { pipeline, env } from ${JSON.stringify(transformers)};
+    import { pipeline, env } from ${JSON.stringify(transformersSpecifier)};
     env.cacheDir = ${JSON.stringify(models)};
     await pipeline("feature-extraction", ${JSON.stringify(EMBED_MODEL)});
     console.log("model cached");
