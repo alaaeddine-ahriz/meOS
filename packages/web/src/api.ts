@@ -11,6 +11,27 @@ export interface SourceRef {
   id: number;
   title: string;
   path: string | null;
+  /** Origin: file/image/conversation, or a connector kind like "google:gmail". */
+  type?: string;
+}
+
+export type ConnectorKind = "contacts" | "calendar" | "gmail";
+
+export interface ConnectorKindStatus {
+  kind: ConnectorKind;
+  enabled: boolean;
+  intervalMinutes: number;
+  lastSyncedAt: string | null;
+  lastStatus: string | null;
+}
+
+export interface ConnectorStatus {
+  google: {
+    connected: boolean;
+    accountEmail: string | null;
+    hasCredentials: boolean;
+    kinds: ConnectorKindStatus[];
+  };
 }
 
 export interface WikiPage {
@@ -401,6 +422,26 @@ export const api = {
   getGitLog: (limit = 50) => json<{ commits: GitCommit[] }>(`/api/settings/git/log?limit=${limit}`),
   getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
   getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
+  // --- connectors (Google Contacts / Calendar / Gmail) ---
+  getConnectors: () => json<ConnectorStatus>("/api/connectors"),
+  saveGoogleCredentials: (clientId: string, clientSecret: string) =>
+    json<ConnectorStatus>("/api/connectors/google/credentials", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ clientId, clientSecret }),
+    }),
+  startGoogleAuth: () =>
+    json<{ url: string }>("/api/connectors/google/auth/start", { method: "POST" }),
+  configureConnectorKind: (kind: ConnectorKind, config: { enabled?: boolean; intervalMinutes?: number }) =>
+    json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(config),
+    }),
+  syncConnectorKind: (kind: ConnectorKind) =>
+    json<{ syncing: boolean }>(`/api/connectors/google/${kind}/sync`, { method: "POST" }),
+  disconnectGoogle: () =>
+    json<{ disconnected: boolean }>("/api/connectors/google", { method: "DELETE" }),
   getDuplicates: () => json<{ duplicates: DuplicateProposal[] }>("/api/entities/duplicates"),
   mergeEntities: (loserId: number, winnerId: number) =>
     json<{ merged: boolean }>("/api/entities/merge", {

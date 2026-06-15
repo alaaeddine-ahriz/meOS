@@ -26,6 +26,7 @@ import {
 } from "@meos/core";
 import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
+import { ConnectorManager } from "./connector-manager.js";
 import { GitSync } from "./git.js";
 import { FolderWatcher } from "./watcher.js";
 
@@ -48,6 +49,8 @@ export interface AppContext {
   events: MeosEvents;
   /** Live + persisted wiki-maintainer transcripts for the Activity view. */
   activity: ActivityBus;
+  /** Background sync schedule for connected external accounts (Google). */
+  connectors: ConnectorManager;
 }
 
 /**
@@ -151,6 +154,11 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const queue = new JobQueue(INGEST_CONCURRENCY);
   const watcher = new FolderWatcher({ store, pipeline, queue });
   const git = new GitSync(config.dataDir);
+  // Background sync for connected external accounts. Pushes onto the same ingest
+  // queue so connector merges serialise with file ingest. A nightly delta pass
+  // also rides the consolidation schedule.
+  const connectors = new ConnectorManager({ store, pipeline, queue });
+  events.on("onSchedule", () => connectors.syncAllEnabled());
 
   // Light up the compiled-knowledge retrieval stream for pages written before
   // wiki_pages existed (upgrade path): backfill from disk, locally, once.
@@ -178,5 +186,5 @@ export function createContext(rootDir = findRootDir()): AppContext {
     });
   });
 
-  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity };
+  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity, connectors };
 }

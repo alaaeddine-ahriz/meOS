@@ -8,6 +8,7 @@ import fastifyStatic from "@fastify/static";
 import type { AppContext } from "./context.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { registerConnectorRoutes } from "./routes/connectors.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
@@ -46,6 +47,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerOutputRoutes(app, ctx);
   registerProfileRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
+  registerConnectorRoutes(app, ctx);
   registerGitRoutes(app, ctx);
 
   // In production the built web app is served from this same process; in dev

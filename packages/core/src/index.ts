@@ -25,6 +25,8 @@ export { readImage } from "./extract/image.js";
 export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
   ChunkWithVector,
+  ConnectorAccountRow,
+  ConnectorSyncStateRow,
   EntityRow,
   InboxItemRow,
   ObservationRow,
@@ -95,7 +97,7 @@ export type { QueryIntent } from "./chat/query-planner.js";
 export { ChatService } from "./chat/chat.js";
 export type { ChatResponseEvent } from "./chat/chat.js";
 export { buildChatTools } from "./chat/tools.js";
-export type { ChatTools, TraversalGraph } from "./chat/tools.js";
+export type { ChatTools, ChatToolDeps, TraversalGraph } from "./chat/tools.js";
 export {
   contradictionReport,
   decisionBrief,
@@ -130,3 +132,4 @@ export { applyResolution, proposeResolution } from "./memory/resolution.js";
 export type { ResolutionAction, ResolutionProposal } from "./memory/resolution.js";
 export { crystallizeSession } from "./memory/crystallize.js";
 export type { SessionCrystal } from "./memory/crystallize.js";
+export * from "./connectors/index.js";

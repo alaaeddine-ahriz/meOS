@@ -14,3 +14,15 @@ export async function revealInFinder(path: string): Promise<void> {
     console.error(`reveal in Finder failed for ${path}:`, error);
   });
 }
+
+/** Open a URL in the system browser (desktop shell) or a new tab (browser). */
+export async function openExternal(url: string): Promise<void> {
+  if (isTauri) {
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url).catch((error: unknown) => {
+      console.error(`open URL failed for ${url}:`, error);
+    });
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}

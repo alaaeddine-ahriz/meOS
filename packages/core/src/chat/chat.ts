@@ -20,6 +20,7 @@ You have tools to consult that knowledge base:
 - read_wiki_page: the full compiled summary of one entity.
 - get_entity: one entity's dated, confidence-scored facts and relationships.
 - explore_graph: a MULTI-HOP walk of the graph from one entity, returning the whole connected neighbourhood (with a depth you choose) — for impact, dependency, and "how does this all fit together" questions.
+- fetch_email_threads (only when a Gmail account is connected): pull the text of the user's actual email threads. Email bodies are NOT in the knowledge base, so reach for this when a question needs the contents of correspondence with someone; cite what you find in prose.
 
 How to work:
 - Reach for tools first. Don't answer a substantive question before searching; if a first search is thin, refine the query or pivot to read_wiki_page / get_entity / explore_graph. Gather generously — it is better to pull more of the picture than you end up needing.
@@ -52,6 +53,13 @@ export class ChatService {
      * then a no-op.
      */
     private readonly getProfileContext?: () => string,
+    /**
+     * Builds a Gmail thread fetcher for this turn, or undefined when no Gmail
+     * account is connected. Re-evaluated per turn so connecting/disconnecting
+     * takes effect immediately and the `fetch_email_threads` tool only appears
+     * when it can actually work.
+     */
+    private readonly gmailFetcher?: () => ((query: string) => Promise<string>) | undefined,
   ) {}
 
   /**
@@ -77,7 +85,9 @@ export class ChatService {
     // The tools share these collectors: `sources` grows as the model consults
     // documents (so we can announce citations live), and `graph` accumulates every
     // entity/edge the model traverses (drawn under the answer when the turn ends).
-    const { tools, sources, graph } = buildChatTools(this.store, this.embedder);
+    const { tools, sources, graph } = buildChatTools(this.store, this.embedder, {
+      gmail: this.gmailFetcher?.(),
+    });
     const messages: ChatMessage[] = [...history, { role: "user", content: userMessage }];
 
     let reply = "";

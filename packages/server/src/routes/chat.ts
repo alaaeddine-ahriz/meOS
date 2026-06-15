@@ -4,9 +4,16 @@ import type { AppContext } from "../context.js";
 import { isProfileCommand, runProfileCommand } from "../profile-command.js";
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
-  // Re-read the profile each turn so edits apply immediately (no restart).
-  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder, ctx.events, () =>
-    loadProfileContext(ctx.config.dataDir),
+  // Re-read the profile each turn so edits apply immediately (no restart). The
+  // Gmail fetcher is re-evaluated per turn too, so the fetch_email_threads tool
+  // only appears once a Gmail account is connected.
+  const chat = new ChatService(
+    ctx.store,
+    ctx.llm,
+    ctx.embedder,
+    ctx.events,
+    () => loadProfileContext(ctx.config.dataDir),
+    () => ctx.connectors.gmailFetcher(),
   );
 
   app.post("/api/conversations", async (_request, reply) => {

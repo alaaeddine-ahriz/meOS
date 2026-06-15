@@ -98,6 +98,38 @@ export interface SourceRef {
   id: number;
   title: string;
   path: string | null;
+  /**
+   * The source's origin (file/image/conversation/session, or a connector kind
+   * like "google:contacts"). Optional so existing call sites stay valid; the web
+   * source list uses it to render provider-aware, deep-linkable chips.
+   */
+  type?: string;
+}
+
+/** A connected external account (one row per provider). Carries OAuth secrets. */
+export interface ConnectorAccountRow {
+  id: number;
+  provider: string;
+  account_email: string | null;
+  access_token: string | null;
+  refresh_token: string | null;
+  expiry: string | null;
+  scopes: string | null;
+  client_id: string | null;
+  client_secret: string | null;
+  status: string;
+  created_at: string;
+}
+
+/** Per-kind sync cursor + schedule for a connected account. */
+export interface ConnectorSyncStateRow {
+  account_id: number;
+  kind: string;
+  enabled: number;
+  interval_minutes: number;
+  sync_token: string | null;
+  last_synced_at: string | null;
+  last_status: string | null;
 }
 
 /** An active observation with its embedding and owning-entity context, for retrieval. */
@@ -270,7 +302,7 @@ export class KnowledgeStore {
   }
 
   getSource(id: number): SourceRef | undefined {
-    return this.db.prepare("SELECT id, title, path FROM sources WHERE id = ?").get(id) as
+    return this.db.prepare("SELECT id, title, path, type FROM sources WHERE id = ?").get(id) as
       | SourceRef
       | undefined;
   }
@@ -290,7 +322,7 @@ export class KnowledgeStore {
   sourcesForEntity(entityId: number): SourceRef[] {
     return this.db
       .prepare(
-        `SELECT DISTINCT s.id, s.title, s.path
+        `SELECT DISTINCT s.id, s.title, s.path, s.type
          FROM observations o JOIN sources s ON s.id = o.source_id
          WHERE o.entity_id = ? AND o.status = 'active'
          ORDER BY s.title`,
@@ -1464,5 +1496,169 @@ export class KnowledgeStore {
            content_hash = excluded.content_hash, ingested_at = datetime('now')`,
       )
       .run(filePath, Math.floor(mtimeMs), size, contentHash ?? null);
+  }
+
+  // --- external connectors (Google Contacts/Calendar/Gmail) ------------
+
+  upsertConnectorAccount(input: {
+    provider: string;
+    accountEmail?: string | null;
+    accessToken?: string | null;
+    refreshToken?: string | null;
+    expiry?: string | null;
+    scopes?: string | null;
+    clientId?: string | null;
+    clientSecret?: string | null;
+  }): number {
+    // Update only the columns provided so re-saving credentials never clobbers
+    // tokens (and re-connecting never clobbers stored credentials).
+    this.db
+      .prepare(
+        `INSERT INTO connector_accounts
+           (provider, account_email, access_token, refresh_token, expiry, scopes, client_id, client_secret, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connected')
+         ON CONFLICT(provider) DO UPDATE SET
+           account_email = COALESCE(excluded.account_email, account_email),
+           access_token  = COALESCE(excluded.access_token, access_token),
+           refresh_token = COALESCE(excluded.refresh_token, refresh_token),
+           expiry        = COALESCE(excluded.expiry, expiry),
+           scopes        = COALESCE(excluded.scopes, scopes),
+           client_id     = COALESCE(excluded.client_id, client_id),
+           client_secret = COALESCE(excluded.client_secret, client_secret),
+           status        = CASE WHEN excluded.access_token IS NOT NULL THEN 'connected' ELSE status END`,
+      )
+      .run(
+        input.provider,
+        input.accountEmail ?? null,
+        input.accessToken ?? null,
+        input.refreshToken ?? null,
+        input.expiry ?? null,
+        input.scopes ?? null,
+        input.clientId ?? null,
+        input.clientSecret ?? null,
+      );
+    return (this.getConnectorAccount(input.provider) as ConnectorAccountRow).id;
+  }
+
+  getConnectorAccount(provider: string): ConnectorAccountRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, provider, account_email, access_token, refresh_token, expiry, scopes,
+                client_id, client_secret, status, created_at
+         FROM connector_accounts WHERE provider = ?`,
+      )
+      .get(provider) as ConnectorAccountRow | undefined;
+  }
+
+  updateConnectorTokens(
+    accountId: number,
+    tokens: { accessToken: string; refreshToken?: string | null; expiry?: string | null; scopes?: string | null },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE connector_accounts SET
+           access_token = ?,
+           refresh_token = COALESCE(?, refresh_token),
+           expiry = ?,
+           scopes = COALESCE(?, scopes),
+           status = 'connected'
+         WHERE id = ?`,
+      )
+      .run(tokens.accessToken, tokens.refreshToken ?? null, tokens.expiry ?? null, tokens.scopes ?? null, accountId);
+  }
+
+  deleteConnectorAccount(provider: string): void {
+    this.db.prepare("DELETE FROM connector_accounts WHERE provider = ?").run(provider);
+  }
+
+  getSyncState(accountId: number, kind: string): ConnectorSyncStateRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+         FROM connector_sync_state WHERE account_id = ? AND kind = ?`,
+      )
+      .get(accountId, kind) as ConnectorSyncStateRow | undefined;
+  }
+
+  listSyncState(accountId: number): ConnectorSyncStateRow[] {
+    return this.db
+      .prepare(
+        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+         FROM connector_sync_state WHERE account_id = ? ORDER BY kind`,
+      )
+      .all(accountId) as ConnectorSyncStateRow[];
+  }
+
+  setSyncState(
+    accountId: number,
+    kind: string,
+    patch: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      syncToken?: string | null;
+      lastSyncedAt?: string | null;
+      lastStatus?: string | null;
+    },
+  ): void {
+    // Read-merge-write: create the row on first touch, then patch only the keys
+    // present in `patch` so e.g. a cursor write doesn't reset the enabled toggle.
+    // (`syncToken: null` deliberately clears the cursor for a full resync.)
+    const existing = this.getSyncState(accountId, kind);
+    const next = {
+      enabled: patch.enabled !== undefined ? Number(patch.enabled) : (existing?.enabled ?? 0),
+      intervalMinutes: patch.intervalMinutes ?? existing?.interval_minutes ?? 15,
+      syncToken: "syncToken" in patch ? patch.syncToken ?? null : existing?.sync_token ?? null,
+      lastSyncedAt: "lastSyncedAt" in patch ? patch.lastSyncedAt ?? null : existing?.last_synced_at ?? null,
+      lastStatus: "lastStatus" in patch ? patch.lastStatus ?? null : existing?.last_status ?? null,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO connector_sync_state
+           (account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(account_id, kind) DO UPDATE SET
+           enabled = excluded.enabled,
+           interval_minutes = excluded.interval_minutes,
+           sync_token = excluded.sync_token,
+           last_synced_at = excluded.last_synced_at,
+           last_status = excluded.last_status`,
+      )
+      .run(
+        accountId,
+        kind,
+        next.enabled,
+        next.intervalMinutes,
+        next.syncToken,
+        next.lastSyncedAt,
+        next.lastStatus,
+      );
+  }
+
+  connectorItemUnchanged(accountId: number, kind: string, externalId: string, contentHash: string): boolean {
+    const row = this.db
+      .prepare(
+        "SELECT content_hash FROM connector_items WHERE account_id = ? AND kind = ? AND external_id = ?",
+      )
+      .get(accountId, kind, externalId) as { content_hash: string | null } | undefined;
+    return row?.content_hash != null && row.content_hash === contentHash;
+  }
+
+  recordConnectorItem(
+    accountId: number,
+    kind: string,
+    externalId: string,
+    contentHash: string,
+    sourceId: number | null,
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO connector_items (account_id, kind, external_id, content_hash, source_id, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(account_id, kind, external_id) DO UPDATE SET
+           content_hash = excluded.content_hash,
+           source_id = COALESCE(excluded.source_id, source_id),
+           last_seen_at = datetime('now')`,
+      )
+      .run(accountId, kind, externalId, contentHash, sourceId);
   }
 }
