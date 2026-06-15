@@ -2,11 +2,7 @@ import { ChevronRight, FilePenLine, FileText, Search, Sparkles, Terminal } from 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Page, PageHeader } from "@/components/Page";
-import {
-  Reasoning,
-  ReasoningContent,
-  ReasoningTrigger,
-} from "@/components/ai-elements/reasoning";
+import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { MessageResponse } from "@/components/ai-elements/message";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
@@ -32,9 +28,7 @@ type Segment =
  * (a "doc") and the maintainer rewriting a page in response (a "run"). Both are
  * sorted together by when they happened.
  */
-type FeedItem =
-  | { kind: "run"; run: WikiRun }
-  | { kind: "doc"; item: InboxItem };
+type FeedItem = { kind: "run"; run: WikiRun } | { kind: "doc"; item: InboxItem };
 
 /**
  * When a feed entry last had activity. For a document that's its updated_at, so
@@ -112,8 +106,14 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [maintainer, setMaintainer] = useState<LlmSettings["maintainer"] | null>(null);
 
   useEffect(() => {
-    api.getActivity().then((r) => setRuns(r.runs)).catch(() => {});
-    api.getLlmSettings().then((s) => setMaintainer(s.maintainer)).catch(() => {});
+    api
+      .getActivity()
+      .then((r) => setRuns(r.runs))
+      .catch(() => {});
+    api
+      .getLlmSettings()
+      .then((s) => setMaintainer(s.maintainer))
+      .catch(() => {});
   }, []);
 
   // Subscribe to the live feed: new runs appear in place and animate as the
@@ -155,12 +155,17 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
     } else if (event.type === "event") {
       setTranscripts((current) => {
         const segments = current.get(event.runId) ?? [];
-        return new Map(current).set(event.runId, appendChunk(segments, event.kind, event.payload, event.toolName));
+        return new Map(current).set(
+          event.runId,
+          appendChunk(segments, event.kind, event.payload, event.toolName),
+        );
       });
     } else if (event.type === "run-finish") {
       setRuns((current) =>
         current.map((r) =>
-          r.id === event.runId ? { ...r, status: event.status, finished_at: new Date().toISOString() } : r,
+          r.id === event.runId
+            ? { ...r, status: event.status, finished_at: new Date().toISOString() }
+            : r,
         ),
       );
     }
@@ -219,7 +224,10 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
           <p className="mt-1 text-[13px] text-dim">
             Tool calls and edits still stream. To see the agent's thinking too, choose a Claude
             Opus/Sonnet, GPT-5/o-series, or Gemini 2.5/3 model.{" "}
-            <Link to="/settings" className="font-medium underline underline-offset-2 hover:text-paper">
+            <Link
+              to="/settings"
+              className="font-medium underline underline-offset-2 hover:text-paper"
+            >
               Open Settings → Model
             </Link>
           </p>
@@ -244,7 +252,9 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
           {feed.length === 0 && (
             <li className="py-6 text-sm text-dim">
               Nothing yet. Add{" "}
-              <Link to="/settings" className="text-faded hover:text-paper">watched folders</Link>{" "}
+              <Link to="/settings" className="text-faded hover:text-paper">
+                watched folders
+              </Link>{" "}
               and MeOS starts reading — each document and the pages it rewrites show up here, live.
             </li>
           )}
@@ -286,7 +296,12 @@ function DocCard({ item }: { item: InboxItem }) {
     </>
   );
   return (
-    <li className={cn("overflow-hidden rounded-xl border border-line bg-desk", item.status === "unsupported" && "opacity-50")}>
+    <li
+      className={cn(
+        "overflow-hidden rounded-xl border border-line bg-desk",
+        item.status === "unsupported" && "opacity-50",
+      )}
+    >
       {linkable ? (
         <Link
           to={`/changes/${item.source_id}`}
@@ -321,7 +336,10 @@ function RunCard({
         onClick={onToggle}
         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-card/40"
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", RUN_DOTS[run.status])} title={run.status} />
+        <span
+          className={cn("h-1.5 w-1.5 shrink-0 rounded-full", RUN_DOTS[run.status])}
+          title={run.status}
+        />
         <Icon className="size-4 shrink-0 text-lamp" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-paper">{run.name}</span>
@@ -331,8 +349,12 @@ function RunCard({
             {run.status === "failed" && " · failed"}
           </span>
         </span>
-        <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(run.created_at)}</span>
-        <ChevronRight className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")} />
+        <span className="shrink-0 font-mono text-[11px] text-dim">
+          {formatTime(run.created_at)}
+        </span>
+        <ChevronRight
+          className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")}
+        />
       </button>
 
       {open && (
@@ -415,7 +437,10 @@ function ToolCall({ toolName, payload }: { toolName: string; payload: string }) 
     const path = String(input.path ?? "");
     const slug = wikiSlugOf(path);
     detail = slug ? (
-      <Link to={`/wiki/${slug}`} className="font-mono text-paper underline-offset-2 hover:underline">
+      <Link
+        to={`/wiki/${slug}`}
+        className="font-mono text-paper underline-offset-2 hover:underline"
+      >
         {path}
       </Link>
     ) : (
@@ -428,7 +453,11 @@ function ToolCall({ toolName, payload }: { toolName: string; payload: string }) 
   } else if (toolName === "bash") {
     const command = String(input.command ?? "");
     const isSearch = /^\s*(grep|rg|find|ls)\b/.test(command);
-    icon = isSearch ? <Search className="size-3.5 text-dim" /> : <Terminal className="size-3.5 text-dim" />;
+    icon = isSearch ? (
+      <Search className="size-3.5 text-dim" />
+    ) : (
+      <Terminal className="size-3.5 text-dim" />
+    );
     verb = isSearch ? "Searched" : "Ran";
     detail = <span className="font-mono text-faded">{command}</span>;
   } else {

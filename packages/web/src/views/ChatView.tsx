@@ -1,6 +1,14 @@
 import type { ChatStatus } from "ai";
 import { FileText, Library, Paperclip, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
@@ -127,7 +135,14 @@ function parseUserMessage(content: string): { text: string; files: string[]; wik
  */
 type AgentPart =
   | { kind: "reasoning"; text: string }
-  | { kind: "tool"; toolCallId?: string; toolName: string; input: unknown; output?: unknown; state: ToolState };
+  | {
+      kind: "tool";
+      toolCallId?: string;
+      toolName: string;
+      input: unknown;
+      output?: unknown;
+      state: ToolState;
+    };
 
 /** Merge a reasoning delta into the trailing reasoning part, or open a new one. */
 function appendReasoning(parts: AgentPart[], text: string): AgentPart[] {
@@ -139,7 +154,12 @@ function appendReasoning(parts: AgentPart[], text: string): AgentPart[] {
 }
 
 /** Attach a tool result to its pending call (matched by id, else by name). */
-function settleTool(parts: AgentPart[], toolCallId: string | undefined, toolName: string, output: unknown): AgentPart[] {
+function settleTool(
+  parts: AgentPart[],
+  toolCallId: string | undefined,
+  toolName: string,
+  output: unknown,
+): AgentPart[] {
   const next = [...parts];
   for (let i = next.length - 1; i >= 0; i--) {
     const part = next[i]!;
@@ -187,7 +207,9 @@ export function ChatView() {
   const [liveTrace, setLiveTrace] = useState<ReadonlyMap<number, AgentPart[]>>(new Map());
   // the subgraph the agent traversed this turn, drawn as an interactive graph
   // beneath the answer (keyed by the assistant message's index)
-  const [liveGraph, setLiveGraph] = useState<ReadonlyMap<number, { nodes: GraphNode[]; links: GraphLink[] }>>(new Map());
+  const [liveGraph, setLiveGraph] = useState<
+    ReadonlyMap<number, { nodes: GraphNode[]; links: GraphLink[] }>
+  >(new Map());
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
@@ -196,7 +218,10 @@ export function ChatView() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.listEntities().then((r) => setEntities(r.entities)).catch(() => {});
+    api
+      .listEntities()
+      .then((r) => setEntities(r.entities))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -213,7 +238,10 @@ export function ChatView() {
       setMessages([]);
       return;
     }
-    api.getMessages(activeId).then((r) => setMessages(r.messages)).catch(() => {});
+    api
+      .getMessages(activeId)
+      .then((r) => setMessages(r.messages))
+      .catch(() => {});
   }, [activeId]);
 
   // Streamdown renders its own link element (a <button>, not an <a href>), so we
@@ -252,7 +280,12 @@ export function ChatView() {
           );
         }
         return (
-          <a href={url} target="_blank" rel="noreferrer" className="underline-offset-2 hover:underline">
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="underline-offset-2 hover:underline"
+          >
             {children}
           </a>
         );
@@ -284,7 +317,10 @@ export function ChatView() {
           setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
         } else if (event.type === "reasoning") {
           setLiveTrace((current) =>
-            new Map(current).set(assistantIndex, appendReasoning(current.get(assistantIndex) ?? [], event.text)),
+            new Map(current).set(
+              assistantIndex,
+              appendReasoning(current.get(assistantIndex) ?? [], event.text),
+            ),
           );
         } else if (event.type === "tool-call") {
           setLiveTrace((current) =>
@@ -303,7 +339,12 @@ export function ChatView() {
           setLiveTrace((current) =>
             new Map(current).set(
               assistantIndex,
-              settleTool(current.get(assistantIndex) ?? [], event.toolCallId, event.toolName, event.output),
+              settleTool(
+                current.get(assistantIndex) ?? [],
+                event.toolCallId,
+                event.toolName,
+                event.output,
+              ),
             ),
           );
         } else if (event.type === "graph") {
@@ -334,7 +375,9 @@ export function ChatView() {
     setError(next);
     setStatus("error");
     setMessages((current) =>
-      current.length > 0 && current[current.length - 1]!.role === "assistant" && !current[current.length - 1]!.content
+      current.length > 0 &&
+      current[current.length - 1]!.role === "assistant" &&
+      !current[current.length - 1]!.content
         ? current.slice(0, -1)
         : current,
     );
@@ -348,7 +391,6 @@ export function ChatView() {
         <div className="flex h-full flex-col items-center justify-center px-6">
           <div className="w-full max-w-2xl">
             <div className="rise flex flex-col items-center text-center">
-           
               <h1 className="mt-5 font-serif text-3xl text-paper">How can I help you today?</h1>
             </div>
 
@@ -373,68 +415,81 @@ export function ChatView() {
     <PromptInputProvider>
       <div className="flex h-full min-w-0">
         <div className="flex h-full min-w-0 flex-1 flex-col">
-        <Conversation className="flex-1">
-          <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-10">
-            <>
-              {messages.map((message, index) => {
-                const trace = liveTrace.get(index);
-                const graph = liveGraph.get(index);
-                return (
-                  <Message key={message.id > 0 ? message.id : `pending-${index}`} from={message.role}>
-                    <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
-                      {message.role === "assistant" ? (
-                        <>
-                          {trace && trace.length > 0 && (
-                            <AgentTrace trace={trace} streaming={busy && index === lastIndex && !message.content} />
-                          )}
-                          {message.content ? (
-                            (() => {
-                              const { text: proseText, patch: profilePatch } = splitProfileEdit(message.content);
-                              return (
-                                <div className="text-[15px]">
-                                  {proseText && (
-                                    <MessageResponse
-                                      className="prose-meos"
-                                      isAnimating={busy && index === lastIndex}
-                                      components={markdownComponents}
-                                    >
-                                      {resolveWikiLinks(proseText, entities)}
-                                    </MessageResponse>
-                                  )}
-                                  {profilePatch && (
-                                    <ProfileEditResult patch={profilePatch} onOpen={() => navigate("/settings")} />
-                                  )}
-                                  <div className="mt-3">
-                                    <SourceList sources={liveSources.get(index) ?? message.sources ?? []} />
+          <Conversation className="flex-1">
+            <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-10">
+              <>
+                {messages.map((message, index) => {
+                  const trace = liveTrace.get(index);
+                  const graph = liveGraph.get(index);
+                  return (
+                    <Message
+                      key={message.id > 0 ? message.id : `pending-${index}`}
+                      from={message.role}
+                    >
+                      <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
+                        {message.role === "assistant" ? (
+                          <>
+                            {trace && trace.length > 0 && (
+                              <AgentTrace
+                                trace={trace}
+                                streaming={busy && index === lastIndex && !message.content}
+                              />
+                            )}
+                            {message.content ? (
+                              (() => {
+                                const { text: proseText, patch: profilePatch } = splitProfileEdit(
+                                  message.content,
+                                );
+                                return (
+                                  <div className="text-[15px]">
+                                    {proseText && (
+                                      <MessageResponse
+                                        className="prose-meos"
+                                        isAnimating={busy && index === lastIndex}
+                                        components={markdownComponents}
+                                      >
+                                        {resolveWikiLinks(proseText, entities)}
+                                      </MessageResponse>
+                                    )}
+                                    {profilePatch && (
+                                      <ProfileEditResult
+                                        patch={profilePatch}
+                                        onOpen={() => navigate("/settings")}
+                                      />
+                                    )}
+                                    <div className="mt-3">
+                                      <SourceList
+                                        sources={liveSources.get(index) ?? message.sources ?? []}
+                                      />
+                                    </div>
                                   </div>
-                                </div>
-                              );
-                            })()
-                          ) : trace && trace.length > 0 ? null : (
-                            <Shimmer className="text-sm" duration={1.6}>
-                              Consulting the knowledge base…
-                            </Shimmer>
-                          )}
-                          {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
-                        </>
-                      ) : (
-                        <UserMessage content={message.content} entities={entities} />
-                      )}
-                    </MessageContent>
-                  </Message>
-                );
-              })}
-              {error && <ChatError error={error} />}
-            </>
-          </ConversationContent>
-          <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
-        </Conversation>
+                                );
+                              })()
+                            ) : trace && trace.length > 0 ? null : (
+                              <Shimmer className="text-sm" duration={1.6}>
+                                Consulting the knowledge base…
+                              </Shimmer>
+                            )}
+                            {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
+                          </>
+                        ) : (
+                          <UserMessage content={message.content} entities={entities} />
+                        )}
+                      </MessageContent>
+                    </Message>
+                  );
+                })}
+                {error && <ChatError error={error} />}
+              </>
+            </ConversationContent>
+            <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
+          </Conversation>
 
-        <div className="px-6 pb-5 pt-1">
-          <div className="mx-auto max-w-2xl">
-            <Composer status={status} busy={busy} onSend={send} entities={entities} />
+          <div className="px-6 pb-5 pt-1">
+            <div className="mx-auto max-w-2xl">
+              <Composer status={status} busy={busy} onSend={send} entities={entities} />
+            </div>
           </div>
-        </div>
         </div>
 
         {wikiPanelSlug && (
@@ -479,7 +534,9 @@ function AgentTrace({ trace, streaming }: { trace: AgentPart[]; streaming: boole
               title={
                 <span className="flex items-baseline gap-1.5">
                   {label}
-                  {arg && <span className="truncate font-normal text-muted-foreground">“{arg}”</span>}
+                  {arg && (
+                    <span className="truncate font-normal text-muted-foreground">“{arg}”</span>
+                  )}
                 </span>
               }
             />
@@ -541,7 +598,10 @@ function ChatError({ error }: { error: { message: string; kind?: LlmErrorKind } 
     <div className="rounded-lg border border-ember/30 bg-ember/5 px-3 py-2.5 text-sm text-ember">
       <p>⚠ {error.message}</p>
       {showSettings && (
-        <Link to="/settings" className="mt-1 inline-block font-medium underline underline-offset-2 hover:text-paper">
+        <Link
+          to="/settings"
+          className="mt-1 inline-block font-medium underline underline-offset-2 hover:text-paper"
+        >
           Open Settings → Model
         </Link>
       )}
@@ -611,7 +671,9 @@ function Composer({
   };
 
   const addWiki = (entity: EntitySummary) => {
-    setWikiRefs((current) => (current.some((e) => e.id === entity.id) ? current : [...current, entity]));
+    setWikiRefs((current) =>
+      current.some((e) => e.id === entity.id) ? current : [...current, entity],
+    );
     setWikiPickerOpen(false);
   };
 
@@ -626,12 +688,15 @@ function Composer({
     for (const file of read) {
       // a NUL / replacement char means we decoded a binary file (e.g. .docx, .pdf)
       // as text — skip it rather than inlining garbage into the prompt
+      // eslint-disable-next-line no-control-regex -- NUL/replacement-char sniffing of binary files is intentional
       if (/[\u0000\uFFFD]/.test(file.text)) rejected.push(file.name);
       else accepted.push({ name: file.name, text: file.text.slice(0, MAX_FILE_CHARS) });
     }
     if (accepted.length > 0) setFileRefs((current) => [...current, ...accepted]);
     if (rejected.length > 0) {
-      setFileError(`Can't read ${rejected.join(", ")} as text. Attach .md, .txt, .csv, .json or .org files.`);
+      setFileError(
+        `Can't read ${rejected.join(", ")} as text. Attach .md, .txt, .csv, .json or .org files.`,
+      );
     }
   };
 
@@ -666,7 +731,9 @@ function Composer({
       <div className="relative">
         {showCommands && (
           <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border border-line bg-desk shadow-lg">
-            <div className="px-3 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-dim">Commands</div>
+            <div className="px-3 pb-1 pt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-dim">
+              Commands
+            </div>
             {matchedCommands.map((cmd, i) => (
               <button
                 key={cmd.command}
@@ -690,50 +757,61 @@ function Composer({
           onSubmit={onSubmit}
           className="rounded-2xl border-line bg-desk shadow-sm transition-colors focus-within:border-lamp-dim"
         >
-        {hasRefs && (
-          <PromptInputHeader className="px-3 pt-2.5">
-            {wikiRefs.map((entity) => {
-              const Icon = ENTITY_TYPES[entity.type]?.icon ?? Library;
-              return (
-                <RefChip key={`w-${entity.id}`} onRemove={() => setWikiRefs((c) => c.filter((e) => e.id !== entity.id))}>
-                  <Icon className="size-3.5 text-lamp" />
-                  {entity.name}
+          {hasRefs && (
+            <PromptInputHeader className="px-3 pt-2.5">
+              {wikiRefs.map((entity) => {
+                const Icon = ENTITY_TYPES[entity.type]?.icon ?? Library;
+                return (
+                  <RefChip
+                    key={`w-${entity.id}`}
+                    onRemove={() => setWikiRefs((c) => c.filter((e) => e.id !== entity.id))}
+                  >
+                    <Icon className="size-3.5 text-lamp" />
+                    {entity.name}
+                  </RefChip>
+                );
+              })}
+              {fileRefs.map((file, index) => (
+                <RefChip
+                  key={`f-${index}`}
+                  onRemove={() => setFileRefs((c) => c.filter((_, i) => i !== index))}
+                >
+                  <FileText className="size-3.5 text-dim" />
+                  {file.name}
                 </RefChip>
-              );
-            })}
-            {fileRefs.map((file, index) => (
-              <RefChip key={`f-${index}`} onRemove={() => setFileRefs((c) => c.filter((_, i) => i !== index))}>
-                <FileText className="size-3.5 text-dim" />
-                {file.name}
-              </RefChip>
-            ))}
-          </PromptInputHeader>
-        )}
+              ))}
+            </PromptInputHeader>
+          )}
 
-        <PromptInputBody>
-          <PromptInputTextarea
-            onKeyDown={onCommandKeyDown}
-            placeholder="Ask your second brain…  (type / for commands)"
-            className="min-h-12 text-[15px] text-paper placeholder:text-dim"
-          />
-        </PromptInputBody>
+          <PromptInputBody>
+            <PromptInputTextarea
+              onKeyDown={onCommandKeyDown}
+              placeholder="Ask your second brain…  (type / for commands)"
+              className="min-h-12 text-[15px] text-paper placeholder:text-dim"
+            />
+          </PromptInputBody>
 
-        <PromptInputFooter className="px-2.5 pb-2">
-          <PromptInputTools>
-            <PromptInputActionMenu>
-              <PromptInputActionMenuTrigger className="text-dim hover:text-paper" />
-              <PromptInputActionMenuContent className="border-line bg-desk">
-                <PromptInputActionMenuItem onSelect={() => setTimeout(() => setWikiPickerOpen(true), 0)}>
-                  <Library className="mr-2 size-4" /> Reference a wiki page
-                </PromptInputActionMenuItem>
-                <PromptInputActionMenuItem onSelect={() => fileInputRef.current?.click()}>
-                  <Paperclip className="mr-2 size-4" /> Attach a file
-                </PromptInputActionMenuItem>
-              </PromptInputActionMenuContent>
-            </PromptInputActionMenu>
-          </PromptInputTools>
-          <PromptInputSubmit status={status} className="rounded-lg bg-lamp text-ink hover:bg-lamp/85" />
-        </PromptInputFooter>
+          <PromptInputFooter className="px-2.5 pb-2">
+            <PromptInputTools>
+              <PromptInputActionMenu>
+                <PromptInputActionMenuTrigger className="text-dim hover:text-paper" />
+                <PromptInputActionMenuContent className="border-line bg-desk">
+                  <PromptInputActionMenuItem
+                    onSelect={() => setTimeout(() => setWikiPickerOpen(true), 0)}
+                  >
+                    <Library className="mr-2 size-4" /> Reference a wiki page
+                  </PromptInputActionMenuItem>
+                  <PromptInputActionMenuItem onSelect={() => fileInputRef.current?.click()}>
+                    <Paperclip className="mr-2 size-4" /> Attach a file
+                  </PromptInputActionMenuItem>
+                </PromptInputActionMenuContent>
+              </PromptInputActionMenu>
+            </PromptInputTools>
+            <PromptInputSubmit
+              status={status}
+              className="rounded-lg bg-lamp text-ink hover:bg-lamp/85"
+            />
+          </PromptInputFooter>
         </PromptInput>
       </div>
 
@@ -745,17 +823,26 @@ function Composer({
         showCloseButton={false}
         className="top-[18vh] translate-y-0 border-line bg-desk"
       >
-        <CommandInput placeholder="Reference a wiki page…" className="text-paper placeholder:text-dim" />
+        <CommandInput
+          placeholder="Reference a wiki page…"
+          className="text-paper placeholder:text-dim"
+        />
         <CommandList className="max-h-72">
           <CommandEmpty className="py-3 text-sm text-dim">No pages match.</CommandEmpty>
           <CommandGroup heading="Wiki">
             {entities.map((entity) => {
               const Icon = ENTITY_TYPES[entity.type]?.icon ?? Library;
               return (
-                <CommandItem key={entity.id} value={`${entity.name} ${entity.type}`} onSelect={() => addWiki(entity)}>
+                <CommandItem
+                  key={entity.id}
+                  value={`${entity.name} ${entity.type}`}
+                  onSelect={() => addWiki(entity)}
+                >
                   <Icon className="size-3.5 text-dim" />
                   <span>{entity.name}</span>
-                  <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">{entity.type}</span>
+                  <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
+                    {entity.type}
+                  </span>
                 </CommandItem>
               );
             })}
@@ -771,7 +858,11 @@ function RefChip({ children, onRemove }: { children: React.ReactNode; onRemove: 
   return (
     <span className="flex items-center gap-1.5 rounded-md border border-line bg-card px-2 py-1 text-[12px] text-faded">
       {children}
-      <button onClick={onRemove} className="text-dim transition-colors hover:text-ember" aria-label="Remove reference">
+      <button
+        onClick={onRemove}
+        className="text-dim transition-colors hover:text-ember"
+        aria-label="Remove reference"
+      >
         <X className="size-3" />
       </button>
     </span>
@@ -799,7 +890,11 @@ function UserMessage({ content, entities }: { content: string; entities: EntityS
             );
           })}
           {files.map((name, index) => (
-            <MsgChip key={`f-${index}`} icon={<FileText className="size-3.5 text-dim" />} label={name} />
+            <MsgChip
+              key={`f-${index}`}
+              icon={<FileText className="size-3.5 text-dim" />}
+              label={name}
+            />
           ))}
         </div>
       )}

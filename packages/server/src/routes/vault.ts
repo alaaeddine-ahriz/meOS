@@ -11,9 +11,14 @@ import { httpError, parseOrThrow } from "../errors.js";
  */
 export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void {
   const commit = (paths: string[], message: string): void => {
-    ctx.git.commitPaths(paths.map((p) => `vault/${p}`), message).catch((error) => {
-      app.log.warn({ error: String(error) }, "vault commit failed");
-    });
+    ctx.git
+      .commitPaths(
+        paths.map((p) => `vault/${p}`),
+        message,
+      )
+      .catch((error) => {
+        app.log.warn({ error: String(error) }, "vault commit failed");
+      });
   };
 
   app.get("/api/vault", async () => ({ notes: ctx.vault.list() }));

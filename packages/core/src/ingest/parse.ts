@@ -36,7 +36,10 @@ export function imageMediaType(filename: string): string | undefined {
  * Extract plain text from an uploaded file. Returns null for formats MeOS
  * cannot read yet — the caller surfaces those in the Inbox as "unsupported".
  */
-export async function parseDocument(filename: string, buffer: Buffer): Promise<ParsedDocument | null> {
+export async function parseDocument(
+  filename: string,
+  buffer: Buffer,
+): Promise<ParsedDocument | null> {
   const ext = path.extname(filename).toLowerCase();
   const title = path.basename(filename, ext);
 

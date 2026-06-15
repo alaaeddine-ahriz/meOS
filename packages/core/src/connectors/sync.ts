@@ -30,7 +30,10 @@ export interface SyncResult {
 }
 
 /** Refresh the access token when it's expired (or about to), persisting the new one. */
-export async function ensureAccessToken(store: KnowledgeStore, account: ConnectorAccountRow): Promise<string> {
+export async function ensureAccessToken(
+  store: KnowledgeStore,
+  account: ConnectorAccountRow,
+): Promise<string> {
   const expiresSoon = account.expiry ? Date.parse(account.expiry) <= Date.now() + 60_000 : false;
   if (account.access_token && !expiresSoon) return account.access_token;
   if (!account.refresh_token || !account.client_id || !account.client_secret) {
@@ -78,8 +81,10 @@ export async function syncConnector(
     kind === "contacts" ? { name: "", email: "" } : await fetchSelf(accessToken);
 
   const run = async (syncToken: string | null) => {
-    if (kind === "contacts") return fetchContactsDelta(accessToken, syncToken) as Promise<DeltaResult<unknown>>;
-    if (kind === "calendar") return fetchCalendarDelta(accessToken, syncToken) as Promise<DeltaResult<unknown>>;
+    if (kind === "contacts")
+      return fetchContactsDelta(accessToken, syncToken) as Promise<DeltaResult<unknown>>;
+    if (kind === "calendar")
+      return fetchCalendarDelta(accessToken, syncToken) as Promise<DeltaResult<unknown>>;
     return fetchGmailDelta(accessToken, syncToken) as Promise<DeltaResult<unknown>>;
   };
 

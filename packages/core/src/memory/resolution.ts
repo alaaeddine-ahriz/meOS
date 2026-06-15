@@ -40,7 +40,10 @@ function scoreSide(side: Side): number {
  * Propose how to resolve an open contradiction. Returns undefined if the
  * contradiction is unknown or already resolved.
  */
-export function proposeResolution(store: KnowledgeStore, contradictionId: number): ResolutionProposal | undefined {
+export function proposeResolution(
+  store: KnowledgeStore,
+  contradictionId: number,
+): ResolutionProposal | undefined {
   const contradiction = store.getContradiction(contradictionId);
   if (!contradiction || contradiction.resolved) return undefined;
 
@@ -69,7 +72,8 @@ export function proposeResolution(store: KnowledgeStore, contradictionId: number
     return {
       contradictionId,
       suggested: "keep_both",
-      rationale: "The two claims are similarly recent and well-supported — likely both valid in different contexts, or a human should decide.",
+      rationale:
+        "The two claims are similarly recent and well-supported — likely both valid in different contexts, or a human should decide.",
       margin,
     };
   }
@@ -98,14 +102,24 @@ export function proposeResolution(store: KnowledgeStore, contradictionId: number
  * the winner; "keep_both"/"context_specific" simply close the contradiction
  * (both claims stay active). Returns false for an unknown/closed contradiction.
  */
-export function applyResolution(store: KnowledgeStore, contradictionId: number, action: ResolutionAction): boolean {
+export function applyResolution(
+  store: KnowledgeStore,
+  contradictionId: number,
+  action: ResolutionAction,
+): boolean {
   const contradiction = store.getContradiction(contradictionId);
   if (!contradiction || contradiction.resolved) return false;
   const { observation_a, observation_b } = contradiction;
   if (action === "supersede_a") {
-    store.resolveContradiction(contradictionId, { loserId: observation_a, winnerId: observation_b });
+    store.resolveContradiction(contradictionId, {
+      loserId: observation_a,
+      winnerId: observation_b,
+    });
   } else if (action === "supersede_b") {
-    store.resolveContradiction(contradictionId, { loserId: observation_b, winnerId: observation_a });
+    store.resolveContradiction(contradictionId, {
+      loserId: observation_b,
+      winnerId: observation_a,
+    });
   } else {
     store.resolveContradiction(contradictionId);
   }

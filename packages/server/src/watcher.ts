@@ -4,7 +4,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
-import { SUPPORTED_EXTENSIONS, type IngestionPipeline, type JobQueue, type KnowledgeStore } from "@meos/core";
+import {
+  SUPPORTED_EXTENSIONS,
+  type IngestionPipeline,
+  type JobQueue,
+  type KnowledgeStore,
+} from "@meos/core";
 
 const execFileAsync = promisify(execFile);
 

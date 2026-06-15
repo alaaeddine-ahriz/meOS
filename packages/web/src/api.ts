@@ -117,7 +117,12 @@ export const api = {
     json<{ removed: boolean }>(`/api/settings/folders/${id}`, { method: "DELETE" }),
   resetEverything: () => json<{ ok: boolean }>("/api/settings/reset", { method: "POST" }),
   getLlmSettings: () => json<LlmSettings>("/api/settings/llm"),
-  updateLlmSettings: (update: { provider: LlmProvider; model?: string; apiKey?: string; baseUrl?: string }) =>
+  updateLlmSettings: (update: {
+    provider: LlmProvider;
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+  }) =>
     json<LlmSettings>("/api/settings/llm", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -139,7 +144,9 @@ export const api = {
     const response = await fetch(`${API_BASE}/api/settings/llm/${provider}/models`, {
       headers: apiKey ? { "x-llm-api-key": apiKey } : undefined,
     });
-    const data = (await response.json().catch(() => ({}))) as Partial<ModelListing> & { error?: string };
+    const data = (await response.json().catch(() => ({}))) as Partial<ModelListing> & {
+      error?: string;
+    };
     if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
     return { models: data.models ?? [], source: data.source ?? "curated", error: data.error };
   },
@@ -152,7 +159,8 @@ export const api = {
     }),
   // --- activity (live + replayed wiki-maintainer transcripts) ---
   getActivity: () => json<{ runs: WikiRun[] }>("/api/activity"),
-  getRunEvents: (id: number) => json<{ run: WikiRun; events: WikiRunEvent[] }>(`/api/activity/${id}/events`),
+  getRunEvents: (id: number) =>
+    json<{ run: WikiRun; events: WikiRunEvent[] }>(`/api/activity/${id}/events`),
   // --- vault (the user's hand-written notes) ---
   listNotes: () => json<{ notes: NoteMeta[] }>("/api/vault"),
   getNote: (path: string) => json<NoteContents>(`/api/vault/note?path=${encodeURIComponent(path)}`),
@@ -169,7 +177,9 @@ export const api = {
       body: JSON.stringify({ path, markdown }),
     }),
   deleteNote: (path: string) =>
-    json<{ deleted: boolean }>(`/api/vault/note?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+    json<{ deleted: boolean }>(`/api/vault/note?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+    }),
   renameNote: (from: string, to: string) =>
     json<NoteMeta>("/api/vault/note/rename", {
       method: "POST",
@@ -209,7 +219,10 @@ export const api = {
     }),
   startGoogleAuth: () =>
     json<{ url: string }>("/api/connectors/google/auth/start", { method: "POST" }),
-  configureConnectorKind: (kind: ConnectorKind, config: { enabled?: boolean; intervalMinutes?: number }) =>
+  configureConnectorKind: (
+    kind: ConnectorKind,
+    config: { enabled?: boolean; intervalMinutes?: number },
+  ) =>
     json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -239,7 +252,15 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action }),
     }),
-  getOutput: (mode: "decision-brief" | "contradiction-report" | "timeline" | "dependency-graph" | "meeting-brief", entity?: string) =>
+  getOutput: (
+    mode:
+      | "decision-brief"
+      | "contradiction-report"
+      | "timeline"
+      | "dependency-graph"
+      | "meeting-brief",
+    entity?: string,
+  ) =>
     json<{ markdown: string }>(
       `/api/outputs/${mode}?format=json${entity ? `&entity=${encodeURIComponent(entity)}` : ""}`,
     ),
@@ -258,14 +279,17 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile }),
     }),
-  uploadProfileDocs: async (files: File[]): Promise<{ proposal: ProfileProposal; documents: string[] }> => {
+  uploadProfileDocs: async (
+    files: File[],
+  ): Promise<{ proposal: ProfileProposal; documents: string[] }> => {
     const form = new FormData();
     for (const file of files) form.append("files", file);
     const response = await fetch(`${API_BASE}/api/profile/upload`, { method: "POST", body: form });
     const data = (await response.json().catch(() => ({}))) as
       | { proposal: ProfileProposal; documents: string[] }
       | { error?: string };
-    if (!response.ok) throw new Error((data as { error?: string }).error || `Upload failed (${response.status})`);
+    if (!response.ok)
+      throw new Error((data as { error?: string }).error || `Upload failed (${response.status})`);
     return data as { proposal: ProfileProposal; documents: string[] };
   },
   draftProfile: () => json<{ proposal: ProfileProposal }>("/api/profile/draft", { method: "POST" }),
@@ -277,7 +301,8 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ instruction, useUploaded }),
     }),
-  getProfileHistory: (id: string) => json<{ versions: ProfileVersion[] }>(`/api/profile/${id}/history`),
+  getProfileHistory: (id: string) =>
+    json<{ versions: ProfileVersion[] }>(`/api/profile/${id}/history`),
   restoreProfileVersion: (id: string, version: string) =>
     json<ProfileData>(`/api/profile/${id}/restore`, {
       method: "POST",
@@ -293,7 +318,10 @@ export const api = {
     }),
 };
 
-export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {
+export async function* streamChat(
+  message: string,
+  conversationId?: number,
+): AsyncGenerator<ChatEvent> {
   const response = await fetch(API_BASE + "/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },

@@ -80,9 +80,7 @@ export interface AgentStreamRequest {
 }
 
 /** A streamed completion chunk: either visible answer text or model reasoning. */
-export type StreamChunk =
-  | { type: "text"; text: string }
-  | { type: "reasoning"; text: string };
+export type StreamChunk = { type: "text"; text: string } | { type: "reasoning"; text: string };
 
 export interface LlmClient {
   /** Single text completion. */

@@ -30,12 +30,7 @@ export * as connectors from "./schemas/connectors.js";
 export * as git from "./schemas/git.js";
 
 // --- Directly re-exported inferred TYPES, for the web client signatures. ---
-export type {
-  EntitySummary,
-  SourceRef,
-  GraphNode,
-  GraphLink,
-} from "./schemas/common.js";
+export type { EntitySummary, SourceRef, GraphNode, GraphLink } from "./schemas/common.js";
 export type { InboxItem, SourceDiff, DiffFile } from "./schemas/ingest.js";
 export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
 export type { NoteMeta, NoteContents } from "./schemas/vault.js";
@@ -61,9 +56,5 @@ export type {
   ModelListing,
   WatchedFolder,
 } from "./schemas/settings.js";
-export type {
-  ConnectorKind,
-  ConnectorKindStatus,
-  ConnectorStatus,
-} from "./schemas/connectors.js";
+export type { ConnectorKind, ConnectorKindStatus, ConnectorStatus } from "./schemas/connectors.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";

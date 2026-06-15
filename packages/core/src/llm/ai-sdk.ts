@@ -162,8 +162,10 @@ export class AiSdkClient implements LlmClient {
       for await (const part of result.fullStream) {
         if (part.type === "reasoning-delta") emit({ type: "reasoning", text: part.text });
         else if (part.type === "text-delta") emit({ type: "text", text: part.text });
-        else if (part.type === "tool-call") emit({ type: "tool-call", toolName: part.toolName, input: part.input });
-        else if (part.type === "tool-result") emit({ type: "tool-result", toolName: part.toolName, output: part.output });
+        else if (part.type === "tool-call")
+          emit({ type: "tool-call", toolName: part.toolName, input: part.input });
+        else if (part.type === "tool-result")
+          emit({ type: "tool-result", toolName: part.toolName, output: part.output });
         else if (part.type === "error") throw part.error;
       }
       return { text: await result.text, steps: (await result.steps).length };
@@ -190,9 +192,19 @@ export class AiSdkClient implements LlmClient {
         if (part.type === "reasoning-delta") yield { type: "reasoning", text: part.text };
         else if (part.type === "text-delta") yield { type: "text", text: part.text };
         else if (part.type === "tool-call")
-          yield { type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, input: part.input };
+          yield {
+            type: "tool-call",
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            input: part.input,
+          };
         else if (part.type === "tool-result")
-          yield { type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: part.output };
+          yield {
+            type: "tool-result",
+            toolCallId: part.toolCallId,
+            toolName: part.toolName,
+            output: part.output,
+          };
         else if (part.type === "error") throw part.error;
       }
     } catch (error) {

@@ -5,7 +5,13 @@ import type { Embedder } from "../embedding/embedder.js";
 import { loadSchema, withSchema } from "../knowledge/schema-doc.js";
 import { loadProfileContext, withProfile } from "../profile/profile-doc.js";
 import type { AgentActivityChunk, LlmClient } from "../llm/types.js";
-import type { EntityRow, KnowledgeStore, ObservationRow, RelationshipView, WikiChange } from "../knowledge/store.js";
+import type {
+  EntityRow,
+  KnowledgeStore,
+  ObservationRow,
+  RelationshipView,
+  WikiChange,
+} from "../knowledge/store.js";
 
 /** Identifies the page regeneration a transcript belongs to. */
 export interface WikiRunStart {
@@ -104,8 +110,10 @@ function describeRelationships(entity: EntityRow, relationships: RelationshipVie
     else add(inByLabel, r.label, r.from_name);
   }
   const sentences: string[] = [];
-  for (const [label, names] of outByLabel) sentences.push(`${entity.name} ${label} ${joinNames(names)}.`);
-  for (const [label, names] of inByLabel) sentences.push(`${joinNames(names)} ${label} ${entity.name}.`);
+  for (const [label, names] of outByLabel)
+    sentences.push(`${entity.name} ${label} ${joinNames(names)}.`);
+  for (const [label, names] of inByLabel)
+    sentences.push(`${joinNames(names)} ${label} ${entity.name}.`);
   return sentences.join(" ");
 }
 
@@ -139,7 +147,10 @@ function synthesizeBody(
 
   // Link out to other entities so the prose reads with its connections inline,
   // never to itself.
-  let body = linkify(narrative.join("\n\n"), knownNames.filter((n) => n !== entity.name));
+  let body = linkify(
+    narrative.join("\n\n"),
+    knownNames.filter((n) => n !== entity.name),
+  );
 
   const connections = describeRelationships(entity, relationships);
   if (connections) body = body ? `${body}\n\n${connections}` : connections;
@@ -221,13 +232,20 @@ export class WikiWriter {
     // memory but never reach the page (schema privacy rules).
     const observations = this.store.visibleObservations(entityId);
     const relationships = this.store.relationshipsFor(entityId);
-    const names = knownEntities ?? this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
+    const names =
+      knownEntities ??
+      this.store
+        .listEntities()
+        .map((e) => e.name)
+        .slice(0, MAX_KNOWN_ENTITIES);
 
     const observationLines = observations.map(
       (o) => `- [confidence ${o.confidence.toFixed(2)}, recorded ${o.created_at}] ${o.text}`,
     );
     const relationshipLines = relationships.map((r) =>
-      r.from_entity === entityId ? `- this entity ${r.label} ${r.to_name}` : `- ${r.from_name} ${r.label} this entity`,
+      r.from_entity === entityId
+        ? `- this entity ${r.label} ${r.to_name}`
+        : `- ${r.from_name} ${r.label} this entity`,
     );
 
     const relPath = `${entity.type}/${entity.slug}.md`;
@@ -278,8 +296,10 @@ export class WikiWriter {
       // ingest: the knowledge is already merged. The agentic write is best-effort
       // anyway, so fall through to the deterministic synthesis below — the page
       // still gets a real body, just without the LLM's prose polish.
-      console.warn(`wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
-        error instanceof Error ? error.message : error);
+      console.warn(
+        `wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
+        error instanceof Error ? error.message : error,
+      );
       sink?.finish("failed");
     }
 
@@ -290,7 +310,9 @@ export class WikiWriter {
     const agentBody = stripFrontmatter(await sandbox.readFile(relPath).catch(() => ""));
     const body = agentBody || synthesizeBody(entity, observations, relationships, names);
     const summary =
-      (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() || entity.summary || `${entity.name} (${entity.type}).`;
+      (await sandbox.readFile(SUMMARY_FILE).catch(() => "")).trim() ||
+      entity.summary ||
+      `${entity.name} (${entity.type}).`;
 
     // Only touch the file when the prose actually changed: a no-op rewrite
     // would churn the frontmatter timestamp, dirty git, and surface an empty
@@ -300,7 +322,10 @@ export class WikiWriter {
     if (changed) {
       const file = this.pagePath(entity);
       fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, composePage(entity, body, observations.length, meanOf(observations), !agentBody));
+      fs.writeFileSync(
+        file,
+        composePage(entity, body, observations.length, meanOf(observations), !agentBody),
+      );
       // Persist the compiled prose so chat retrieves it directly (and BM25 can
       // index it); embed it when an embedder is available for semantic recall.
       if (body) {
@@ -342,7 +367,10 @@ export class WikiWriter {
       if (stale.length === 0) return changes;
       // Computed once per pass and shared across workers: the roster barely
       // changes between pages.
-      const knownEntities = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
+      const knownEntities = this.store
+        .listEntities()
+        .map((e) => e.name)
+        .slice(0, MAX_KNOWN_ENTITIES);
       let next = 0;
       const workers = Array.from({ length: Math.min(concurrency, stale.length) }, async () => {
         while (next < stale.length) {
@@ -366,7 +394,10 @@ export class WikiWriter {
   async backfillPages(): Promise<number> {
     if (!this.embedder) return 0;
     const persisted = new Set(this.store.allWikiPageVectors().map((p) => p.entity_id));
-    const knownNames = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
+    const knownNames = this.store
+      .listEntities()
+      .map((e) => e.name)
+      .slice(0, MAX_KNOWN_ENTITIES);
     const pending: Array<{ entity: EntityRow; body: string }> = [];
     for (const entity of this.store.listEntities()) {
       const file = this.readPage(entity);
@@ -382,7 +413,10 @@ export class WikiWriter {
         if (body) {
           const dest = this.pagePath(entity);
           fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(dest, composePage(entity, body, observations.length, meanOf(observations), true));
+          fs.writeFileSync(
+            dest,
+            composePage(entity, body, observations.length, meanOf(observations), true),
+          );
           diskBody = body;
         }
       }
@@ -408,7 +442,10 @@ export class WikiWriter {
    */
   async refreshSyntheticPages(): Promise<number> {
     if (!this.embedder) return 0;
-    const knownNames = this.store.listEntities().map((e) => e.name).slice(0, MAX_KNOWN_ENTITIES);
+    const knownNames = this.store
+      .listEntities()
+      .map((e) => e.name)
+      .slice(0, MAX_KNOWN_ENTITIES);
     const updates: Array<{ entity: EntityRow; body: string; count: number; mean: number }> = [];
     for (const entity of this.store.listEntities()) {
       const file = this.readPage(entity);

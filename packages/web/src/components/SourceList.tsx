@@ -17,7 +17,13 @@ const CONNECTOR_ICONS: Record<string, LucideIcon> = {
  * (Google Contacts/Calendar/Gmail) are clickable chips that open the underlying
  * item in the system browser.
  */
-export function SourceList({ sources, defaultOpen = false }: { sources: SourceRef[]; defaultOpen?: boolean }) {
+export function SourceList({
+  sources,
+  defaultOpen = false,
+}: {
+  sources: SourceRef[];
+  defaultOpen?: boolean;
+}) {
   if (sources.length === 0) return null;
 
   return (

@@ -15,7 +15,12 @@ export class ApiError extends Error {
   /** Whether the caller can fix the request and retry (true for 4xx). */
   readonly recoverable: boolean;
 
-  constructor(status: number, code: string, message: string, options?: { details?: unknown; recoverable?: boolean }) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    options?: { details?: unknown; recoverable?: boolean },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -55,7 +60,11 @@ function zodDetails(error: ZodError): Array<{ path: string; message: string }> {
  * (which becomes a 400 envelope) on failure. Use this in `preValidation` hooks
  * or inline at the top of a handler for body/params/query.
  */
-export function parseOrThrow<S extends z.ZodType>(schema: S, data: unknown, what = "request"): z.infer<S> {
+export function parseOrThrow<S extends z.ZodType>(
+  schema: S,
+  data: unknown,
+  what = "request",
+): z.infer<S> {
   const result = schema.safeParse(data);
   if (!result.success) {
     throw httpError.validation(`Invalid ${what}`, zodDetails(result.error));
@@ -71,7 +80,13 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, data: unknown, what
 export function registerErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((error, request: FastifyRequest, reply: FastifyReply) => {
     const requestId = request.id;
-    const envelope = (status: number, code: string, message: string, recoverable: boolean, details?: unknown): void => {
+    const envelope = (
+      status: number,
+      code: string,
+      message: string,
+      recoverable: boolean,
+      details?: unknown,
+    ): void => {
       const body: ErrorEnvelope = { code, message, requestId, recoverable };
       if (details !== undefined) body.details = details;
       void reply.code(status).send(body);

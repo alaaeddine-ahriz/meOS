@@ -26,7 +26,10 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
       },
       components: {
         schemas: {
-          ErrorEnvelope: z.toJSONSchema(ErrorEnvelopeSchema, { target: "draft-7" }) as Record<string, unknown>,
+          ErrorEnvelope: z.toJSONSchema(ErrorEnvelopeSchema, { target: "draft-7" }) as Record<
+            string,
+            unknown
+          >,
         },
       },
       tags: [
