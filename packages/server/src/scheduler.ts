@@ -33,7 +33,10 @@ export function startScheduler(ctx: AppContext): Cron {
             const status = await ctx.git.sync();
             console.log("[scheduler] git auto-sync:", status.lastCommit ?? "no changes");
           } catch (error) {
-            console.error("[scheduler] git auto-sync failed:", error instanceof Error ? error.message : error);
+            console.error(
+              "[scheduler] git auto-sync failed:",
+              error instanceof Error ? error.message : error,
+            );
           }
         }
       },

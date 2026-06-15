@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+**/dist/
+**/node_modules/
+packages/desktop/src-tauri/target/
+packages/desktop/src-tauri/gen/
+pnpm-lock.yaml
+*.log
+.DS_Store

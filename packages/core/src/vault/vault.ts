@@ -107,7 +107,11 @@ export class Vault {
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, markdown, "utf8");
     const stat = fs.statSync(full);
-    return { path: this.relativePath(full), title: this.titleOf(full, markdown), updatedAt: stat.mtime.toISOString() };
+    return {
+      path: this.relativePath(full),
+      title: this.titleOf(full, markdown),
+      updatedAt: stat.mtime.toISOString(),
+    };
   }
 
   /** Create an empty (titled) note only if nothing is there yet. */

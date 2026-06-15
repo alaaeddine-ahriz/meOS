@@ -1,0 +1,31 @@
+import { z } from "zod";
+
+/**
+ * The health status of a single background worker. `idle` means started and
+ * waiting for work, `running` means actively processing, `stopped` means not
+ * started (or shut down), and `error` means the last attempt to start/stop or
+ * a recent run faulted (see `lastError`).
+ */
+export const WorkerStatusSchema = z.enum(["idle", "running", "stopped", "error"]);
+
+/** One worker's introspected health, as surfaced by GET /api/runtime. */
+export const WorkerHealthSchema = z.object({
+  /** Stable identifier, e.g. "watcher", "connectors", "scheduler". */
+  name: z.string(),
+  status: WorkerStatusSchema,
+  /** Human-readable one-liner about what the worker is currently doing. */
+  detail: z.string().optional(),
+  /** The last error message this worker recorded, or null if none. */
+  lastError: z.string().nullable(),
+  /** ISO timestamp of the worker's last activity/run, or null if never. */
+  lastRunAt: z.string().nullable(),
+});
+
+/** GET /api/runtime — the runtime graph's worker health snapshot. */
+export const RuntimeHealthSchema = z.object({
+  workers: z.array(WorkerHealthSchema),
+});
+
+export type WorkerStatus = z.infer<typeof WorkerStatusSchema>;
+export type WorkerHealth = z.infer<typeof WorkerHealthSchema>;
+export type RuntimeHealth = z.infer<typeof RuntimeHealthSchema>;

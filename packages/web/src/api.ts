@@ -1,315 +1,92 @@
-export interface EntitySummary {
-  id: number;
-  type: string;
-  name: string;
-  slug: string;
-  summary: string | null;
-  updatedAt: string;
-}
-
-export interface SourceRef {
-  id: number;
-  title: string;
-  path: string | null;
-  /** Origin: file/image/conversation, or a connector kind like "google:gmail". */
-  type?: string;
-}
-
-export type ConnectorKind = "contacts" | "calendar" | "gmail";
-
-export interface ConnectorKindStatus {
-  kind: ConnectorKind;
-  enabled: boolean;
-  intervalMinutes: number;
-  lastSyncedAt: string | null;
-  lastStatus: string | null;
-}
-
-export interface ConnectorStatus {
-  google: {
-    connected: boolean;
-    accountEmail: string | null;
-    hasCredentials: boolean;
-    kinds: ConnectorKindStatus[];
-  };
-}
-
-export interface WikiPage {
-  entity: EntitySummary & { stale: boolean };
-  markdown: string | null;
-  relationships: Array<{ label: string; direction: "in" | "out"; other: string }>;
-  sources: SourceRef[];
-  observations: Array<{
-    text: string;
-    confidence: number;
-    tier: string;
-    recordedAt: string;
-    lastConfirmedAt: string;
-    /** Date (+ stale/upcoming/until marker) — the recency tag shown to the user. */
-    when: string;
-    /** True when unconfirmed past its kind's freshness horizon. */
-    stale: boolean;
-  }>;
-}
-
-/** A note in the user's hand-authored vault. */
-export interface NoteMeta {
-  path: string;
-  title: string;
-  updatedAt: string;
-}
-
-export interface NoteContents extends NoteMeta {
-  markdown: string;
-  backlinks: NoteMeta[];
-}
-
-export interface GraphNode {
-  id: number;
-  type: string;
-  name: string;
-  slug: string;
-}
-
-export interface GraphLink {
-  from: number;
-  to: number;
-  label: string;
-}
-
-export interface WikiGraph {
-  nodes: GraphNode[];
-  links: GraphLink[];
-}
-
-export interface InboxItem {
-  id: number;
-  /** The ingested document, once parsing has created one. Null while queued. */
-  source_id: number | null;
-  title: string;
-  status: string;
-  detail: string | null;
-  /** Absolute path for watched files; null for uploads and pasted text. */
-  path: string | null;
-  /** How many times this file has been ingested; > 1 means it changed and was re-read. */
-  revision: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface Conversation {
-  id: number;
-  title: string | null;
-  created_at: string;
-}
-
-export interface Message {
-  id: number;
-  role: "user" | "assistant";
-  content: string;
-  created_at: string;
-  /** Documents the reply drew on; persisted server-side, absent on pending messages. */
-  sources?: SourceRef[];
-}
-
-export interface WatchedFolder {
-  id: number;
-  path: string;
-}
-
-export type LlmProvider = "anthropic" | "openai" | "google" | "local";
-
-export type CloudProvider = "anthropic" | "openai" | "google";
-
-/** A model list for a cloud provider, with whether it came from the provider or our bundled fallback. */
-export interface ModelListing {
-  models: string[];
-  source: "live" | "curated";
-  error?: string;
-}
-
-export interface LlmSettings {
-  provider: LlmProvider;
-  providers: {
-    anthropic: { model: string; hasKey: boolean };
-    openai: { model: string; hasKey: boolean };
-    google: { model: string; hasKey: boolean };
-    local: { model: string; baseUrl: string };
-  };
-  /** The reasoning-capable model powering the agentic wiki maintainer. */
-  maintainer: {
-    provider: LlmProvider;
-    model: string;
-    /** Whether the user has explicitly chosen a maintainer model. */
-    configured: boolean;
-    /** Whether that model can emit reasoning we can stream. */
-    reasoning: boolean;
-  };
-}
-
-export interface GitStatus {
-  initialized: boolean;
-  branch: string | null;
-  remote: string | null;
-  dirty: number;
-  ahead: number | null;
-  behind: number | null;
-  lastCommit: string | null;
-  autoSync: boolean;
-}
-
-export interface GitCommit {
-  hash: string;
-  subject: string;
-  body: string;
-  relativeDate: string;
-  files: number;
-}
-
-export interface GitCommitDetail {
-  hash: string;
-  subject: string;
-  body: string;
-  patch: string;
-}
-
-/** One wiki page touched within a document's commit. */
-export interface DiffFile {
-  path: string;
-  kind: "created" | "updated";
-  entityName: string | null;
-  entitySlug: string | null;
-}
-
-export interface SourceDiff {
-  source: SourceRef;
-  commits: Array<{
-    hash: string;
-    subject: string;
-    committedAt: string;
-    files: DiffFile[];
-    patch: string;
-  }>;
-}
-
-export interface DuplicateProposal {
-  aId: number;
-  bId: number;
-  aName: string;
-  bName: string;
-  type: string;
-  reasons: string[];
-  score: number;
-  suggestedWinnerId: number;
-}
-
-export type ResolutionAction = "supersede_a" | "supersede_b" | "keep_both" | "context_specific";
-
-export interface ContradictionProposal {
-  suggested: ResolutionAction;
-  rationale: string;
-  margin: number;
-}
-
-export interface Contradiction {
-  id: number;
-  note: string | null;
-  entity_name: string;
-  text_a: string;
-  text_b: string;
-  created_at: string;
-  proposal?: ContradictionProposal;
-}
-
-export interface ProfileSectionView {
-  id: string;
-  title: string;
-  description: string;
-  placeholder: string;
-  content: string;
-}
-
-export interface ProfileData {
-  sections: ProfileSectionView[];
-  gitSync: boolean;
-}
-
-/** A reviewable AI proposal: the full proposed profile keyed by section id + a note. */
-export interface ProfileProposal {
-  profile: Record<string, string>;
-  summary: string;
-}
-
-export interface ProfileVersion {
-  version: string;
-  savedAt: string;
-}
-
-export interface AuditEntry {
-  id: number;
-  op: string;
-  detail: string | null;
-  created_at: string;
-}
-
-/** Coarse cause of an LLM failure; mirrors core's LlmErrorKind. */
-export type LlmErrorKind =
-  | "auth"
-  | "credits"
-  | "rate_limit"
-  | "timeout"
-  | "connection"
-  | "model"
-  | "bad_response"
-  | "bad_request"
-  | "server"
-  | "unknown";
-
-export type ChatEvent =
-  | { type: "start"; conversationId: number }
-  | { type: "sources"; sources: SourceRef[] }
-  | { type: "reasoning"; text: string }
-  | { type: "tool-call"; toolCallId?: string; toolName: string; input: unknown }
-  | { type: "tool-result"; toolCallId?: string; toolName: string; output: unknown }
-  | { type: "graph"; nodes: GraphNode[]; links: GraphLink[] }
-  | { type: "delta"; text: string }
-  | { type: "done" }
-  | { type: "error"; message: string; kind?: LlmErrorKind };
-
-/** A single agentic wiki-maintainer run (one page regeneration). */
-export interface WikiRun {
-  id: number;
-  entity_id: number | null;
-  source_id: number | null;
-  name: string;
-  type: string;
-  slug: string | null;
-  status: "running" | "done" | "failed";
-  created_at: string;
-  finished_at: string | null;
-}
-
-export type WikiRunEventKind = "reasoning" | "tool-call" | "tool-result" | "text";
-
-/** One persisted step in a run's transcript. */
-export interface WikiRunEvent {
-  id: number;
-  run_id: number;
-  seq: number;
-  kind: WikiRunEventKind;
-  tool_name: string | null;
-  payload: string;
-  created_at: string;
-}
-
-/** A live event off the Activity SSE feed (mirrors the server's ActivityStreamEvent). */
-export type ActivityEvent =
-  | { type: "ready" }
-  | { type: "run-start"; runId: number; name: string; entityType: string; slug: string }
-  | { type: "event"; runId: number; kind: WikiRunEventKind; toolName?: string; payload: string }
-  | { type: "run-finish"; runId: number; status: "done" | "failed" };
-
+// Request/response types are owned by @meos/contracts (Zod schemas inferred to
+// TS). The web app imports the TYPES only — it never imports the schemas or any
+// server/core source — so the client and server cannot silently drift on shape.
+// These re-exports preserve the names the rest of the web app already imports
+// from `./api`.
 import { isTauri } from "./lib/platform.js";
+import type {
+  ActivityEvent,
+  AuditEntry,
+  ChatEvent,
+  CloudProvider,
+  Contradiction,
+  ContradictionProposal,
+  Conversation,
+  ConnectorKind,
+  ConnectorKindStatus,
+  ConnectorStatus,
+  DiffFile,
+  DuplicateProposal,
+  EntitySummary,
+  GitCommit,
+  GitCommitDetail,
+  GitStatus,
+  GraphLink,
+  GraphNode,
+  InboxItem,
+  LlmErrorKind,
+  LlmProvider,
+  LlmSettings,
+  Message,
+  ModelListing,
+  NoteContents,
+  NoteMeta,
+  ProfileData,
+  ProfileProposal,
+  ProfileSectionView,
+  ProfileVersion,
+  ResolutionAction,
+  SourceDiff,
+  SourceRef,
+  WatchedFolder,
+  WikiGraph,
+  WikiPage,
+  WikiRun,
+  WikiRunEvent,
+  WikiRunEventKind,
+} from "@meos/contracts";
+
+export type {
+  ActivityEvent,
+  AuditEntry,
+  ChatEvent,
+  CloudProvider,
+  Contradiction,
+  ContradictionProposal,
+  Conversation,
+  ConnectorKind,
+  ConnectorKindStatus,
+  ConnectorStatus,
+  DiffFile,
+  DuplicateProposal,
+  EntitySummary,
+  GitCommit,
+  GitCommitDetail,
+  GitStatus,
+  GraphLink,
+  GraphNode,
+  InboxItem,
+  LlmErrorKind,
+  LlmProvider,
+  LlmSettings,
+  Message,
+  ModelListing,
+  NoteContents,
+  NoteMeta,
+  ProfileData,
+  ProfileProposal,
+  ProfileSectionView,
+  ProfileVersion,
+  ResolutionAction,
+  SourceDiff,
+  SourceRef,
+  WatchedFolder,
+  WikiGraph,
+  WikiPage,
+  WikiRun,
+  WikiRunEvent,
+  WikiRunEventKind,
+} from "@meos/contracts";
 
 // In the browser the dev proxy / same-origin server handles /api; inside the
 // Tauri shell the page is served from tauri:// so the API needs an absolute base.
@@ -340,7 +117,12 @@ export const api = {
     json<{ removed: boolean }>(`/api/settings/folders/${id}`, { method: "DELETE" }),
   resetEverything: () => json<{ ok: boolean }>("/api/settings/reset", { method: "POST" }),
   getLlmSettings: () => json<LlmSettings>("/api/settings/llm"),
-  updateLlmSettings: (update: { provider: LlmProvider; model?: string; apiKey?: string; baseUrl?: string }) =>
+  updateLlmSettings: (update: {
+    provider: LlmProvider;
+    model?: string;
+    apiKey?: string;
+    baseUrl?: string;
+  }) =>
     json<LlmSettings>("/api/settings/llm", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -362,7 +144,9 @@ export const api = {
     const response = await fetch(`${API_BASE}/api/settings/llm/${provider}/models`, {
       headers: apiKey ? { "x-llm-api-key": apiKey } : undefined,
     });
-    const data = (await response.json().catch(() => ({}))) as Partial<ModelListing> & { error?: string };
+    const data = (await response.json().catch(() => ({}))) as Partial<ModelListing> & {
+      error?: string;
+    };
     if (!response.ok) throw new Error(data.error || `Failed to list models (${response.status})`);
     return { models: data.models ?? [], source: data.source ?? "curated", error: data.error };
   },
@@ -375,7 +159,8 @@ export const api = {
     }),
   // --- activity (live + replayed wiki-maintainer transcripts) ---
   getActivity: () => json<{ runs: WikiRun[] }>("/api/activity"),
-  getRunEvents: (id: number) => json<{ run: WikiRun; events: WikiRunEvent[] }>(`/api/activity/${id}/events`),
+  getRunEvents: (id: number) =>
+    json<{ run: WikiRun; events: WikiRunEvent[] }>(`/api/activity/${id}/events`),
   // --- vault (the user's hand-written notes) ---
   listNotes: () => json<{ notes: NoteMeta[] }>("/api/vault"),
   getNote: (path: string) => json<NoteContents>(`/api/vault/note?path=${encodeURIComponent(path)}`),
@@ -392,7 +177,9 @@ export const api = {
       body: JSON.stringify({ path, markdown }),
     }),
   deleteNote: (path: string) =>
-    json<{ deleted: boolean }>(`/api/vault/note?path=${encodeURIComponent(path)}`, { method: "DELETE" }),
+    json<{ deleted: boolean }>(`/api/vault/note?path=${encodeURIComponent(path)}`, {
+      method: "DELETE",
+    }),
   renameNote: (from: string, to: string) =>
     json<NoteMeta>("/api/vault/note/rename", {
       method: "POST",
@@ -432,7 +219,10 @@ export const api = {
     }),
   startGoogleAuth: () =>
     json<{ url: string }>("/api/connectors/google/auth/start", { method: "POST" }),
-  configureConnectorKind: (kind: ConnectorKind, config: { enabled?: boolean; intervalMinutes?: number }) =>
+  configureConnectorKind: (
+    kind: ConnectorKind,
+    config: { enabled?: boolean; intervalMinutes?: number },
+  ) =>
     json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -462,7 +252,15 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action }),
     }),
-  getOutput: (mode: "decision-brief" | "contradiction-report" | "timeline" | "dependency-graph" | "meeting-brief", entity?: string) =>
+  getOutput: (
+    mode:
+      | "decision-brief"
+      | "contradiction-report"
+      | "timeline"
+      | "dependency-graph"
+      | "meeting-brief",
+    entity?: string,
+  ) =>
     json<{ markdown: string }>(
       `/api/outputs/${mode}?format=json${entity ? `&entity=${encodeURIComponent(entity)}` : ""}`,
     ),
@@ -481,14 +279,17 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ profile }),
     }),
-  uploadProfileDocs: async (files: File[]): Promise<{ proposal: ProfileProposal; documents: string[] }> => {
+  uploadProfileDocs: async (
+    files: File[],
+  ): Promise<{ proposal: ProfileProposal; documents: string[] }> => {
     const form = new FormData();
     for (const file of files) form.append("files", file);
     const response = await fetch(`${API_BASE}/api/profile/upload`, { method: "POST", body: form });
     const data = (await response.json().catch(() => ({}))) as
       | { proposal: ProfileProposal; documents: string[] }
       | { error?: string };
-    if (!response.ok) throw new Error((data as { error?: string }).error || `Upload failed (${response.status})`);
+    if (!response.ok)
+      throw new Error((data as { error?: string }).error || `Upload failed (${response.status})`);
     return data as { proposal: ProfileProposal; documents: string[] };
   },
   draftProfile: () => json<{ proposal: ProfileProposal }>("/api/profile/draft", { method: "POST" }),
@@ -500,7 +301,8 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ instruction, useUploaded }),
     }),
-  getProfileHistory: (id: string) => json<{ versions: ProfileVersion[] }>(`/api/profile/${id}/history`),
+  getProfileHistory: (id: string) =>
+    json<{ versions: ProfileVersion[] }>(`/api/profile/${id}/history`),
   restoreProfileVersion: (id: string, version: string) =>
     json<ProfileData>(`/api/profile/${id}/restore`, {
       method: "POST",
@@ -516,7 +318,10 @@ export const api = {
     }),
 };
 
-export async function* streamChat(message: string, conversationId?: number): AsyncGenerator<ChatEvent> {
+export async function* streamChat(
+  message: string,
+  conversationId?: number,
+): AsyncGenerator<ChatEvent> {
   const response = await fetch(API_BASE + "/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },

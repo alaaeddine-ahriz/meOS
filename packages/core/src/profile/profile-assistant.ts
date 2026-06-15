@@ -80,9 +80,7 @@ export async function draftProfileFromContext(deps: {
   documents: Array<{ title: string; text: string }>;
 }): Promise<ProfileProposal> {
   const { llm, currentProfile, documents } = deps;
-  const docBlock = documents
-    .map((d) => `### Document: ${d.title}\n${d.text}`)
-    .join("\n\n");
+  const docBlock = documents.map((d) => `### Document: ${d.title}\n${d.text}`).join("\n\n");
 
   const raw = await llm.completeStructured({
     system: SYSTEM_PROMPT,
@@ -172,7 +170,9 @@ export async function editProfileWithInstruction(deps: {
           "",
           renderCurrentProfile(currentProfile),
           "",
-          uploadedContext ? `Reference context the instruction may draw on:\n${uploadedContext}\n` : "",
+          uploadedContext
+            ? `Reference context the instruction may draw on:\n${uploadedContext}\n`
+            : "",
           `Apply this instruction and return the complete updated profile:\n"${instruction}"`,
         ]
           .filter(Boolean)

@@ -1,5 +1,6 @@
 import { createContext } from "./context.js";
 import { repairSourcePaths } from "./repair.js";
+import { SchedulerWorker } from "./runtime/workers.js";
 import { startScheduler } from "./scheduler.js";
 import { buildServer } from "./server.js";
 
@@ -15,16 +16,20 @@ if (!ctx.git.isInitialized()) {
     console.error("[git] auto-init failed:", error instanceof Error ? error.message : error);
   }
 }
-ctx.watcher.start();
-ctx.connectors.start();
+// Start the background workers through the registry, preserving the historical
+// watcher → connectors → scheduler ordering. The watcher + connectors are
+// already registered (in that order) on the context; the scheduler's Cron is
+// built here and registered last, so it starts after the others — exactly as
+// before, just routed through ctx.workers instead of ad-hoc calls.
 const scheduler = startScheduler(ctx);
+ctx.workers.register(new SchedulerWorker(scheduler));
+await ctx.workers.startAll();
 
 await app.listen({ port: ctx.config.server.port, host: "127.0.0.1" });
 
 const shutdown = async () => {
-  scheduler.stop();
-  ctx.connectors.stop();
-  await ctx.watcher.close();
+  // Stop in reverse registration order: scheduler → connectors → watcher.
+  await ctx.workers.stopAll();
   await app.close();
   ctx.db.close();
   process.exit(0);

@@ -75,7 +75,8 @@ export async function fetchCalendarDelta(
       nextSyncToken = data.nextSyncToken ?? nextSyncToken;
     } while (pageToken);
   } catch (error) {
-    if (error instanceof SyncTokenExpiredError) return { items: [], deletions: [], fullResync: true };
+    if (error instanceof SyncTokenExpiredError)
+      return { items: [], deletions: [], fullResync: true };
     throw error;
   }
 

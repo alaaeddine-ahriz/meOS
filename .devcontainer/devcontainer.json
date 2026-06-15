@@ -1,0 +1,24 @@
+{
+  "name": "meOS dev",
+  // Node 22 matches the desktop runtime bundle. The Microsoft Node devcontainer
+  // image is Debian-based and ships build-essential, so native modules
+  // (better-sqlite3, sharp, onnxruntime) compile out of the box.
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  // Enable corepack so the repo's pnpm is used, then install the workspace.
+  "onCreateCommand": "corepack enable",
+  "postCreateCommand": "corepack prepare pnpm@latest --activate && pnpm install",
+  "forwardPorts": [4321, 5173],
+  "portsAttributes": {
+    "4321": { "label": "meOS API server" },
+    "5173": { "label": "meOS web (Vite)" }
+  },
+  // Bind Vite to all interfaces so forwarded ports work in Codespaces/VS Code.
+  "containerEnv": {
+    "MEOS_DEV_HOST": "true"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  }
+}

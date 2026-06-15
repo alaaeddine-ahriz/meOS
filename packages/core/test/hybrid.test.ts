@@ -16,7 +16,13 @@ describe("hybrid retrieval", () => {
     const dana = s.createEntity({ type: "person", name: "Dana" });
     const sourceId = s.createSource({ type: "text", title: "Notes", content: "..." });
     const [vec] = await embedder.embed(["Dana lives in Berlin."]);
-    s.insertObservation({ entityId: dana.id, text: "Dana lives in Berlin.", sourceId, embedding: vec!, confidence: 0.8 });
+    s.insertObservation({
+      entityId: dana.id,
+      text: "Dana lives in Berlin.",
+      sourceId,
+      embedding: vec!,
+      confidence: 0.8,
+    });
 
     // The query talks about Berlin, not "Dana" — the old literal-substring path
     // would have missed this fact entirely.

@@ -28,6 +28,8 @@ import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
 import { ConnectorManager } from "./connector-manager.js";
 import { GitSync } from "./git.js";
+import { WorkerRegistry } from "./runtime/worker.js";
+import { ConnectorSyncWorker, QueueWorker, WatcherWorker } from "./runtime/workers.js";
 import { FolderWatcher } from "./watcher.js";
 
 /** How many documents may move through parse/embed/extract at once. */
@@ -51,6 +53,12 @@ export interface AppContext {
   activity: ActivityBus;
   /** Background sync schedule for connected external accounts (Google). */
   connectors: ConnectorManager;
+  /**
+   * The background workers (watcher, connectors, scheduler, ingest/wiki queues)
+   * behind a uniform lifecycle + health surface. `main.ts` drives start/stop
+   * through this; the /api/runtime route reads each worker's health.
+   */
+  workers: WorkerRegistry;
 }
 
 /**
@@ -75,7 +83,10 @@ export async function commitWikiChanges(
     const hash = await deps.git.headHash();
     if (hash) deps.store.recordWikiCommit(hash, subject, changes);
   } catch (error) {
-    console.error("[git] failed to commit wiki changes:", error instanceof Error ? error.message : error);
+    console.error(
+      "[git] failed to commit wiki changes:",
+      error instanceof Error ? error.message : error,
+    );
   }
 }
 
@@ -103,7 +114,13 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   // Records each page regeneration's agent transcript and streams it live.
   const activity = new ActivityBus(store);
-  const wiki = new WikiWriter(store, llm, path.join(config.dataDir, "wiki"), embedder, activity.hook);
+  const wiki = new WikiWriter(
+    store,
+    llm,
+    path.join(config.dataDir, "wiki"),
+    embedder,
+    activity.hook,
+  );
   // The user's hand-authored note vault (Obsidian-style), distinct from the
   // system-compiled wiki — free-form markdown that cross-links via [[links]].
   const vault = new Vault(path.join(config.dataDir, "vault"));
@@ -111,7 +128,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const events = new MeosEvents();
   events.on("onContradiction", ({ entityId }) => {
     const entity = store.getEntity(entityId);
-    console.log(`[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`);
+    console.log(
+      `[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`,
+    );
   });
 
   // Wiki regeneration runs decoupled from ingestion: stale flags accumulate in
@@ -147,7 +166,8 @@ export function createContext(rootDir = findRootDir()): AppContext {
       );
       const notes: string[] = [];
       if (result.superseded > 0) notes.push(`${result.superseded} fact(s) superseded`);
-      if (result.contradictions > 0) notes.push(`${result.contradictions} contradiction(s) flagged`);
+      if (result.contradictions > 0)
+        notes.push(`${result.contradictions} contradiction(s) flagged`);
       return notes.join(", ") || undefined;
     },
   });
@@ -181,10 +201,43 @@ export function createContext(rootDir = findRootDir()): AppContext {
       });
       if (crystal) {
         scheduleWikiRefresh();
-        console.log(`[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`);
+        console.log(
+          `[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
+        );
       }
     });
   });
 
-  return { rootDir, config, db, store, llm, embedder, wiki, vault, pipeline, queue, watcher, git, events, activity, connectors };
+  // The runtime surface: each background component wrapped behind the uniform
+  // Worker interface (see docs/runtime.md). Registered in startup order so the
+  // registry's startAll preserves watcher → connectors; main.ts appends the
+  // SchedulerWorker once it has built the Cron, keeping the historical
+  // watcher → connectors → scheduler ordering. The ingest + wiki queues are
+  // queue-driven (no start/stop of their own), surfaced for health only.
+  const workers = new WorkerRegistry();
+  workers.register(
+    new WatcherWorker(watcher),
+    new ConnectorSyncWorker(connectors),
+    new QueueWorker("ingest", queue, "ingestion pipeline"),
+    new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
+  );
+
+  return {
+    rootDir,
+    config,
+    db,
+    store,
+    llm,
+    embedder,
+    wiki,
+    vault,
+    pipeline,
+    queue,
+    watcher,
+    git,
+    events,
+    activity,
+    connectors,
+    workers,
+  };
 }

@@ -65,11 +65,21 @@ describe("source visibility — retrieval enforcement", () => {
     const dana = store.createEntity({ type: "person", name: "Dana" });
 
     // A normal source that should be retrievable...
-    const open = store.createSource({ type: "text", title: "Open Notes", content: "Dana lives in Berlin." });
+    const open = store.createSource({
+      type: "text",
+      title: "Open Notes",
+      content: "Dana lives in Berlin.",
+    });
     const openChunks = await embedder.embed(["Dana lives in Berlin."]);
     store.addChunks(open, [{ text: "Dana lives in Berlin.", embedding: openChunks[0]! }]);
     const [obsVec] = await embedder.embed(["Dana lives in Berlin."]);
-    store.insertObservation({ entityId: dana.id, text: "Dana lives in Berlin.", sourceId: open, embedding: obsVec!, confidence: 0.8 });
+    store.insertObservation({
+      entityId: dana.id,
+      text: "Dana lives in Berlin.",
+      sourceId: open,
+      embedding: obsVec!,
+      confidence: 0.8,
+    });
 
     // ...and a hidden source whose content must never reach retrieval.
     const secret = store.createSource({
@@ -79,7 +89,9 @@ describe("source visibility — retrieval enforcement", () => {
       visibility: { searchable: false },
     });
     const secretChunks = await embedder.embed(["Dana secretly lives in Reykjavik."]);
-    store.addChunks(secret, [{ text: "Dana secretly lives in Reykjavik.", embedding: secretChunks[0]! }]);
+    store.addChunks(secret, [
+      { text: "Dana secretly lives in Reykjavik.", embedding: secretChunks[0]! },
+    ]);
 
     const pack = await buildContextPack(store, embedder, "where does Dana live?");
 
@@ -100,7 +112,13 @@ describe("source visibility — retrieval enforcement", () => {
       visibility: { answerable: false },
     });
     const [vec] = await embedder.embed(["Dana joined in 2021."]);
-    store.insertObservation({ entityId: dana.id, text: "Dana joined in 2021.", sourceId: src, embedding: vec!, confidence: 0.8 });
+    store.insertObservation({
+      entityId: dana.id,
+      text: "Dana joined in 2021.",
+      sourceId: src,
+      embedding: vec!,
+      confidence: 0.8,
+    });
 
     const pack = await buildContextPack(store, embedder, "when did Dana join?");
     expect(pack.sources.map((s) => s.title)).not.toContain("Background");
@@ -115,8 +133,16 @@ describe("source visibility — wiki & export enforcement", () => {
     const fileSrc = store.createSource({ type: "file", title: "Resume", content: "..." });
     store.insertObservation({ entityId: dana.id, text: "Dana is a designer.", sourceId: fileSrc });
 
-    const profileSrc = store.createSource({ type: "profile_context", title: "Profile", content: "..." });
-    store.insertObservation({ entityId: dana.id, text: "Dana is my manager.", sourceId: profileSrc });
+    const profileSrc = store.createSource({
+      type: "profile_context",
+      title: "Profile",
+      content: "...",
+    });
+    store.insertObservation({
+      entityId: dana.id,
+      text: "Dana is my manager.",
+      sourceId: profileSrc,
+    });
 
     const visible = store.visibleObservations(dana.id).map((o) => o.text);
     expect(visible).toContain("Dana is a designer.");

@@ -14,9 +14,26 @@ function seeded() {
   const atlas = s.createEntity({ type: "project", name: "Atlas" });
   const ai = s.createEntity({ type: "concept", name: "AI Service" });
   s.upsertRelationship(atlas.id, ai.id, "depends on");
-  s.insertObservation({ entityId: atlas.id, text: "Chose Postgres for Atlas.", kind: "decision", validFrom: "2024-02-01", confidence: 0.9 });
-  s.insertObservation({ entityId: atlas.id, text: "Atlas kicked off.", kind: "event", validFrom: "2024-01-01", confidence: 0.8 });
-  s.insertObservation({ entityId: atlas.id, text: "Atlas must ship by Q3.", kind: "requirement", confidence: 0.8 });
+  s.insertObservation({
+    entityId: atlas.id,
+    text: "Chose Postgres for Atlas.",
+    kind: "decision",
+    validFrom: "2024-02-01",
+    confidence: 0.9,
+  });
+  s.insertObservation({
+    entityId: atlas.id,
+    text: "Atlas kicked off.",
+    kind: "event",
+    validFrom: "2024-01-01",
+    confidence: 0.8,
+  });
+  s.insertObservation({
+    entityId: atlas.id,
+    text: "Atlas must ship by Q3.",
+    kind: "requirement",
+    confidence: 0.8,
+  });
   return { s, atlas, ai };
 }
 
@@ -54,8 +71,18 @@ describe("output modes", () => {
 
   it("contradiction report includes a suggested resolution", () => {
     const { s, atlas } = seeded();
-    const a = s.insertObservation({ entityId: atlas.id, text: "Atlas uses MySQL.", confidence: 0.5, validFrom: "2023-01-01" });
-    const b = s.insertObservation({ entityId: atlas.id, text: "Atlas uses Postgres.", confidence: 0.9, validFrom: "2024-06-01" });
+    const a = s.insertObservation({
+      entityId: atlas.id,
+      text: "Atlas uses MySQL.",
+      confidence: 0.5,
+      validFrom: "2023-01-01",
+    });
+    const b = s.insertObservation({
+      entityId: atlas.id,
+      text: "Atlas uses Postgres.",
+      confidence: 0.9,
+      validFrom: "2024-06-01",
+    });
     s.createContradiction(a, b, "db mismatch");
 
     const md = contradictionReport(s);
@@ -65,7 +92,12 @@ describe("output modes", () => {
 
   it("excludes private/secret claims from outputs", () => {
     const { s, atlas } = seeded();
-    s.insertObservation({ entityId: atlas.id, text: "Owner email is x@y.com.", kind: "fact", sensitivity: "private" });
+    s.insertObservation({
+      entityId: atlas.id,
+      text: "Owner email is x@y.com.",
+      kind: "fact",
+      sensitivity: "private",
+    });
     expect(meetingBrief(s, atlas.id)).not.toContain("x@y.com");
   });
 });
