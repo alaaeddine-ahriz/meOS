@@ -22,7 +22,7 @@ jobs:
           - os: macos-14
             label: macOS (Apple Silicon)
             bundles: dmg
-          - os: macos-13
+          - os: macos-15-intel
             label: macOS (Intel)
             bundles: dmg
           - os: windows-latest
