@@ -9,7 +9,6 @@ import {
   listProviderModels,
   normalizeLocalBaseUrl,
   resetDatabase,
-  type LlmProvider,
 } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { ApiError, httpError, parseOrThrow } from "../errors.js";
@@ -181,7 +180,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       if (!next) {
         llm.maintainer = undefined;
       } else {
-        const chosen = (provider as LlmProvider | undefined) ?? llm.provider;
+        const chosen = provider ?? llm.provider;
         llm.maintainer = { provider: chosen, model: next };
       }
 
