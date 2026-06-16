@@ -187,7 +187,12 @@ export default tseslint.config(
 
   // Node build/tooling scripts and root config files run in Node.
   {
-    files: ["scripts/**/*.{js,mjs,cjs}", "*.{js,mjs,cjs}", "**/*.config.{js,mjs,cjs,ts}"],
+    files: [
+      "scripts/**/*.{js,mjs,cjs}",
+      "benchmarks/**/*.{js,mjs,cjs}",
+      "*.{js,mjs,cjs}",
+      "**/*.config.{js,mjs,cjs,ts}",
+    ],
     languageOptions: {
       globals: {
         ...globals.node,

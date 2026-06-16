@@ -1,0 +1,173 @@
+{
+  "description": "Deterministic retrieval corpus: entities, curated observations, wiki pages, and raw source documents (notes, meeting notes, contact metadata, architecture docs). Seeded into an in-memory SQLite store with the HashEmbedder, then queried through the real hybrid (vector + FTS) retrieval path in @meos/core. Expected hits are referenced by stable 'ref' keys so metric numbers are reproducible.",
+  "entities": [
+    {
+      "ref": "dana",
+      "type": "person",
+      "name": "Dana Okoye",
+      "aliases": ["Dana"],
+      "summary": "Lead designer on the Orion project."
+    },
+    {
+      "ref": "marco",
+      "type": "person",
+      "name": "Marco Bianchi",
+      "aliases": ["Marco"],
+      "summary": "Backend engineer; owns the billing service."
+    },
+    {
+      "ref": "orion",
+      "type": "project",
+      "name": "Orion",
+      "aliases": [],
+      "summary": "Customer-facing redesign initiative."
+    },
+    {
+      "ref": "billing",
+      "type": "project",
+      "name": "Billing Service",
+      "aliases": ["billing"],
+      "summary": "Internal payments and invoicing service."
+    },
+    {
+      "ref": "acme",
+      "type": "organisation",
+      "name": "Acme Corp",
+      "aliases": ["Acme"],
+      "summary": "Primary enterprise customer."
+    },
+    {
+      "ref": "berlin",
+      "type": "place",
+      "name": "Berlin",
+      "aliases": [],
+      "summary": "City office location."
+    }
+  ],
+  "observations": [
+    {
+      "ref": "obs-dana-berlin",
+      "entity": "dana",
+      "text": "Dana Okoye relocated to the Berlin office in March.",
+      "source": "src-onboarding",
+      "confidence": 0.8
+    },
+    {
+      "ref": "obs-dana-role",
+      "entity": "dana",
+      "text": "Dana Okoye is the lead designer responsible for the Orion visual system.",
+      "source": "src-meeting-orion",
+      "confidence": 0.9
+    },
+    {
+      "ref": "obs-marco-billing",
+      "entity": "marco",
+      "text": "Marco Bianchi owns the billing service and its payment reconciliation logic.",
+      "source": "src-onboarding",
+      "confidence": 0.85
+    },
+    {
+      "ref": "obs-orion-launch",
+      "entity": "orion",
+      "text": "Orion is scheduled to launch to Acme Corp in Q3.",
+      "source": "src-meeting-orion",
+      "confidence": 0.7
+    },
+    {
+      "ref": "obs-billing-stack",
+      "entity": "billing",
+      "text": "The billing service runs on Postgres and processes invoices nightly.",
+      "source": "src-arch-doc",
+      "confidence": 0.75
+    },
+    {
+      "ref": "obs-acme-contract",
+      "entity": "acme",
+      "text": "Acme Corp signed a three-year enterprise contract worth significant recurring revenue.",
+      "source": "src-contact-acme",
+      "confidence": 0.8
+    }
+  ],
+  "relationships": [
+    { "from": "dana", "to": "orion", "label": "works on" },
+    { "from": "marco", "to": "billing", "label": "owns" },
+    { "from": "orion", "to": "acme", "label": "delivered to" }
+  ],
+  "wikiPages": [
+    {
+      "entity": "dana",
+      "body": "Dana Okoye is the lead designer driving the Orion redesign. She relocated to Berlin and owns the visual system."
+    },
+    {
+      "entity": "billing",
+      "body": "The Billing Service is the internal payments and invoicing system, owned by Marco Bianchi, running on Postgres."
+    }
+  ],
+  "sources": [
+    {
+      "ref": "src-onboarding",
+      "type": "note",
+      "title": "Team onboarding notes",
+      "content": "New joiner notes. Dana Okoye relocated to the Berlin office in March. Marco Bianchi owns the billing service."
+    },
+    {
+      "ref": "src-meeting-orion",
+      "type": "meeting",
+      "title": "Orion weekly sync",
+      "content": "Orion weekly. Dana presented the visual system. Launch to Acme Corp targeted for Q3. Action items captured."
+    },
+    {
+      "ref": "src-arch-doc",
+      "type": "doc",
+      "title": "Architecture overview",
+      "content": "The billing service runs on Postgres and processes invoices nightly. Reconciliation is handled by a cron job."
+    },
+    {
+      "ref": "src-contact-acme",
+      "type": "contact",
+      "title": "Acme Corp account",
+      "content": "Acme Corp is our primary enterprise customer. Signed a three-year enterprise contract. Main contact lives in Berlin."
+    }
+  ],
+  "queries": [
+    {
+      "id": "q-berlin",
+      "query": "anything new about Berlin?",
+      "note": "Entity is never named; must surface via content, not literal substring.",
+      "relevantEntities": ["dana"],
+      "relevantSources": ["src-onboarding"]
+    },
+    {
+      "id": "q-billing-owner",
+      "query": "who owns the billing service?",
+      "note": "Should surface Marco and the billing project.",
+      "relevantEntities": ["marco", "billing"],
+      "relevantSources": ["src-onboarding", "src-arch-doc"]
+    },
+    {
+      "id": "q-orion-launch",
+      "query": "when does Orion launch and to whom?",
+      "relevantEntities": ["orion"],
+      "relevantSources": ["src-meeting-orion"]
+    },
+    {
+      "id": "q-designer",
+      "query": "who is the lead designer?",
+      "note": "Compiled wiki prose should lead.",
+      "relevantEntities": ["dana"],
+      "relevantSources": ["src-meeting-orion"]
+    },
+    {
+      "id": "q-acme-contract",
+      "query": "what is the Acme contract worth?",
+      "relevantEntities": ["acme"],
+      "relevantSources": ["src-contact-acme"]
+    },
+    {
+      "id": "q-postgres-invoices",
+      "query": "what processes invoices nightly on Postgres?",
+      "relevantEntities": ["billing"],
+      "relevantSources": ["src-arch-doc"]
+    }
+  ]
+}

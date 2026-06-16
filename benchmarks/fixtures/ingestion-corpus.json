@@ -1,0 +1,227 @@
+{
+  "description": "Deterministic ingestion corpus. Each document is ingested through the real IngestionPipeline with a StubLlmClient that returns the document's canned extraction (keyed by title) for the 'knowledge_extraction' call, plus a deterministic 'contradiction_judgement' for supersession/contradiction. The HashEmbedder provides deterministic vectors. 'expected' captures the ground-truth metrics so the benchmark is comparable across commits. Documents are ingested in array order; later documents exercise dedup, temporal supersession, and contradiction detection against earlier state.",
+  "documents": [
+    {
+      "id": "doc-ada",
+      "title": "History notes",
+      "text": "Notes about Ada Lovelace and the Analytical Engine. Ada collaborated with Charles Babbage.",
+      "extraction": {
+        "entities": [
+          {
+            "name": "Ada Lovelace",
+            "type": "person",
+            "aliases": ["Ada"],
+            "summary": "Mathematician collaborating on the Analytical Engine."
+          },
+          {
+            "name": "Analytical Engine",
+            "type": "project",
+            "aliases": [],
+            "summary": "A proposed mechanical general-purpose computer."
+          },
+          {
+            "name": "Charles Babbage",
+            "type": "person",
+            "aliases": ["Babbage"],
+            "summary": "Inventor of the Analytical Engine."
+          }
+        ],
+        "relationships": [
+          { "from": "Ada Lovelace", "to": "Analytical Engine", "label": "works on" },
+          { "from": "Ada Lovelace", "to": "Charles Babbage", "label": "collaborates with" }
+        ],
+        "observations": [
+          {
+            "entity": "Ada Lovelace",
+            "claim": "Ada Lovelace wrote the first published algorithm.",
+            "kind": "fact",
+            "sourceQuote": "Ada Lovelace wrote the first published algorithm.",
+            "validFrom": null,
+            "validUntil": null,
+            "confidence": 0.5,
+            "sensitivity": "normal"
+          },
+          {
+            "entity": "Analytical Engine",
+            "claim": "The Analytical Engine uses punched cards for input.",
+            "kind": "fact",
+            "sourceQuote": null,
+            "validFrom": null,
+            "validUntil": null,
+            "confidence": 0.5,
+            "sensitivity": "normal"
+          }
+        ]
+      },
+      "expected": {
+        "newEntities": 3,
+        "newObservations": 2,
+        "relationships": 2,
+        "temporalClaims": 0
+      }
+    },
+    {
+      "id": "doc-ada-dup",
+      "title": "History notes restated",
+      "text": "Same facts restated: Ada Lovelace wrote the first published algorithm.",
+      "note": "Near-duplicate of doc-ada observations; the pipeline must reinforce, not duplicate.",
+      "extraction": {
+        "entities": [
+          {
+            "name": "Ada Lovelace",
+            "type": "person",
+            "aliases": ["Ada"],
+            "summary": "Mathematician collaborating on the Analytical Engine."
+          }
+        ],
+        "relationships": [],
+        "observations": [
+          {
+            "entity": "Ada Lovelace",
+            "claim": "Ada Lovelace wrote the first published algorithm.",
+            "kind": "fact",
+            "sourceQuote": "Ada Lovelace wrote the first published algorithm.",
+            "validFrom": null,
+            "validUntil": null,
+            "confidence": 0.5,
+            "sensitivity": "normal"
+          }
+        ]
+      },
+      "expected": {
+        "newEntities": 0,
+        "newObservations": 0,
+        "reinforcedObservations": 1,
+        "relationships": 0,
+        "temporalClaims": 0
+      }
+    },
+    {
+      "id": "doc-grace",
+      "title": "Engineer profile",
+      "text": "Grace Hopper joined the lab. She lives in Boston as of 2021. She works on the COBOL compiler.",
+      "note": "Introduces a temporal claim (validFrom) used to test temporal handling and as the prior fact for supersession.",
+      "extraction": {
+        "entities": [
+          {
+            "name": "Grace Hopper",
+            "type": "person",
+            "aliases": ["Grace"],
+            "summary": "Computer scientist and compiler pioneer."
+          },
+          {
+            "name": "COBOL Compiler",
+            "type": "project",
+            "aliases": ["COBOL"],
+            "summary": "Early high-level language compiler."
+          }
+        ],
+        "relationships": [{ "from": "Grace Hopper", "to": "COBOL Compiler", "label": "works on" }],
+        "observations": [
+          {
+            "entity": "Grace Hopper",
+            "claim": "Grace Hopper lives in Boston.",
+            "kind": "fact",
+            "sourceQuote": "She lives in Boston as of 2021.",
+            "validFrom": "2021-01-01",
+            "validUntil": null,
+            "confidence": 0.6,
+            "sensitivity": "normal"
+          }
+        ]
+      },
+      "expected": {
+        "newEntities": 2,
+        "newObservations": 1,
+        "relationships": 1,
+        "temporalClaims": 1
+      }
+    },
+    {
+      "id": "doc-grace-move",
+      "title": "Engineer profile update",
+      "text": "Update: Grace Hopper moved to Seattle in 2023.",
+      "note": "Temporal supersession: the new location update should supersede the prior Boston fact via detectContradictions.",
+      "extraction": {
+        "entities": [
+          {
+            "name": "Grace Hopper",
+            "type": "person",
+            "aliases": ["Grace"],
+            "summary": "Computer scientist and compiler pioneer."
+          }
+        ],
+        "relationships": [],
+        "observations": [
+          {
+            "entity": "Grace Hopper",
+            "claim": "Grace Hopper lives in Seattle.",
+            "kind": "fact",
+            "sourceQuote": "Grace Hopper moved to Seattle in 2023.",
+            "validFrom": "2023-01-01",
+            "validUntil": null,
+            "confidence": 0.7,
+            "sensitivity": "normal"
+          }
+        ]
+      },
+      "judgement": {
+        "kind": "supersedes",
+        "claimMatch": "Seattle",
+        "priorMatch": "Boston",
+        "note": "Relocation update supersedes prior location."
+      },
+      "expected": {
+        "newEntities": 0,
+        "newObservations": 1,
+        "relationships": 0,
+        "temporalClaims": 1,
+        "superseded": 1,
+        "contradictions": 0
+      }
+    },
+    {
+      "id": "doc-grace-conflict",
+      "title": "Conflicting report",
+      "text": "A report claims Grace Hopper never lived in Seattle and remained in Boston the whole time.",
+      "note": "Genuine contradiction (not a clean update): should be recorded for human review, not silently superseded.",
+      "extraction": {
+        "entities": [
+          {
+            "name": "Grace Hopper",
+            "type": "person",
+            "aliases": ["Grace"],
+            "summary": "Computer scientist and compiler pioneer."
+          }
+        ],
+        "relationships": [],
+        "observations": [
+          {
+            "entity": "Grace Hopper",
+            "claim": "Grace Hopper never lived in Seattle.",
+            "kind": "fact",
+            "sourceQuote": "Grace Hopper never lived in Seattle and remained in Boston.",
+            "validFrom": null,
+            "validUntil": null,
+            "confidence": 0.5,
+            "sensitivity": "normal"
+          }
+        ]
+      },
+      "judgement": {
+        "kind": "contradicts",
+        "claimMatch": "never lived in Seattle",
+        "priorMatch": "lives in Seattle",
+        "note": "Direct disagreement about Seattle residence."
+      },
+      "expected": {
+        "newEntities": 0,
+        "newObservations": 1,
+        "relationships": 0,
+        "temporalClaims": 0,
+        "superseded": 0,
+        "contradictions": 1
+      }
+    }
+  ]
+}
