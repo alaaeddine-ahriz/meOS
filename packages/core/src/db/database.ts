@@ -702,7 +702,40 @@ export const migrations: readonly string[] = [
   CREATE INDEX idx_ingest_jobs_claim
     ON ingest_jobs(queue, state, priority, run_after);
   `,
-  // 25 — meeting notes as auto-linked trusted sources (#26).
+
+  // 25 — provider-agnostic connector kinds (#5).
+  //
+  // `connector_sync_state.kind` carried a CHECK constraint pinned to Google's
+  // three kinds (`contacts','calendar','gmail`), which made the connector
+  // framework's central promise — "a new connector slots in without touching the
+  // pipeline" — false at the storage layer: a second provider's kind (an IMAP
+  // mailbox, a Notion database, a local folder) would be rejected by the DB.
+  //
+  // SQLite can't drop a column CHECK in place, so we rebuild the table without it
+  // (kind stays `TEXT NOT NULL`; the connector manifest is now the source of truth
+  // for valid kinds, validated in the route/registry rather than the schema). The
+  // copy preserves every existing Google sync-state row verbatim — cursors,
+  // enable flags, intervals, and last-status all carry over — so no resync is
+  // triggered. `connector_items.kind` already had no such constraint.
+  `
+  CREATE TABLE connector_sync_state_new (
+    account_id INTEGER NOT NULL REFERENCES connector_accounts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    interval_minutes INTEGER NOT NULL DEFAULT 15,
+    sync_token TEXT,
+    last_synced_at TEXT,
+    last_status TEXT,
+    UNIQUE(account_id, kind)
+  );
+  INSERT INTO connector_sync_state_new
+    (account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status)
+    SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+    FROM connector_sync_state;
+  DROP TABLE connector_sync_state;
+  ALTER TABLE connector_sync_state_new RENAME TO connector_sync_state;
+  `,
+  // 26 — meeting notes as auto-linked trusted sources (#26).
   //
   // A meeting note is a type='meeting' source (visibility defaults to fully
   // permissive — searchable + answerable + wiki-eligible, like a local file).
