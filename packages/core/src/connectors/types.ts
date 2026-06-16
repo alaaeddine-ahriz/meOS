@@ -7,9 +7,9 @@
  */
 
 export type Provider = "google";
-export type ConnectorKind = "contacts" | "calendar" | "gmail";
+export type ConnectorKind = "contacts" | "calendar" | "gmail" | "tasks";
 
-export const CONNECTOR_KINDS: ConnectorKind[] = ["contacts", "calendar", "gmail"];
+export const CONNECTOR_KINDS: ConnectorKind[] = ["contacts", "calendar", "gmail", "tasks"];
 
 /** OAuth tokens for a connected account. `expiry` is an absolute ISO timestamp. */
 export interface OAuthTokens {
@@ -66,6 +66,39 @@ export interface GmailMessageItem {
   snippet: string;
   /** Deep link into Gmail for this message's thread. */
   deepLink: string;
+}
+
+/**
+ * One Google Tasks task, normalized. Unlike the other kinds this connector also
+ * supports a WRITE path (creating a task) — see `createTask` — making it meOS's
+ * first read/write connector kind.
+ */
+export interface TaskItem {
+  /** Stable task id within its list, e.g. "MTIz...". */
+  externalId: string;
+  title: string;
+  /** Free-text notes/body, when set. */
+  notes?: string;
+  /** ISO due date (Google stores the date portion; time is always 00:00Z). */
+  due?: string | null;
+  /** Google's status: "needsAction" or "completed". */
+  status: "needsAction" | "completed";
+  /** True when status === "completed". Convenience for mappers/UI. */
+  completed: boolean;
+  /** The list this task belongs to. */
+  taskListId: string;
+  /** Human-readable title of the owning task list. */
+  taskListTitle: string;
+  /** ISO timestamp of the last modification (drives incremental sync). */
+  updated?: string | null;
+  /** Deep link into Google Tasks. */
+  deepLink: string;
+}
+
+/** One Google Tasks task list, used for selection + the create-task default. */
+export interface TaskList {
+  id: string;
+  title: string;
 }
 
 /** The account owner's identity, used by mappers to anchor "knows" edges to you. */

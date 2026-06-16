@@ -834,6 +834,21 @@ export const migrations: readonly string[] = [
   UPDATE sources SET wiki_eligible = 0
     WHERE type IN ('google:contacts', 'google:calendar', 'google:gmail');
   `,
+  // 29 — Google Tasks connector kind (#69), meOS's first READ/WRITE connector.
+  //
+  // The 'tasks' kind syncs tasks from selected lists and lets meOS CREATE tasks
+  // back in Google Tasks. `connector_sync_state.kind`'s CHECK constraint was
+  // already dropped in migration 25 (the column is plain `TEXT NOT NULL`, with the
+  // connector manifest as the source of truth for valid kinds), so 'tasks' is
+  // accepted with no further table rebuild. This migration only carries the
+  // privacy stance: task sources (type 'google:tasks') are connector sources, so
+  // they default to private — searchable + answerable but kept out of the wiki and
+  // off any sync/export artifact (cf. migrations 18 + 28 for the other Google
+  // kinds). Mirrors defaultVisibilityForType so existing rows match new ones; on a
+  // database with no task sources yet this is a harmless no-op.
+  `
+  UPDATE sources SET wiki_eligible = 0 WHERE type = 'google:tasks';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

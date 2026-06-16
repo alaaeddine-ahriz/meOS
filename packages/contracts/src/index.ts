@@ -78,7 +78,13 @@ export type {
   ModelListing,
   WatchedFolder,
 } from "./schemas/settings.js";
-export type { ConnectorKind, ConnectorKindStatus, ConnectorStatus } from "./schemas/connectors.js";
+export type {
+  ConnectorKind,
+  ConnectorKindStatus,
+  ConnectorStatus,
+  Task,
+  TaskList,
+} from "./schemas/connectors.js";
 export type { CalendarEvent } from "./schemas/calendar.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
 export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./schemas/runtime.js";

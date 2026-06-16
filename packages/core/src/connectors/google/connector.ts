@@ -17,15 +17,18 @@ import type {
 import { mapCalendarEvent } from "../map/calendar.js";
 import { mapContact } from "../map/contacts.js";
 import { mapGmailMessage } from "../map/gmail.js";
+import { mapTask } from "../map/tasks.js";
 import type {
   CalendarEventItem,
   ContactItem,
   DeltaResult,
   GmailMessageItem,
   SelfIdentity,
+  TaskItem,
 } from "../types.js";
 import { fetchCalendarDelta } from "./calendar.js";
 import { fetchGmailDelta } from "./gmail.js";
+import { fetchTasksDelta } from "./tasks.js";
 import {
   buildAuthUrl,
   exchangeCode,
@@ -62,6 +65,13 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       contentMode: "metadata",
       defaultIntervalMinutes: 15,
     },
+    {
+      kind: "tasks",
+      displayName: "Tasks",
+      sourceType: "google:tasks",
+      contentMode: "metadata",
+      defaultIntervalMinutes: 30,
+    },
   ],
 };
 
@@ -97,6 +107,15 @@ function renderEvent(e: CalendarEventItem): string {
   if (e.organiserEmail) lines.push(`Organiser: ${e.organiserEmail}`);
   if (e.attendees?.length)
     lines.push(`Attendees: ${e.attendees.map((a) => a.name || a.email).join(", ")}`);
+  return lines.join("\n");
+}
+
+function renderTask(t: TaskItem): string {
+  const lines = [`Task: ${t.title}`];
+  lines.push(`Status: ${t.completed ? "completed" : "to do"}`);
+  if (t.due) lines.push(`Due: ${t.due.slice(0, 10)}`);
+  if (t.taskListTitle) lines.push(`List: ${t.taskListTitle}`);
+  if (t.notes) lines.push(`Notes: ${t.notes}`);
   return lines.join("\n");
 }
 
@@ -147,6 +166,22 @@ export class GoogleConnector implements Connector {
           rawContent: rawPayload(c),
           normalizedContent: renderContact(c),
           extraction: mapContact(c),
+        };
+      });
+    }
+
+    if (kind === "tasks") {
+      // Tasks are things-to-do, not relationships — no self identity needed.
+      const delta = await fetchTasksDelta(accessToken, cursor);
+      return toNormalized(delta, (raw) => {
+        const t = raw as TaskItem;
+        return {
+          externalId: t.externalId,
+          title: t.title,
+          path: t.deepLink,
+          rawContent: rawPayload(t),
+          normalizedContent: renderTask(t),
+          extraction: mapTask(t),
         };
       });
     }

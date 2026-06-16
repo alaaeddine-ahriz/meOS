@@ -23,3 +23,31 @@ export async function googleGet<T>(url: string, accessToken: string): Promise<T>
   }
   return (await response.json()) as T;
 }
+
+/**
+ * Authorized write (POST/PATCH/PUT) against a Google REST endpoint, returning the
+ * parsed JSON body. Used by the Tasks connector's create/complete paths — the
+ * first connector capability that writes back to the user's Google data. Non-2xx
+ * responses throw with the body so the route can surface a meaningful error.
+ */
+export async function googleWrite<T>(
+  url: string,
+  accessToken: string,
+  method: "POST" | "PATCH" | "PUT",
+  body: unknown,
+): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`,
+    );
+  }
+  return (await response.json()) as T;
+}

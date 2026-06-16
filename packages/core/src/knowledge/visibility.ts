@@ -44,6 +44,7 @@ export const CONNECTOR_SOURCE_TYPES = [
   "google:contacts",
   "google:calendar",
   "google:gmail",
+  "google:tasks",
 ] as const;
 
 /** The profile-context source type (kept in sync with the server's profile route). */
