@@ -12,11 +12,18 @@ convention, and the per-release checklist.
 
 ### Added
 
-- _Nothing yet._
+- **Automated releases** via [Release Please](https://github.com/googleapis/release-please-action):
+  merging the generated Release PR bumps `package.json` + `tauri.conf.json`,
+  updates this changelog, and creates the GitHub Release + `vX.Y.Z` tag.
+  Desktop installers are built and attached to that Release automatically. See
+  [docs/releasing.md](docs/releasing.md). Going forward Release Please manages
+  this `## [Unreleased]` section from Conventional Commits.
 
 ### Changed
 
-- _Nothing yet._
+- **Desktop bundles are now attached to the GitHub Release**, not just uploaded
+  as per-run workflow artifacts. `.github/workflows/desktop-build.yml` is now
+  also a reusable workflow invoked by the release automation.
 
 ### Fixed
 

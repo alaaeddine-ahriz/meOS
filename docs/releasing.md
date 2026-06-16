@@ -28,12 +28,21 @@ release:
 - [`packages/desktop/src-tauri/tauri.conf.json`](../packages/desktop/src-tauri/tauri.conf.json) → `version`
 - the new heading in [`CHANGELOG.md`](../CHANGELOG.md)
 
+[Release Please](#automated-releases-release-please) keeps these three in sync
+automatically (the manifest in
+[`.release-please-manifest.json`](../.release-please-manifest.json) tracks the
+last released version), so you normally don't edit them by hand.
+
 ## Tag convention
 
-Releases are cut by pushing an annotated tag of the form **`vX.Y.Z`** (e.g.
-`v0.1.0`). This matches the `v*` push trigger in
-[`.github/workflows/desktop-build.yml`](../.github/workflows/desktop-build.yml),
-so pushing the tag is what builds and uploads the desktop artifacts.
+Releases are tagged **`vX.Y.Z`** (e.g. `v0.1.0`). Normally
+[Release Please](#automated-releases-release-please) creates this tag for you
+when the Release PR is merged (`include-component-in-tag: false` +
+release-type `node` yields the `v`-prefixed tag). The same form matches the
+`v*` push trigger in
+[`.github/workflows/desktop-build.yml`](../.github/workflows/desktop-build.yml)
+and [`sbom.yml`](../.github/workflows/sbom.yml), which is the
+[manual fallback](#manual-fallback):
 
 ```sh
 git tag -a v0.1.0 -m "v0.1.0"
@@ -46,23 +55,77 @@ that the changelog entry describes.
 ## Branch workflow
 
 - `main` is always releasable. Feature and fix work happens on short-lived
-  branches (`feat/...`, `fix/...`, `chore/...`) and merges into `main` via PR.
-- Every user-facing change updates the `## [Unreleased]` section of
-  `CHANGELOG.md` in the same PR.
-- A release is cut **from `main`**:
-  1. Move the `## [Unreleased]` entries into a new
-     `## [X.Y.Z] - YYYY-MM-DD` section and reset `Unreleased` to empty stubs.
-  2. Bump the version in both `package.json` and `tauri.conf.json`.
-  3. Update the compare/release links at the bottom of `CHANGELOG.md`.
-  4. Merge that release-prep PR.
-  5. Tag the merge commit `vX.Y.Z` and push the tag (this triggers the build).
+  branches (`feat/...`, `fix/...`, `chore/...`) and merges into `main` via PR
+  using [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`,
+  `fix:`, `docs:`, `chore:`, …). The commit type is what
+  [Release Please](#automated-releases-release-please) uses to compute the next
+  version and to slot each change into the changelog.
+- Releases are **automated and two-step** — see
+  [Automated releases](#automated-releases-release-please) below. You no longer
+  hand-edit the version or the `## [Unreleased]` section for a release; Release
+  Please maintains them from commit history.
 - We do not maintain long-lived release branches. If a patch is needed for an
-  older release, branch from that release's tag, fix forward, and tag a new
-  patch version.
+  older release, branch from that release's tag, fix forward, and let Release
+  Please cut a new patch version.
+
+## Automated releases (Release Please)
+
+Releases are driven by
+[`googleapis/release-please-action`](https://github.com/googleapis/release-please-action)
+via [`.github/workflows/release-please.yml`](../.github/workflows/release-please.yml).
+Publication stays **manual and reviewable**: nothing ships until a human merges
+the generated Release PR. The flow has two steps.
+
+**Step 1 — prepare (the Release PR).** On every push to `main` (and on manual
+`workflow_dispatch`), Release Please opens or updates a single **Release PR**
+titled `chore(main): release X.Y.Z`. That PR:
+
+- bumps `version` in [`package.json`](../package.json) and (via `extra-files` in
+  [`release-please-config.json`](../release-please-config.json))
+  [`packages/desktop/src-tauri/tauri.conf.json`](../packages/desktop/src-tauri/tauri.conf.json),
+- moves the pending Conventional Commits into a new `## [X.Y.Z] - DATE` section
+  of [`CHANGELOG.md`](../CHANGELOG.md) and refreshes the compare/release links,
+- computes the next version from commit types (`feat` → minor, `fix` → patch,
+  `feat!`/`BREAKING CHANGE` → major; pre-1.0 still increments the `0.MINOR`).
+
+This Release PR **is** the review gate. Review the proposed version and
+changelog, run through the [Release checklist](#release-checklist), and edit the
+PR if needed (e.g. add a **Database migrations** risk note — Release Please does
+not generate that subsection, so add it by hand to the new version's entry).
+
+**Step 2 — publish (merge the Release PR).** Merging the Release PR triggers
+`release-please.yml` again. Release Please then:
+
+- creates the **GitHub Release** and the annotated **`vX.Y.Z` tag**, and
+- because `release_created == true`, the workflow builds the desktop bundles
+  (by calling [`desktop-build.yml`](../.github/workflows/desktop-build.yml) as a
+  reusable workflow) and **attaches the installers to that GitHub Release**.
+
+> Note: tags pushed by a workflow using the default `GITHUB_TOKEN` do not
+> trigger other workflows (GitHub's recursion guard), so `release-please.yml`
+> invokes the desktop build directly rather than relying on the `v*` tag push.
+> The `v*` push trigger on `desktop-build.yml` / `sbom.yml` is still there for
+> manual tags.
+
+State for the tool lives in two committed files — do not hand-edit them except
+to correct a mistake:
+
+- [`release-please-config.json`](../release-please-config.json) — release type
+  (`node`), the `extra-files` that bump `tauri.conf.json`, and the
+  commit-type → changelog-section mapping.
+- [`.release-please-manifest.json`](../.release-please-manifest.json) — the last
+  released version (`"."`: `"X.Y.Z"`), which Release Please reads and updates.
+
+### Manual fallback
+
+If you ever need to cut a release without the automation, the old manual path
+still works: edit the changelog/version by hand, then push a `vX.Y.Z` tag — the
+`v*` trigger on `desktop-build.yml` builds and attaches the artifacts.
 
 ## Release checklist
 
-Run through this before pushing a release tag.
+Run through this while reviewing the Release PR, before merging it (or, for the
+[manual fallback](#manual-fallback), before pushing a release tag).
 
 - [ ] **Toolchain matches.** `pnpm --version` is `10.20.0` (pinned via
       `packageManager` in `package.json`) and Node matches `.nvmrc` (`22`).
@@ -103,6 +166,12 @@ CI builds one artifact bundle per platform on a native runner (native modules
 can't be cross-compiled). The matrix and outputs come from
 [`.github/workflows/desktop-build.yml`](../.github/workflows/desktop-build.yml);
 the product name is **`MeOS`** and the version is taken from `tauri.conf.json`.
+
+On a real release these bundles are **attached to the GitHub Release** (via
+`gh release upload`) so users download installers from the Release page. They
+are _also_ kept as per-run workflow artifacts (named `meos-<os>`) for
+debugging. A plain `workflow_dispatch` run with no release tag only produces the
+workflow artifacts.
 
 | Platform              | Runner           | Bundle                   | Artifact (uploaded as `meos-<os>`)                                    |
 | --------------------- | ---------------- | ------------------------ | --------------------------------------------------------------------- |
@@ -164,30 +233,26 @@ Compatibility rules:
   bundled one, and CI's `setup-node` is pinned to `22` for the same reason.
   Standardising local dev on `22` via `.nvmrc` avoids that mismatch.
 
-## Release process: minimal & manual (not Changesets)
+## Release process: Release Please (not Changesets)
 
-MeOS uses a **minimal manual release process** rather than a tool like
+MeOS automates releases with
+[Release Please](#automated-releases-release-please) rather than
 [Changesets](https://github.com/changesets/changesets):
-
-1. Keep `CHANGELOG.md`'s `## [Unreleased]` section current in every PR.
-2. To release, open a release-prep PR that renames `Unreleased` to the new
-   version + date and bumps `package.json` + `tauri.conf.json`.
-3. Merge, then tag `vX.Y.Z` and push — CI builds and uploads the desktop
-   artifacts.
-
-Why not Changesets:
 
 - MeOS is effectively a **single shippable product** (a desktop app). The
   internal packages (`@meos/core`, `@meos/server`, `@meos/web`,
   `@meos/desktop`) are not published to npm and version together, so
   Changesets' main value — independent per-package versioning and automated npm
-  publishing — does not apply.
-- The hand-written, Keep a Changelog–style changelog is more readable for end
-  users ("what changed before installing") than auto-generated changeset
-  fragments, and it lets us keep the **Database migrations** risk section that
-  this project specifically needs.
-- A single annotated tag already drives the entire release via the existing
-  workflow, so no extra automation is warranted at this stage.
+  publishing — does not apply. Release Please is configured as a **single
+  release** for the repo root (`release-type: node`) and bumps the desktop
+  `tauri.conf.json` alongside it via `extra-files`.
+- Release Please derives the next version and the changelog from **Conventional
+  Commits**, so there are no extra changeset fragment files to write — the
+  source of truth is the commit history we already keep.
+- Publication remains a **deliberate two-step**: the generated Release PR is the
+  review gate, and merging it is the explicit "ship" action. We still keep the
+  hand-authored **Database migrations** risk subsection by editing the Release
+  PR before merging (Release Please does not generate it).
 
 If the project later starts publishing packages independently, revisit
 Changesets.
