@@ -117,8 +117,21 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+/** A connector-linked entity that has no wiki page (browsable under Wiki → Linked). */
+export interface LinkedEntity {
+  id: number;
+  type: string;
+  name: string;
+  slug: string;
+  /** Connector source types backing it, e.g. ["google:contacts","google:calendar"]. */
+  services: string[];
+  /** Deep link to open the underlying connector item, when one is available. */
+  link: string | null;
+}
+
 export const api = {
   listEntities: () => json<{ entities: EntitySummary[] }>("/api/wiki"),
+  listLinkedEntities: () => json<{ entities: LinkedEntity[] }>("/api/entities/linked"),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getGraph: () => json<WikiGraph>("/api/wiki/graph"),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),

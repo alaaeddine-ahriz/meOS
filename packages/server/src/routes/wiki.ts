@@ -11,6 +11,14 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     duplicates: findDuplicateEntities(ctx.store),
   }));
 
+  // Connector-linked entities that don't warrant a wiki page (people/orgs known
+  // only from Google contacts/calendar/gmail). Hidden from the wiki index but
+  // searchable; this backs the "Linked" browse surface, with the service(s) each
+  // is linked from and a deep link to open the underlying item.
+  app.get("/api/entities/linked", async () => ({
+    entities: ctx.store.connectorLinkedEntities(),
+  }));
+
   app.post("/api/entities/merge", async (request, reply) => {
     const { loserId, winnerId } = parseOrThrow(wiki.MergeEntitiesBody, request.body, "body");
     if (!ctx.store.mergeEntities(loserId, winnerId)) {
