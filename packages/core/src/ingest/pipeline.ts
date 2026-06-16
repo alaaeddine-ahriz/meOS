@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
-import { extractKnowledge } from "../extract/extractor.js";
+import { extractKnowledgeMapReduce } from "../extract/map-reduce.js";
 import type { Extraction } from "../extract/schema.js";
 import { readImage } from "../extract/image.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
@@ -66,6 +66,12 @@ export class IngestionPipeline {
       scheduleWikiRefresh?: () => void;
       /** Data dir to read the user's schema document from for extraction. */
       dataDir?: string;
+      /**
+       * The extraction model's id, threaded into the extraction cache's version
+       * tuple (#15) so a model change invalidates cached partials. Defaults to
+       * "unknown" (e.g. the stub) — fine for cache scoping in tests.
+       */
+      extractionModelId?: string;
       /** Event bus; onNewSource / onMemoryWrite fire here for automation hooks. */
       events?: MeosEvents;
     },
@@ -293,7 +299,16 @@ export class IngestionPipeline {
     if (inboxItemId) store.updateInboxItem(inboxItemId, "extracting");
     const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
     const profile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
-    const extraction = await extractKnowledge(this.deps.llm, parsed, schema, profile);
+    // #15: size-gated extraction. Small documents keep the single-pass fast path;
+    // large ones are extracted section-by-section (cached per revision + section
+    // hash + version tuple) and deterministically reduced before the merge seam.
+    const { extraction } = await extractKnowledgeMapReduce(this.deps.llm, parsed, {
+      store,
+      sourceRevisionId: revisionId,
+      modelId: this.deps.extractionModelId ?? "unknown",
+      schemaMd: schema,
+      profileContext: profile,
+    });
 
     if (inboxItemId) store.updateInboxItem(inboxItemId, "merging");
     const { merge, postMergeNote } = await this.withMergeLock(async () => {

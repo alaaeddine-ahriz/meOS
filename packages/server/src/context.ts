@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   createEmbedder,
   createLlmClient,
+  extractionModelId,
   crystallizeSession,
   detectContradictions,
   ensureDataDirs,
@@ -163,6 +164,7 @@ export function createContext(rootDir = findRootDir()): AppContext {
     wiki,
     scheduleWikiRefresh,
     dataDir: config.dataDir,
+    extractionModelId: extractionModelId(config),
     events,
     postMerge: async ({ merge }) => {
       const result = await detectContradictions(

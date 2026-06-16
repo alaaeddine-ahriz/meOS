@@ -178,6 +178,28 @@ export function createLlmClient(config: MeosConfig): LlmClient {
   }
 }
 
+/**
+ * The model id that performs knowledge extraction for the active provider —
+ * threaded into the extraction cache's version tuple (#15) so a model change
+ * invalidates cached partials. Anthropic has a dedicated `extractionModel`; the
+ * others extract with their main model. "stub" has no real model.
+ */
+export function extractionModelId(config: MeosConfig): string {
+  const { llm } = config;
+  switch (llm.provider) {
+    case "anthropic":
+      return llm.anthropic.extractionModel;
+    case "openai":
+      return llm.openai.model;
+    case "google":
+      return llm.google.model;
+    case "local":
+      return llm.local.model || "local";
+    case "stub":
+      return "stub";
+  }
+}
+
 export { AiSdkClient } from "./ai-sdk.js";
 export { listProviderModels } from "./discover.js";
 export type { CloudProvider, ModelListing } from "./discover.js";

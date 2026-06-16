@@ -48,6 +48,16 @@ export {
   REDACTION_PLACEHOLDER,
 } from "./memory/privacy.js";
 export { extractKnowledge } from "./extract/extractor.js";
+export { reduceExtractions } from "./extract/reduce.js";
+export {
+  extractKnowledgeMapReduce,
+  EXTRACTION_PROMPT_VERSION,
+  EXTRACTION_SCHEMA_VERSION,
+  SINGLE_PASS_TOKEN_LIMIT,
+  schemaDocVersion,
+  profileVersion,
+} from "./extract/map-reduce.js";
+export type { ExtractionRunResult, MapReduceOptions } from "./extract/map-reduce.js";
 export { readImage } from "./extract/image.js";
 export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
@@ -57,6 +67,9 @@ export type {
   ConnectorAccountRow,
   ConnectorSyncStateRow,
   EntityRow,
+  ExtractionCacheKey,
+  ExtractionCacheRow,
+  ExtractionStrategy,
   InboxItemRow,
   IngestJobRow,
   IngestJobState,

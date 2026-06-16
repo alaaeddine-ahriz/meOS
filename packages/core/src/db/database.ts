@@ -617,6 +617,46 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX idx_ingest_runs_job ON ingest_runs(job_id, attempt);
   `,
+
+  // 22 — per-section extraction cache for map-reduce large-document extraction (#15).
+  //
+  // Large documents are extracted section-by-section (map) and the partials are
+  // deterministically reduced into one Extraction before merge. Each map output
+  // is the result of one LLM call over a section, and re-extracting a source —
+  // after a prompt/model/schema/profile change, or just a retry — should reuse
+  // any partial whose inputs are byte-identical instead of paying for the call
+  // again. This table is that cache.
+  //
+  // The cache key is (source_revision_id, content_hash, schema_version,
+  // prompt_version, model_id, profile_version): the revision + the section's
+  // content hash identify *what* was extracted, and the four version components
+  // identify *how*. A change to any version component yields a different key, so
+  // stale partials are never served — they simply miss and are recomputed. Old
+  // rows are left in place (a later revision's sweep / source deletion cascades
+  // them away via the FK); they cost nothing once unreferenced.
+  //
+  // `extraction` is the partial Extraction JSON. `token_usage` records the LLM
+  // tokens the map call spent (0 on a cache hit, by definition). `strategy`
+  // records whether the owning extraction ran 'single' (whole-doc one-pass) or
+  // 'map-reduce' — surfaced for cost/telemetry and so a single-pass result can
+  // be cached under the same table without pretending it was sectioned.
+  `
+  CREATE TABLE extraction_cache (
+    id INTEGER PRIMARY KEY,
+    source_revision_id INTEGER NOT NULL REFERENCES source_revisions(id) ON DELETE CASCADE,
+    content_hash TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    prompt_version TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    profile_version TEXT NOT NULL,
+    strategy TEXT NOT NULL CHECK (strategy IN ('single','map-reduce')),
+    extraction TEXT NOT NULL,
+    token_usage INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(source_revision_id, content_hash, schema_version, prompt_version, model_id, profile_version)
+  );
+  CREATE INDEX idx_extraction_cache_revision ON extraction_cache(source_revision_id);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
