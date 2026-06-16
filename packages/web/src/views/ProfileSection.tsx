@@ -144,7 +144,7 @@ export function ProfileSection() {
 
   if (!data) {
     return (
-      <section className="rise">
+      <section>
         {error ? (
           <p className="text-sm text-ember">⚠ {error}</p>
         ) : (
@@ -155,7 +155,7 @@ export function ProfileSection() {
   }
 
   return (
-    <section className="rise flex flex-col gap-6">
+    <section className="flex flex-col gap-6">
       <p className="text-sm text-faded">
         Your profile is the <span className="text-paper">lens</span> MeOS reads through — guiding
         extraction, the wiki, chat, and digests so they centre on your world. Private to this
@@ -198,12 +198,15 @@ export function ProfileSection() {
         </span>
       </div>
 
-      {/* Section editors */}
-      <div className="flex flex-col gap-5">
+      {/* One unified editor: section labels over borderless fields, so the whole
+          profile reads as a single document rather than a stack of separate inputs. */}
+      <div className="flex flex-col gap-5 rounded-xl border border-line bg-card/40 p-4">
         {data.sections.map((section) => (
-          <div key={section.id} className="flex flex-col gap-1.5">
+          <div key={section.id} className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm text-paper">{section.title}</span>
+              <span className="text-xs font-medium uppercase tracking-wider text-dim">
+                {section.title}
+              </span>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -219,14 +222,14 @@ export function ProfileSection() {
               onChange={(e) => setEdited((prev) => ({ ...prev, [section.id]: e.target.value }))}
               placeholder={section.placeholder}
               rows={section.id === "about-me" ? 3 : 5}
-              className={cn(inputClass, "resize-y leading-relaxed")}
+              className="resize-none rounded-none border-0 bg-transparent p-0 font-mono text-[13px] leading-relaxed text-paper shadow-none placeholder:text-dim focus-visible:ring-0 dark:bg-transparent"
             />
           </div>
         ))}
       </div>
 
       {/* Single save bar */}
-      <div className="flex items-center gap-3 border-t border-line pt-4">
+      <div className="flex items-center gap-3">
         <Button
           variant="outline"
           size="sm"
@@ -245,7 +248,7 @@ export function ProfileSection() {
       </div>
 
       {/* Privacy + audit, kept low-key */}
-      <div className="flex items-center justify-between gap-3 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-3">
         <span className="flex items-center gap-2 text-[13px] text-faded">
           {data.gitSync ? (
             <Unlock className="size-3.5 text-lamp" />
@@ -434,7 +437,7 @@ function HistoryDialog({
         ) : versions.length === 0 ? (
           <p className="text-sm text-dim">No earlier versions yet.</p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ul className="flex flex-col">
             {versions.map((v) => (
               <li key={v.version} className="flex items-center justify-between gap-3 py-2">
                 <span className="font-mono text-[12px] text-faded">
@@ -490,7 +493,7 @@ function AuditTrail() {
   };
 
   return (
-    <div className="border-t border-line pt-4">
+    <div>
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim hover:text-faded"
@@ -503,7 +506,7 @@ function AuditTrail() {
         ) : entries.length === 0 ? (
           <p className="mt-3 text-sm text-dim">No profile edits recorded yet.</p>
         ) : (
-          <ul className="mt-3 divide-y divide-line">
+          <ul className="mt-3 flex flex-col">
             {entries.map((e) => (
               <li key={e.id} className="flex items-baseline justify-between gap-3 py-2">
                 <span className="min-w-0 flex-1 truncate text-sm text-faded">{describe(e)}</span>

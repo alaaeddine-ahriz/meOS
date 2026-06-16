@@ -9,10 +9,6 @@ import {
   History,
   Laptop,
   type LucideIcon,
-  Calendar,
-  Contact,
-  ListTodo,
-  Mail,
   Moon,
   Palette as PaletteIcon,
   Plug,
@@ -24,7 +20,16 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  AnthropicLogo,
+  GmailLogo,
+  GoogleCalendarLogo,
+  GoogleContactsLogo,
+  GoogleLogo,
+  GoogleTasksLogo,
+  OpenAILogo,
+} from "@/components/brand-logos";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
 import {
@@ -41,24 +46,12 @@ import { isTauri, openExternal } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
 import {
-  type Density,
-  type FontPreset,
-  type Motion,
-  type Palette,
-  setDensity,
-  setFont,
-  setMotion,
-  setPalette,
+  type Scheme,
+  setScheme,
   setTheme,
-  setWidth,
-  storedDensity,
-  storedFont,
-  storedMotion,
-  storedPalette,
+  storedScheme,
   storedTheme,
-  storedWidth,
   type ThemePreference,
-  type Width,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
@@ -79,33 +72,9 @@ const THEMES: Array<{ value: ThemePreference; label: string; icon: LucideIcon }>
   { value: "system", label: "System", icon: Laptop },
 ];
 
-const PALETTES: Array<{ value: Palette; label: string }> = [
+const SCHEMES: Array<{ value: Scheme; label: string }> = [
+  { value: "normal", label: "Normal" },
   { value: "warm", label: "Warm" },
-  { value: "neutral", label: "Neutral" },
-  { value: "cool", label: "Cool" },
-  { value: "shadcn", label: "shadcn" },
-];
-
-const FONTS: Array<{ value: FontPreset; label: string }> = [
-  { value: "editorial", label: "Editorial" },
-  { value: "clean", label: "Clean" },
-  { value: "literary", label: "Literary" },
-  { value: "mono", label: "Mono" },
-];
-
-const DENSITIES: Array<{ value: Density; label: string }> = [
-  { value: "spaced", label: "Spaced" },
-  { value: "compact", label: "Compact" },
-];
-
-const WIDTHS: Array<{ value: Width; label: string }> = [
-  { value: "readable", label: "Readable" },
-  { value: "full", label: "Full width" },
-];
-
-const MOTIONS: Array<{ value: Motion; label: string }> = [
-  { value: "full", label: "On" },
-  { value: "reduced", label: "Off" },
 ];
 
 /** One selectable Settings section. */
@@ -144,7 +113,7 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         id: "appearance",
         label: "Appearance",
         icon: PaletteIcon,
-        blurb: "Mode, palette, typeface, width and motion.",
+        blurb: "Light or dark mode, and the color scheme.",
       },
       {
         id: "intelligence",
@@ -264,9 +233,11 @@ export function SettingsView() {
         <div className="relative px-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
           <Input
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search settings"
+            aria-label="Search settings"
             className={cn(inputClass, "h-9 rounded-lg bg-card/50 pl-9 font-sans text-sm")}
           />
         </div>
@@ -303,11 +274,11 @@ export function SettingsView() {
         </nav>
       </aside>
 
-      <div className="h-full flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-10 py-10">
-          <header className="rise">
-            <h1 className="font-serif text-2xl text-paper">{active.label}</h1>
-            <p className="mt-1 text-sm text-dim">{active.blurb}</p>
+      <div className="h-full flex-1 overflow-y-auto px-10 pb-10 pt-10">
+        <div className="w-full max-w-2xl">
+          <header>
+            <h1 className="text-2xl font-semibold tracking-tight">{active.label}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{active.blurb}</p>
           </header>
 
           <div className="mt-8">
@@ -327,54 +298,30 @@ export function SettingsView() {
 
 function AppearanceSection() {
   const [theme, setThemeState] = useState<ThemePreference>(storedTheme());
-  const [palette, setPaletteState] = useState<Palette>(storedPalette());
-  const [font, setFontState] = useState<FontPreset>(storedFont());
-  const [density, setDensityState] = useState<Density>(storedDensity());
-  const [width, setWidthState] = useState<Width>(storedWidth());
-  const [motion, setMotionState] = useState<Motion>(storedMotion());
+  const [scheme, setSchemeState] = useState<Scheme>(storedScheme());
 
   const chooseTheme = (preference: ThemePreference) => {
     setTheme(preference);
     setThemeState(preference);
   };
-  const choosePalette = (next: Palette) => {
-    setPalette(next);
-    setPaletteState(next);
-  };
-  const chooseFont = (next: FontPreset) => {
-    setFont(next);
-    setFontState(next);
-  };
-  const chooseDensity = (next: Density) => {
-    setDensity(next);
-    setDensityState(next);
-  };
-  const chooseWidth = (next: Width) => {
-    setWidth(next);
-    setWidthState(next);
-  };
-  const chooseMotion = (next: Motion) => {
-    setMotion(next);
-    setMotionState(next);
+  const chooseScheme = (next: Scheme) => {
+    setScheme(next);
+    setSchemeState(next);
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <Segmented label="Mode" value={theme} options={THEMES} onChange={chooseTheme} />
-      <Segmented label="Palette" value={palette} options={PALETTES} onChange={choosePalette} />
-      <Segmented label="Typeface" value={font} options={FONTS} onChange={chooseFont} />
-      <Segmented label="Density" value={density} options={DENSITIES} onChange={chooseDensity} />
-      <Segmented label="Width" value={width} options={WIDTHS} onChange={chooseWidth} />
-      <Segmented label="Animation" value={motion} options={MOTIONS} onChange={chooseMotion} />
+      <Segmented label="Color scheme" value={scheme} options={SCHEMES} onChange={chooseScheme} />
     </section>
   );
 }
 
-const PROVIDERS: Array<{ value: LlmProvider; label: string }> = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "google", label: "Google" },
-  { value: "local", label: "Local (LM Studio)" },
+const PROVIDERS: Array<{ value: LlmProvider; label: string; Logo: BrandLogo }> = [
+  { value: "anthropic", label: "Anthropic", Logo: AnthropicLogo },
+  { value: "openai", label: "OpenAI", Logo: OpenAILogo },
+  { value: "google", label: "Google", Logo: GoogleLogo },
+  { value: "local", label: "Local (LM Studio)", Logo: Laptop },
 ];
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
@@ -534,7 +481,7 @@ function IntelligenceSection() {
     model && !cloudModels.includes(model) ? [model, ...cloudModels] : cloudModels;
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         The model that reads your documents, maintains the wiki, and answers your questions. API
         keys stay on this machine.
@@ -545,7 +492,7 @@ function IntelligenceSection() {
       {llm && (
         <>
           <div className="flex flex-wrap gap-2">
-            {PROVIDERS.map(({ value, label }) => (
+            {PROVIDERS.map(({ value, label, Logo }) => (
               <Button
                 key={value}
                 variant="outline"
@@ -556,6 +503,7 @@ function IntelligenceSection() {
                   provider === value && "border-lamp-dim text-paper",
                 )}
               >
+                <Logo className="size-4" />
                 {label}
               </Button>
             ))}
@@ -605,6 +553,7 @@ function IntelligenceSection() {
                     value={baseUrl}
                     onChange={(event) => setBaseUrl(event.target.value)}
                     placeholder="http://localhost:1234/v1"
+                    aria-label="Local server base URL"
                     className={inputClass}
                   />
                   <Button
@@ -635,6 +584,7 @@ function IntelligenceSection() {
                     value={model}
                     onChange={(event) => setModel(event.target.value)}
                     placeholder="model identifier (e.g. qwen2.5-7b-instruct)"
+                    aria-label="Model identifier"
                     className={inputClass}
                   />
                 )}
@@ -657,6 +607,7 @@ function IntelligenceSection() {
                 placeholder={
                   keySaved ? "API key saved — paste to replace" : KEY_PLACEHOLDERS[provider]
                 }
+                aria-label="API key"
                 autoComplete="off"
                 className={inputClass}
               />
@@ -692,7 +643,11 @@ function IntelligenceSection() {
           </div>
         </>
       )}
-      {llmError && <p className="text-sm text-ember">⚠ {llmError}</p>}
+      {llmError && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {llmError}
+        </p>
+      )}
     </section>
   );
 }
@@ -725,7 +680,7 @@ function MaintainerPicker({
   const trimmed = value.trim();
   const reasoning = isReasoningModel(provider, trimmed);
   return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-4">
+    <div className="mt-2 flex flex-col gap-2">
       <div>
         <p className="text-sm text-paper">Wiki maintainer model</p>
         <p className="mt-0.5 text-[13px] text-dim">
@@ -769,7 +724,11 @@ function MaintainerPicker({
           <Check className="size-3.5" /> Maintainer model saved.
         </span>
       )}
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -819,13 +778,13 @@ function FoldersSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-5">
+    <section className="flex flex-col gap-5">
       <PanelIntro>
         Everything readable in these folders is absorbed automatically — new files and edits alike.
         Your files are never moved or modified.
       </PanelIntro>
 
-      <ul className="divide-y divide-line border-y border-line">
+      <ul className="flex flex-col">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
             <span
@@ -867,6 +826,7 @@ function FoldersSection() {
                 if (event.key === "Enter") void add(manualPath);
               }}
               placeholder="/Users/you/Documents/notes"
+              aria-label="Folder path to watch"
               className={inputClass}
             />
             <Button
@@ -880,7 +840,11 @@ function FoldersSection() {
           </>
         )}
       </div>
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
       <p className="font-mono text-[11px] text-dim">
         reads .md .txt .csv .json .org .pdf .docx .xlsx .xls .ods .pptx .eml .mbox .html .rtf .odt
         .ipynb .sql .png .jpg .gif .webp — everything else is left alone
@@ -889,25 +853,35 @@ function FoldersSection() {
   );
 }
 
+type BrandLogo = ComponentType<{ className?: string }>;
+
 const KIND_META: Record<
   ConnectorKind,
-  { label: string; icon: LucideIcon; blurb: string; writeNotice?: string }
+  { label: string; Logo: BrandLogo; blurb: string; writeNotice?: string }
 > = {
   contacts: {
-    label: "Contacts",
-    icon: Contact,
+    label: "Google Contacts",
+    Logo: GoogleContactsLogo,
     blurb: "People, with email and phone (kept private).",
   },
-  calendar: { label: "Calendar", icon: Calendar, blurb: "Events and who you met with." },
-  gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
+  calendar: {
+    label: "Google Calendar",
+    Logo: GoogleCalendarLogo,
+    blurb: "Events and who you met with.",
+  },
+  gmail: { label: "Gmail", Logo: GmailLogo, blurb: "Who you correspond with (metadata only)." },
   tasks: {
-    label: "Tasks",
-    icon: ListTodo,
+    label: "Google Tasks",
+    Logo: GoogleTasksLogo,
     blurb: "Your to-dos from Google Tasks, by list.",
     // This is meOS's only read/write connector — make the capability explicit.
     writeNotice: "Read & write — meOS can create tasks in your Google Tasks.",
   },
 };
+
+/** The services to show as cards, in display order. Drives the card list so all
+ * cards render even before connecting, regardless of what kinds a server reports. */
+const KIND_ORDER: ConnectorKind[] = ["contacts", "calendar", "gmail", "tasks"];
 
 /** The coverage windows offered in the UI, ordered narrowest → broadest (#68). */
 const COVERAGE_WINDOWS: Array<{ value: string; label: string }> = [
@@ -1077,319 +1051,293 @@ function ConnectorsSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-5">
-      <PanelIntro>
-        Connect a Google account to turn the people you know into entities — enriched with their
-        contact details, the events you shared, and who you email. Contact details and email
-        metadata stay private (searchable, but kept out of the synced wiki).
-      </PanelIntro>
-
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={cn("size-2 rounded-full", google?.connected ? "bg-emerald-500" : "bg-dim")}
-          />
-          <span className="text-faded">
-            {google?.connected
-              ? `Connected${google.accountEmail ? ` — ${google.accountEmail}` : ""}`
-              : "Not connected"}
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowHelp(true)}
-          className="text-dim hover:text-paper"
-        >
-          Show me how
-        </Button>
-      </div>
-
-      {/* Credentials — the user's own Google OAuth desktop client. */}
-      <div className="flex flex-col gap-3 border-y border-line py-4">
-        <span className="text-sm text-faded">Google OAuth credentials (Desktop app client)</span>
-        <Input
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          placeholder={
-            google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
-          }
-          className={inputClass}
-        />
-        <div className="flex items-center gap-3">
-          <Input
-            value={clientSecret}
-            onChange={(e) => setClientSecret(e.target.value)}
-            type="password"
-            placeholder={
-              google?.hasCredentials
-                ? "•••• client secret saved — paste to replace"
-                : "Client secret"
-            }
-            className={inputClass}
-          />
-          <Button
-            variant="outline"
-            onClick={() => void saveCredentials()}
-            disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
-            className={actionButtonClass}
-          >
-            {busy === "creds" ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Connect / disconnect. */}
-      <div className="flex items-center gap-3">
-        {google?.connected ? (
+    <section className="flex flex-col gap-5">
+      {/* Account connection — a status pill when linked, the OAuth credentials
+          form (the user's own Google Desktop client) until then. */}
+      {google?.connected ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-card/40 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="size-2 rounded-full bg-emerald-500" />
+            <span className="text-faded">
+              Connected{google.accountEmail ? ` — ${google.accountEmail}` : ""}
+            </span>
+          </div>
           <Button variant="outline" onClick={() => void disconnect()} className={actionButtonClass}>
             Disconnect
           </Button>
-        ) : (
-          <Button
-            variant="outline"
-            onClick={() => void connect()}
-            disabled={!google?.hasCredentials || busy === "connect"}
-            className={actionButtonClass}
-          >
-            {busy === "connect" ? "Waiting for Google…" : "Connect Google"}
-          </Button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-card/40 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="size-2 rounded-full bg-dim" />
+              <span className="text-faded">Not connected</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHelp(true)}
+              className="text-dim hover:text-paper"
+            >
+              Show me how
+            </Button>
+          </div>
+          <span className="text-sm text-faded">Google OAuth credentials (Desktop app client)</span>
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder={
+              google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
+            }
+            aria-label="Google OAuth client ID"
+            autoComplete="off"
+            className={inputClass}
+          />
+          <div className="flex items-center gap-3">
+            <Input
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              type="password"
+              placeholder={
+                google?.hasCredentials
+                  ? "•••• client secret saved — paste to replace"
+                  : "Client secret"
+              }
+              aria-label="Google OAuth client secret"
+              autoComplete="off"
+              className={inputClass}
+            />
+            <Button
+              variant="outline"
+              onClick={() => void saveCredentials()}
+              disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
+              className={actionButtonClass}
+            >
+              {busy === "creds" ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      )}
 
-      {/* Per-kind sync controls — only meaningful once connected. */}
-      {google?.connected && (
-        <ul className="flex flex-col divide-y divide-line border-y border-line">
-          {google.kinds.map((k) => {
-            const meta = KIND_META[k.kind];
-            const Icon = meta.icon;
-            return (
-              <li key={k.kind} className="flex flex-col gap-2 py-3.5">
-                <div className="flex items-center gap-3">
-                  <Icon className="size-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-paper">{meta.label}</div>
-                    <div className="text-[12px] text-dim">{meta.blurb}</div>
-                    {meta.writeNotice && (
-                      <div className="mt-0.5 text-[11px] text-lamp">{meta.writeNotice}</div>
-                    )}
-                  </div>
+      {/* One card per Google service: brand logo, what it brings in, and a button
+          to connect (when not linked) or toggle the per-service sync (when linked). */}
+      <div className="flex flex-col gap-3">
+        {KIND_ORDER.map((kind) => {
+          const meta = KIND_META[kind];
+          const { Logo } = meta;
+          const k = google?.kinds.find((entry) => entry.kind === kind);
+          const connected = google?.connected ?? false;
+          return (
+            <div key={kind} className="rounded-xl border border-line bg-card/40 p-4">
+              <div className="flex items-center gap-4">
+                <Logo className="size-9 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] font-medium text-paper">{meta.label}</div>
+                  <div className="text-[13px] text-faded">{meta.blurb}</div>
+                  {meta.writeNotice && (
+                    <div className="mt-0.5 text-[11px] text-lamp">{meta.writeNotice}</div>
+                  )}
+                </div>
+                {connected && k ? (
                   <Button
                     variant="outline"
-                    size="sm"
-                    onClick={() => void configure(k.kind, { enabled: !k.enabled })}
+                    onClick={() => void configure(kind, { enabled: !k.enabled })}
                     className={cn(actionButtonClass, k.enabled && "border-lamp-dim text-paper")}
                   >
                     {k.enabled ? "On" : "Off"}
                   </Button>
-                </div>
-                {k.enabled && (
-                  <div className="flex flex-col gap-2.5 pl-7">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <label className="flex items-center gap-2 text-[12px] text-dim">
-                        every
-                        <Input
-                          type="number"
-                          min={1}
-                          defaultValue={k.intervalMinutes}
-                          onBlur={(e) => {
-                            const value = Number(e.target.value);
-                            if (
-                              Number.isFinite(value) &&
-                              value >= 1 &&
-                              value !== k.intervalMinutes
-                            ) {
-                              void configure(k.kind, { intervalMinutes: value });
-                            }
-                          }}
-                          className={cn(inputClass, "h-7 w-16")}
-                        />
-                        min
-                      </label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => void syncNow(k.kind)}
-                        className="text-dim hover:text-paper"
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => void connect()}
+                    disabled={!google?.hasCredentials || busy === "connect"}
+                    className={actionButtonClass}
+                  >
+                    {busy === "connect" ? "Waiting…" : "Connect"}
+                  </Button>
+                )}
+              </div>
+              {connected && k?.enabled && (
+                <div className="mt-3 flex flex-col gap-2.5 text-[12px] text-dim">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2">
+                      every
+                      <Input
+                        type="number"
+                        min={1}
+                        defaultValue={k.intervalMinutes}
+                        onBlur={(e) => {
+                          const value = Number(e.target.value);
+                          if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
+                            void configure(kind, { intervalMinutes: value });
+                          }
+                        }}
+                        className={cn(inputClass, "h-7 w-16")}
+                      />
+                      min
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void syncNow(kind)}
+                      className="text-dim hover:text-paper"
+                    >
+                      <RefreshCw className="size-3.5" />
+                      Sync now
+                    </Button>
+                    {k.lastStatus && <span className="text-[11px]">{k.lastStatus}</span>}
+                  </div>
+
+                  {/* Coverage window — how far back we index (#68). Default "recent"
+                      keeps the privacy-preserving seed; broader windows are explicit. */}
+                  {(kind === "gmail" || kind === "calendar") && (
+                    <label className="flex items-center gap-2">
+                      coverage
+                      <select
+                        value={k.coverage?.coverageWindow ?? "recent"}
+                        onChange={(e) => void configure(kind, { coverageWindow: e.target.value })}
+                        className={cn(inputClass, "h-7 w-auto px-2")}
                       >
-                        <RefreshCw className="size-3.5" />
-                        Sync now
-                      </Button>
-                      {k.lastStatus && <span className="text-[11px] text-dim">{k.lastStatus}</span>}
-                    </div>
+                        {COVERAGE_WINDOWS.map((w) => (
+                          <option key={w.value} value={w.value}>
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
 
-                    {/* Coverage window — how far back we index (#68). Default "recent"
-                        keeps the privacy-preserving seed; broader windows are explicit. */}
-                    {(k.kind === "gmail" || k.kind === "calendar") && (
-                      <label className="flex items-center gap-2 text-[12px] text-dim">
-                        coverage
-                        <select
-                          value={k.coverage?.coverageWindow ?? "recent"}
-                          onChange={(e) =>
-                            void configure(k.kind, { coverageWindow: e.target.value })
-                          }
-                          className={cn(inputClass, "h-7 w-auto px-2")}
-                        >
-                          {COVERAGE_WINDOWS.map((w) => (
-                            <option key={w.value} value={w.value}>
-                              {w.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-
-                    {/* Gmail content mode — metadata-only (default, private) vs richer
-                        body indexing (explicit opt-in, clearly labelled) (#68). */}
-                    {k.kind === "gmail" && (
-                      <label className="flex items-start gap-2 text-[12px] text-dim">
-                        <input
-                          type="checkbox"
-                          checked={k.coverage?.contentMode === "rich"}
-                          onChange={(e) =>
-                            void configure(k.kind, {
-                              contentMode: e.target.checked ? "rich" : "metadata",
-                            })
-                          }
-                          className="mt-0.5"
-                        />
-                        <span>
-                          Index email bodies (not just metadata).{" "}
-                          <span className="text-ember">
-                            Broader: stores message text on this device.
-                          </span>
+                  {/* Gmail content mode — metadata-only (default, private) vs richer
+                      body indexing (explicit opt-in, clearly labelled) (#68). */}
+                  {kind === "gmail" && (
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={k.coverage?.contentMode === "rich"}
+                        onChange={(e) =>
+                          void configure(kind, {
+                            contentMode: e.target.checked ? "rich" : "metadata",
+                          })
+                        }
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Index email bodies (not just metadata).{" "}
+                        <span className="text-ember">
+                          Broader: stores message text on this device.
                         </span>
-                      </label>
-                    )}
+                      </span>
+                    </label>
+                  )}
 
-                    {/* Gmail backfill progress — make partial coverage obvious (#68). */}
-                    {k.kind === "gmail" && k.coverage?.backfill && (
-                      <span className="text-[11px] text-dim">
-                        {k.coverage.backfill.complete
-                          ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
-                          : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
-                        {k.coverage.oldestIndexed
-                          ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
-                          : ""}
+                  {/* Gmail backfill progress — make partial coverage obvious (#68). */}
+                  {kind === "gmail" && k.coverage?.backfill && (
+                    <span className="text-[11px]">
+                      {k.coverage.backfill.complete
+                        ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
+                        : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
+                      {k.coverage.oldestIndexed
+                        ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
+                        : ""}
+                    </span>
+                  )}
+
+                  {/* Calendar multi-select — pick which calendars to sync (#68). */}
+                  {kind === "calendar" && calendars.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px]">Calendars</span>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {calendars.map((cal) => {
+                          const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
+                          const on = enabledCals.includes(cal.id);
+                          return (
+                            <label key={cal.id} className="flex items-center gap-1.5 text-faded">
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? [...new Set([...enabledCals, cal.id])]
+                                    : enabledCals.filter((id) => id !== cal.id);
+                                  void configure(kind, {
+                                    enabledCalendars: next.length > 0 ? next : ["primary"],
+                                  });
+                                }}
+                              />
+                              {cal.summary}
+                              {cal.primary ? " (primary)" : ""}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Calendar per-calendar coverage counts (#68). */}
+                  {kind === "calendar" &&
+                    k.coverage?.calendars &&
+                    k.coverage.calendars.length > 0 && (
+                      <span className="text-[11px]">
+                        {k.coverage.itemCount ?? 0} events indexed across{" "}
+                        {k.coverage.calendars.length} calendar
+                        {k.coverage.calendars.length === 1 ? "" : "s"}
                       </span>
                     )}
 
-                    {/* Calendar multi-select — pick which calendars to sync (#68). */}
-                    {k.kind === "calendar" && calendars.length > 0 && (
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[11px] text-dim">Calendars</span>
-                        <div className="flex flex-wrap gap-x-4 gap-y-1">
-                          {calendars.map((cal) => {
-                            const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
-                            const on = enabledCals.includes(cal.id);
-                            return (
-                              <label
-                                key={cal.id}
-                                className="flex items-center gap-1.5 text-[12px] text-faded"
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={on}
-                                  onChange={(e) => {
-                                    const next = e.target.checked
-                                      ? [...new Set([...enabledCals, cal.id])]
-                                      : enabledCals.filter((id) => id !== cal.id);
-                                    void configure(k.kind, {
-                                      enabledCalendars: next.length > 0 ? next : ["primary"],
-                                    });
-                                  }}
-                                />
-                                {cal.summary}
-                                {cal.primary ? " (primary)" : ""}
-                              </label>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Calendar per-calendar coverage counts (#68). */}
-                    {k.kind === "calendar" &&
-                      k.coverage?.calendars &&
-                      k.coverage.calendars.length > 0 && (
-                        <span className="text-[11px] text-dim">
-                          {k.coverage.itemCount ?? 0} events indexed across{" "}
-                          {k.coverage.calendars.length} calendar
-                          {k.coverage.calendars.length === 1 ? "" : "s"}
-                        </span>
+                  {/* Google Tasks (read/write): default list + a quick create form. */}
+                  {kind === "tasks" && (
+                    <div className="flex flex-col gap-2">
+                      {taskLists && taskLists.length > 0 && (
+                        <label className="flex items-center gap-2">
+                          default list
+                          <select
+                            value={taskListId}
+                            onChange={(e) => setTaskListId(e.target.value)}
+                            className={cn(inputClass, "h-7 w-44")}
+                          >
+                            {taskLists.map((list) => (
+                              <option key={list.id} value={list.id}>
+                                {list.title}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       )}
-                  </div>
-                )}
-                {k.kind === "tasks" && k.enabled && (
-                  <div className="flex flex-col gap-2 pl-7">
-                    {/* Default list for both syncing and new tasks. */}
-                    {taskLists && taskLists.length > 0 && (
-                      <label className="flex items-center gap-2 text-[12px] text-dim">
-                        default list
-                        <select
-                          value={taskListId}
-                          onChange={(e) => setTaskListId(e.target.value)}
-                          className={cn(inputClass, "h-7 w-44")}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={newTaskTitle}
+                          onChange={(e) => setNewTaskTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void createTask();
+                          }}
+                          placeholder="New task in Google Tasks…"
+                          className={cn(inputClass, "h-7 flex-1")}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void createTask()}
+                          disabled={creatingTask || !newTaskTitle.trim()}
+                          className={actionButtonClass}
                         >
-                          {taskLists.map((list) => (
-                            <option key={list.id} value={list.id}>
-                              {list.title}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    {/* Write path: create a task in Google Tasks from meOS. */}
-                    <div className="flex items-center gap-2">
-                      <Input
-                        value={newTaskTitle}
-                        onChange={(e) => setNewTaskTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void createTask();
-                        }}
-                        placeholder="New task in Google Tasks…"
-                        className={cn(inputClass, "h-7 flex-1")}
-                      />
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void createTask()}
-                        disabled={creatingTask || !newTaskTitle.trim()}
-                        className={actionButtonClass}
-                      >
-                        {creatingTask ? "Creating…" : "Create"}
-                      </Button>
+                          {creatingTask ? "Creating…" : "Create"}
+                        </Button>
+                      </div>
+                      {taskNotice && <span className="text-[11px] text-lamp">{taskNotice}</span>}
                     </div>
-                    {taskNotice && <span className="text-[11px] text-lamp">{taskNotice}</span>}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {/* Visibility model — what connector data is allowed to influence. Connector
-          sources default to private: they inform you here, but never leave the device. */}
-      <div className="flex flex-col gap-2 rounded-md border border-line bg-card/50 p-3.5 text-[12px] text-dim">
-        <span className="text-faded">What synced Google data can do</span>
-        <ul className="flex flex-col gap-1">
-          <li>
-            <span className="text-paper">Searchable &amp; answerable</span> — yes. Synced people and
-            events become entities your chat can find and cite.
-          </li>
-          <li>
-            <span className="text-paper">Wiki</span> — non-private facts may appear on a person's
-            page; contact details and email metadata are kept off it.
-          </li>
-          <li>
-            <span className="text-paper">Sync &amp; export</span> — no. Connector-derived content is
-            never written to the git-synced wiki/digests or any export. It stays on this device.
-          </li>
-        </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
         <DialogContent className="max-w-lg">
@@ -1477,7 +1425,7 @@ function GitSyncSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         Version your wiki and digests as a Git repository — a portable, human-readable backup you
         can push to GitHub. The database itself stays local; only the markdown is synced.
@@ -1520,6 +1468,7 @@ function GitSyncSection() {
               value={remote}
               onChange={(event) => setRemote(event.target.value)}
               placeholder="git@github.com:you/second-brain.git"
+              aria-label="Git remote URL"
               className={inputClass}
             />
             <Button
@@ -1566,7 +1515,11 @@ function GitSyncSection() {
         </div>
       )}
 
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
     </section>
   );
 }
@@ -1599,11 +1552,11 @@ function GitHistory({ refreshKey }: { refreshKey: string }) {
   if (!commits || commits.length === 0) return null;
 
   return (
-    <div className="mt-2 border-t border-line pt-4">
+    <div className="mt-2">
       <h4 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
         <History className="size-3.5" /> history
       </h4>
-      <ul className="mt-3 divide-y divide-line">
+      <ul className="mt-3 flex flex-col">
         {commits.map((commit) => (
           <li key={commit.hash}>
             <button
@@ -1669,7 +1622,7 @@ function ResetSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         Start over. This erases everything MeOS has learned — entities, observations, conversations,
         digests, the generated wiki, and its entire Git history — and re-initializes the repository.
@@ -1717,11 +1670,16 @@ function ResetSection() {
               if (event.key === "Enter" && phrase.trim() === "reset" && !busy) void reset();
             }}
             placeholder="reset"
+            aria-label='Type "reset" to confirm'
             autoFocus
             autoComplete="off"
             className={inputClass}
           />
-          {error && <p className="text-sm text-ember">⚠ {error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-ember">
+              ⚠ {error}
+            </p>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={close} disabled={busy} className={actionButtonClass}>

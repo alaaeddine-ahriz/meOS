@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Page, PageHeader } from "@/components/Page";
+import { Page, PageBody, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { api, type EntitySummary } from "../api.js";
@@ -62,7 +62,7 @@ export function DigestView({ embedded = false }: { embedded?: boolean }) {
     </Button>
   );
   const article = (
-    <article className={cn("rise rise-1 pb-16", embedded ? "mt-6" : "mt-8")}>
+    <article className={cn("pb-16", embedded ? "mt-6" : "mt-8")}>
       {body ? (
         <Markdown text={body} entities={entities} />
       ) : missing ? (
@@ -77,8 +77,8 @@ export function DigestView({ embedded = false }: { embedded?: boolean }) {
   if (embedded) {
     return (
       <>
-        <div className="mt-8 flex items-center justify-between gap-4">
-          <p className="text-sm text-dim">{description}</p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-muted-foreground">{description}</p>
           {action}
         </div>
         {article}
@@ -88,7 +88,7 @@ export function DigestView({ embedded = false }: { embedded?: boolean }) {
   return (
     <Page>
       <PageHeader title="Daily digest" description={description} actions={action} />
-      {article}
+      <PageBody>{article}</PageBody>
     </Page>
   );
 }

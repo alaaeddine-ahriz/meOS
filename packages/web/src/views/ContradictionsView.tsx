@@ -1,7 +1,7 @@
 import { Wand2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { CountBadge } from "@/components/HubTabs";
-import { Page, PageHeader } from "@/components/Page";
+import { Page, PageBody, PageHeader } from "@/components/Page";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -166,7 +166,7 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
 
   const body = (
     <>
-      <section className="rise mt-8">
+      <section className="mt-8">
         <SectionHeading title="Possible duplicates" count={duplicates.length} />
         <div className="mt-4 flex flex-col gap-2">
           {duplicates.length > 0 && (
@@ -226,7 +226,7 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
         </div>
       </section>
 
-      <section className="rise rise-1 mt-10">
+      <section className="mt-10">
         <SectionHeading title="Conflicting claims" count={items.length} />
         <div className="mt-4 flex flex-col gap-4 pb-16">
           {autoResolvable.length > 0 && (
@@ -384,7 +384,7 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
         title="Conflicts"
         description="Where your knowledge disagrees with itself — entities that look like the same thing, and claims that can't both be true. You decide each one."
       />
-      {body}
+      <PageBody>{body}</PageBody>
     </Page>
   );
 }

@@ -1,51 +1,27 @@
-// Appearance preferences. Orthogonal axes persisted in localStorage and applied
-// to <html>: light/dark mode (a class), and palette / font / density / width /
-// motion (data-attributes the stylesheet keys off). See index.css for the tokens.
+// Appearance preferences. Two orthogonal axes, persisted in localStorage and
+// applied to <html>: light/dark mode (the .dark class) and color scheme
+// (data-scheme). Everything else is stock shadcn. See index.css for the tokens.
 
 export type ThemePreference = "light" | "dark" | "system";
-export type Palette = "warm" | "neutral" | "cool" | "shadcn";
-export type FontPreset = "editorial" | "clean" | "literary" | "mono";
-export type Density = "spaced" | "compact";
-export type Width = "readable" | "full";
-export type Motion = "full" | "reduced";
+export type Scheme = "normal" | "warm";
 
 const MODE_KEY = "meos-theme";
-const PALETTE_KEY = "meos-palette";
-const FONT_KEY = "meos-font";
-const DENSITY_KEY = "meos-density";
-const WIDTH_KEY = "meos-width";
-const MOTION_KEY = "meos-motion";
+const SCHEME_KEY = "meos-scheme";
+// Legacy key from the old multi-palette system — a stored "warm" palette
+// migrates to the warm scheme so existing installs keep their look.
+const LEGACY_PALETTE_KEY = "meos-palette";
 
 const media = window.matchMedia("(prefers-color-scheme: dark)");
-
-function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  const value = localStorage.getItem(key);
-  return allowed.includes(value as T) ? (value as T) : fallback;
-}
 
 export function storedTheme(): ThemePreference {
   const value = localStorage.getItem(MODE_KEY);
   return value === "light" || value === "dark" ? value : "system";
 }
 
-export function storedPalette(): Palette {
-  return read(PALETTE_KEY, ["warm", "neutral", "cool", "shadcn"] as const, "warm");
-}
-
-export function storedFont(): FontPreset {
-  return read(FONT_KEY, ["editorial", "clean", "literary", "mono"] as const, "editorial");
-}
-
-export function storedDensity(): Density {
-  return read(DENSITY_KEY, ["spaced", "compact"] as const, "spaced");
-}
-
-export function storedWidth(): Width {
-  return read(WIDTH_KEY, ["readable", "full"] as const, "readable");
-}
-
-export function storedMotion(): Motion {
-  return read(MOTION_KEY, ["full", "reduced"] as const, "full");
+export function storedScheme(): Scheme {
+  const value = localStorage.getItem(SCHEME_KEY);
+  if (value === "warm" || value === "normal") return value;
+  return localStorage.getItem(LEGACY_PALETTE_KEY) === "warm" ? "warm" : "normal";
 }
 
 function resolveMode(preference: ThemePreference): "light" | "dark" {
@@ -62,40 +38,15 @@ export function setTheme(preference: ThemePreference): void {
   applyMode(preference);
 }
 
-export function setPalette(palette: Palette): void {
-  localStorage.setItem(PALETTE_KEY, palette);
-  document.documentElement.dataset.palette = palette;
+export function setScheme(scheme: Scheme): void {
+  localStorage.setItem(SCHEME_KEY, scheme);
+  document.documentElement.dataset.scheme = scheme;
 }
 
-export function setFont(font: FontPreset): void {
-  localStorage.setItem(FONT_KEY, font);
-  document.documentElement.dataset.font = font;
-}
-
-export function setDensity(density: Density): void {
-  localStorage.setItem(DENSITY_KEY, density);
-  document.documentElement.dataset.density = density;
-}
-
-export function setWidth(width: Width): void {
-  localStorage.setItem(WIDTH_KEY, width);
-  document.documentElement.dataset.width = width;
-}
-
-export function setMotion(motion: Motion): void {
-  localStorage.setItem(MOTION_KEY, motion);
-  document.documentElement.dataset.motion = motion;
-}
-
-/** Apply every stored preference and keep mode in sync with the OS while "system". */
+/** Apply both stored preferences and keep mode in sync with the OS while "system". */
 export function initTheme(): void {
-  const root = document.documentElement;
   applyMode(storedTheme());
-  root.dataset.palette = storedPalette();
-  root.dataset.font = storedFont();
-  root.dataset.density = storedDensity();
-  root.dataset.width = storedWidth();
-  root.dataset.motion = storedMotion();
+  document.documentElement.dataset.scheme = storedScheme();
   media.addEventListener("change", () => {
     if (storedTheme() === "system") applyMode("system");
   });

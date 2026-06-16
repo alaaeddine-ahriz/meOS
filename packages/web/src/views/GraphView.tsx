@@ -69,7 +69,7 @@ export function GraphView({
       <ForceGraph nodes={data.nodes} links={data.links} />
 
       {!embedded && (
-        <header className="rise pointer-events-none absolute left-10 top-10">
+        <header className="pointer-events-none absolute left-10 top-10">
           <h2 className="font-serif text-2xl text-paper">{focusSlug ? "Connections" : "Graph"}</h2>
           <p className="mt-1 text-sm text-dim">
             {focusSlug
@@ -96,7 +96,7 @@ export function GraphView({
       )}
 
       {presentTypes.length > 0 && (
-        <div className="rise-1 pointer-events-none absolute bottom-6 left-10 flex flex-col gap-1.5">
+        <div className="pointer-events-none absolute bottom-6 left-10 flex flex-col gap-1.5">
           {presentTypes.map((type) => (
             <div key={type} className="flex items-center gap-2 text-xs text-faded">
               <span

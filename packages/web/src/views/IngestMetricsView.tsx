@@ -55,18 +55,18 @@ export function IngestMetricsView() {
 
   if (error) {
     return (
-      <div className="rise mt-6 rounded-xl border border-line bg-desk px-4 py-3 text-sm text-ember">
+      <div className="mt-6 rounded-xl border border-line bg-desk px-4 py-3 text-sm text-ember">
         Couldn’t load ingestion metrics: {error}
       </div>
     );
   }
 
   if (!metrics) {
-    return <div className="rise mt-6 text-sm text-dim">Loading ingestion metrics…</div>;
+    return <div className="mt-6 text-sm text-dim">Loading ingestion metrics…</div>;
   }
 
   return (
-    <div className="rise mt-6 space-y-8">
+    <div className="mt-6 space-y-8">
       {/* Workers — reuse the runtime worker-health snapshot. */}
       {health && (
         <section>
