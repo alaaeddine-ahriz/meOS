@@ -113,3 +113,37 @@ describe("GET /api/wiki — connector references stay out of the index", () => {
     expect(names).not.toContain("Contact Only Person");
   });
 });
+
+describe("GET /api/entities/linked — browse connector-linked entities", () => {
+  it("returns connector-only entities with their services, not page-worthy ones", async () => {
+    const { store } = server.ctx;
+    // A contact-only person, linked from Google contacts.
+    const carol = store.createEntity({ type: "person", name: "Carol Linked" });
+    const contactSrc = store.createSource({
+      type: "google:contacts",
+      title: "Contact",
+      content: "...",
+      path: "https://contacts.google.com/person/carol",
+    });
+    store.insertObservation({
+      entityId: carol.id,
+      text: "Carol Linked — email carol@example.com.",
+      sourceId: contactSrc,
+    });
+    // A document-backed person must NOT appear in the linked list (it has a page).
+    const dave = store.createEntity({ type: "person", name: "Dave Documented" });
+    const fileSrc = store.createSource({ type: "file", title: "Doc", content: "..." });
+    store.insertObservation({ entityId: dave.id, text: "Dave leads X.", sourceId: fileSrc });
+
+    const res = await server.app.inject({ method: "GET", url: "/api/entities/linked" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      entities: Array<{ name: string; services: string[]; link: string | null }>;
+    };
+    const carolRow = body.entities.find((e) => e.name === "Carol Linked");
+    expect(carolRow).toBeDefined();
+    expect(carolRow!.services).toContain("google:contacts");
+    expect(carolRow!.link).toBe("https://contacts.google.com/person/carol");
+    expect(body.entities.some((e) => e.name === "Dave Documented")).toBe(false);
+  });
+});
