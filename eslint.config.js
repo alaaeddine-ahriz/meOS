@@ -17,6 +17,8 @@ export default tseslint.config(
       // The desktop build copies the bundled, minified web app here; like
       // target/ and gen/ above it is a gitignored build artifact, not source.
       "packages/desktop/src-tauri/payload/**",
+      // Agent git worktrees live here (gitignored); never lint sibling checkouts.
+      ".claude/**",
       "**/*.d.ts",
     ],
   },

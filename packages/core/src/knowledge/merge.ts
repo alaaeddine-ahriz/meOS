@@ -42,6 +42,12 @@ export async function mergeExtraction(
   sourceId: number,
   /** The source's full text, used to locate each quote's char span (provenance). */
   sourceText?: string,
+  /**
+   * The exact source revision (#16) this extraction came from. Threaded onto
+   * every observation/relationship it creates or reinforces, so a claim can be
+   * traced to — and flagged the moment of — the version that produced it.
+   */
+  sourceRevisionId?: number,
 ): Promise<MergeResult> {
   const entityIdByName = new Map<string, number>();
   const affected = new Set<number>();
@@ -97,6 +103,7 @@ export async function mergeExtraction(
       toId,
       normalizeRelationshipLabel(relationship.label),
       sourceId,
+      sourceRevisionId,
     );
     affected.add(fromId);
     affected.add(toId);
@@ -125,7 +132,7 @@ export async function mergeExtraction(
       (row) => cosineSimilarity(vector, row.vector) >= REINFORCE_THRESHOLD,
     );
     if (match) {
-      store.reinforceObservation(match.id, sourceId);
+      store.reinforceObservation(match.id, sourceId, sourceRevisionId);
       reinforcedObservationIds.push(match.id);
     } else {
       const span = locateQuote(sourceText, observation.sourceQuote);
@@ -149,6 +156,7 @@ export async function mergeExtraction(
           ),
           // A new claim enters at its natural tier; corroboration promotes it later.
           memoryTier: classifyMemoryTier({ kind: observation.kind, sourceType, sourceCount: 1 }),
+          sourceRevisionId,
         }),
       );
       changed.add(entityId);

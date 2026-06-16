@@ -5,6 +5,8 @@ data/
 **/node_modules/
 packages/desktop/src-tauri/target/
 packages/desktop/src-tauri/gen/
+packages/desktop/src-tauri/payload/
+.claude/
 pnpm-lock.yaml
 *.log
 .DS_Store

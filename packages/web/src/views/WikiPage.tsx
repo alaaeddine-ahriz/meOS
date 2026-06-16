@@ -241,6 +241,22 @@ export function WikiPageView({
                     {observation.confidence.toFixed(2)}
                   </span>
                   <span className="flex-1 text-faded">{observation.text}</span>
+                  {observation.sourceStatus ? (
+                    <span
+                      className="shrink-0 whitespace-nowrap rounded-full border border-ember/40 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-ember"
+                      title={
+                        observation.sourceStatus === "superseded"
+                          ? "Backed only by a superseded version of its source"
+                          : observation.sourceStatus === "deleted"
+                            ? "Backed only by a deleted source"
+                            : "Backed only by a source whose file is missing"
+                      }
+                    >
+                      {observation.sourceStatus === "superseded"
+                        ? "outdated"
+                        : observation.sourceStatus}
+                    </span>
+                  ) : null}
                   <span
                     className={cn(
                       "shrink-0 whitespace-nowrap font-mono text-[11px]",
