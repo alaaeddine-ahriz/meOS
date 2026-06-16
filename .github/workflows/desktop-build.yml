@@ -9,6 +9,11 @@ name: Desktop build
 
 on:
   workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Tag of the GitHub Release to attach bundles to (e.g. v0.1.0). Leave empty to only upload workflow artifacts."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
@@ -145,7 +150,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t assets < <(find packages/desktop/src-tauri/target/release/bundle \
+          # macOS runners ship Bash 3.2, which has no `mapfile`/`readarray`, so
+          # collect matches with a portable read loop instead.
+          assets=()
+          while IFS= read -r f; do
+            assets+=("$f")
+          done < <(find packages/desktop/src-tauri/target/release/bundle \
             -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \))
           if [ ${#assets[@]} -eq 0 ]; then
             echo "::error::no desktop bundles found to attach to ${RELEASE_TAG}"
