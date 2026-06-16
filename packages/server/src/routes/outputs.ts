@@ -6,8 +6,12 @@ import {
   entityTimeline,
   meetingBrief,
 } from "@meos/core";
+import { outputs as outputsSchema } from "@meos/contracts";
 import type { AppContext } from "../context.js";
 import { httpError } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["outputs"];
 
 /**
  * Output modes: project the knowledge base into the artifacts a consultant or
@@ -19,12 +23,27 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
   const reply = (markdown: string, format: string | undefined) =>
     format === "json" ? { markdown } : markdown;
 
-  app.get<{ Querystring: { format?: string } }>("/api/outputs/decision-brief", async (request) =>
-    reply(decisionBrief(ctx.store), request.query.format),
+  app.get<{ Querystring: { format?: string } }>(
+    "/api/outputs/decision-brief",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Decision brief output",
+        querystring: outputsSchema.OutputQuery,
+      }),
+    },
+    async (request) => reply(decisionBrief(ctx.store), request.query.format),
   );
 
   app.get<{ Querystring: { format?: string } }>(
     "/api/outputs/contradiction-report",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Contradiction report output",
+        querystring: outputsSchema.OutputQuery,
+      }),
+    },
     async (request) => reply(contradictionReport(ctx.store), request.query.format),
   );
 
@@ -41,6 +60,13 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
   ] as const) {
     app.get<{ Querystring: { entity?: string; format?: string } }>(
       `/api/outputs/${path}`,
+      {
+        schema: routeSchema({
+          tags,
+          summary: `${path} output`,
+          querystring: outputsSchema.OutputQuery,
+        }),
+      },
       async (request) => {
         const key = request.query.entity?.trim();
         if (!key)

@@ -24,14 +24,6 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
           "The meOS local server API. Request/response shapes are defined in @meos/contracts (Zod). All errors share one envelope (see components/schemas/ErrorEnvelope).",
         version: "0.1.0",
       },
-      components: {
-        schemas: {
-          ErrorEnvelope: z.toJSONSchema(ErrorEnvelopeSchema, { target: "draft-7" }) as Record<
-            string,
-            unknown
-          >,
-        },
-      },
       tags: [
         { name: "ingest", description: "Document ingestion + inbox" },
         { name: "wiki", description: "Compiled knowledge pages, graph, dedup" },
@@ -43,8 +35,29 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: "profile", description: "The user-lens profile" },
         { name: "settings", description: "LLM, folders, git settings" },
         { name: "connectors", description: "Google Contacts/Calendar/Gmail" },
+        { name: "meetings", description: "Meeting notes — trusted, citable sources" },
+        { name: "calendar", description: "Synced calendar events" },
+        { name: "git", description: "Knowledge-base git status, log, sync" },
+        { name: "runtime", description: "Worker + queue health" },
       ],
     },
+    // Keep `$id`-tagged shared schemas (e.g. ErrorEnvelope) under their own name
+    // in `components/schemas` instead of swagger's auto-generated `def-N`.
+    refResolver: {
+      buildLocalReference(json, _base, _fragment, i) {
+        return (json.$id as string | undefined) ?? `def-${i}`;
+      },
+    },
+  });
+
+  // Register the error envelope as a Fastify shared schema (not just a swagger
+  // component) so route `response` serializers can `$ref` it by id AND it shows
+  // up in the spec as `components/schemas/ErrorEnvelope`. Routes attach it via
+  // {@link routeSchema}, keeping the documented error model in lockstep with
+  // `@meos/contracts`.
+  app.addSchema({
+    $id: "ErrorEnvelope",
+    ...(z.toJSONSchema(ErrorEnvelopeSchema, { target: "draft-7" }) as Record<string, unknown>),
   });
 
   await app.register(swaggerUi, {

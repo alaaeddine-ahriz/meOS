@@ -1,6 +1,9 @@
 import { runtime } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["runtime"];
 
 /**
  * GET /api/runtime — a read-only snapshot of every background worker's health
@@ -10,7 +13,15 @@ import type { AppContext } from "../context.js";
  * contract so the shape can't drift from the client's expectations.
  */
 export function registerRuntimeRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get("/api/runtime", async () =>
-    runtime.RuntimeHealthSchema.parse({ workers: ctx.workers.health() }),
+  app.get(
+    "/api/runtime",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Runtime worker health",
+        response: runtime.RuntimeHealthSchema,
+      }),
+    },
+    async () => runtime.RuntimeHealthSchema.parse({ workers: ctx.workers.health() }),
   );
 }

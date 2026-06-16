@@ -12,6 +12,9 @@ import {
 } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { ApiError, httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["settings"];
 
 const CLOUD_PROVIDERS = ["anthropic", "openai", "google"] as const;
 type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
@@ -53,7 +56,17 @@ function llmSettingsView(ctx: AppContext) {
 }
 
 export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get("/api/settings/llm", async () => llmSettingsView(ctx));
+  app.get(
+    "/api/settings/llm",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Get LLM settings",
+        response: settingsSchema.LlmSettingsSchema,
+      }),
+    },
+    async () => settingsSchema.LlmSettingsSchema.parse(llmSettingsView(ctx)),
+  );
 
   // Discover the models a local OpenAI-compatible server (LM Studio, llama.cpp,
   // Ollama's /v1) currently has available, so Settings can offer a picker rather
@@ -63,6 +76,14 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // before saving.
   app.get<{ Querystring: { baseUrl?: string } }>(
     "/api/settings/llm/local/models",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List local LLM models",
+        querystring: settingsSchema.LocalModelsQuery,
+        response: settingsSchema.LocalModelsResponse,
+      }),
+    },
     async (request) => {
       const base = normalizeLocalBaseUrl(
         request.query.baseUrl?.trim() || ctx.config.llm.local.baseUrl,
@@ -84,7 +105,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
           );
         }
         const models = body.data.map((m) => m.id).filter((id): id is string => Boolean(id));
-        return { models };
+        return settingsSchema.LocalModelsResponse.parse({ models });
       } catch (error) {
         if (error instanceof ApiError) throw error;
         throw httpError.upstream(
@@ -101,6 +122,13 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // falls back to the curated list on any failure, so this never 500s.
   app.get<{ Params: { provider: string } }>(
     "/api/settings/llm/:provider/models",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List cloud provider models",
+        response: settingsSchema.ModelListingSchema,
+      }),
+    },
     async (request) => {
       const provider = request.params.provider;
       if (!CLOUD_PROVIDERS.includes(provider as CloudProvider)) {
@@ -113,12 +141,20 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         typedKey ||
         ctx.config.llm[cloud].apiKey ||
         ENV_KEYS[cloud].map((n) => process.env[n]).find(Boolean);
-      return listProviderModels(cloud, apiKey);
+      return settingsSchema.ModelListingSchema.parse(await listProviderModels(cloud, apiKey));
     },
   );
 
   app.put<{ Body: { provider?: string; model?: string; apiKey?: string; baseUrl?: string } }>(
     "/api/settings/llm",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Update LLM settings",
+        body: settingsSchema.UpdateLlmSettingsBody,
+        response: settingsSchema.LlmSettingsSchema,
+      }),
+    },
     async (request) => {
       const { provider, model, apiKey, baseUrl } = parseOrThrow(
         settingsSchema.UpdateLlmSettingsBody,
@@ -160,7 +196,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       // Persisted in the DB — never write near source files: the dev server
       // watches the tree and a config write would restart it mid-request.
       ctx.store.setSetting("llm", llm);
-      return llmSettingsView(ctx);
+      return settingsSchema.LlmSettingsSchema.parse(llmSettingsView(ctx));
     },
   );
 
@@ -169,6 +205,14 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
   // model; an empty model clears the override (falls back to the main model).
   app.put<{ Body: { provider?: string; model?: string } }>(
     "/api/settings/llm/maintainer",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Update wiki-maintainer model",
+        body: settingsSchema.UpdateMaintainerBody,
+        response: settingsSchema.LlmSettingsSchema,
+      }),
+    },
     async (request) => {
       const { provider, model } = parseOrThrow(
         settingsSchema.UpdateMaintainerBody,
@@ -190,70 +234,113 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         throw httpError.badRequest(error instanceof Error ? error.message : String(error));
       }
       ctx.store.setSetting("llm", llm);
-      return llmSettingsView(ctx);
+      return settingsSchema.LlmSettingsSchema.parse(llmSettingsView(ctx));
     },
   );
 
-  app.get("/api/settings/folders", async () => ({
-    folders: ctx.store.listWatchedFolders(),
-  }));
+  app.get(
+    "/api/settings/folders",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List watched folders",
+        response: settingsSchema.ListFoldersResponse,
+      }),
+    },
+    async () =>
+      settingsSchema.ListFoldersResponse.parse({
+        folders: ctx.store.listWatchedFolders(),
+      }),
+  );
 
-  app.post<{ Body: { path?: string } }>("/api/settings/folders", async (request, reply) => {
-    const body = parseOrThrow(settingsSchema.AddFolderBody, request.body, "body");
-    const raw = body.path.trim();
-    if (!raw) {
-      throw httpError.validation("Field 'path' is required");
-    }
-    const folderPath = path.resolve(raw);
-    let stat: fs.Stats;
-    try {
-      stat = fs.statSync(folderPath);
-    } catch {
-      throw httpError.badRequest(`Folder not found: ${folderPath}`);
-    }
-    if (!stat.isDirectory()) {
-      throw httpError.badRequest(`Not a folder: ${folderPath}`);
-    }
+  app.post<{ Body: { path?: string } }>(
+    "/api/settings/folders",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Add a watched folder",
+        body: settingsSchema.AddFolderBody,
+        response: { 201: settingsSchema.AddFolderResponse },
+      }),
+    },
+    async (request, reply) => {
+      const body = parseOrThrow(settingsSchema.AddFolderBody, request.body, "body");
+      const raw = body.path.trim();
+      if (!raw) {
+        throw httpError.validation("Field 'path' is required");
+      }
+      const folderPath = path.resolve(raw);
+      let stat: fs.Stats;
+      try {
+        stat = fs.statSync(folderPath);
+      } catch {
+        throw httpError.badRequest(`Folder not found: ${folderPath}`);
+      }
+      if (!stat.isDirectory()) {
+        throw httpError.badRequest(`Not a folder: ${folderPath}`);
+      }
 
-    const folder = ctx.store.addWatchedFolder(folderPath);
-    ctx.watcher.addFolder(folderPath);
-    return reply.code(201).send({ folder });
-  });
+      const folder = ctx.store.addWatchedFolder(folderPath);
+      ctx.watcher.addFolder(folderPath);
+      return reply.code(201).send(settingsSchema.AddFolderResponse.parse({ folder }));
+    },
+  );
 
-  app.delete<{ Params: { id: string } }>("/api/settings/folders/:id", async (request) => {
-    const { id } = parseOrThrow(settingsSchema.FolderIdParam, request.params, "params");
-    const removedPath = ctx.store.removeWatchedFolder(id);
-    if (!removedPath) {
-      throw httpError.notFound("No such folder");
-    }
-    ctx.watcher.removeFolder(removedPath);
-    return { removed: true };
-  });
+  app.delete<{ Params: { id: string } }>(
+    "/api/settings/folders/:id",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Remove a watched folder",
+        params: settingsSchema.FolderIdParam,
+        response: settingsSchema.RemoveFolderResponse,
+      }),
+    },
+    async (request) => {
+      const { id } = parseOrThrow(settingsSchema.FolderIdParam, request.params, "params");
+      const removedPath = ctx.store.removeWatchedFolder(id);
+      if (!removedPath) {
+        throw httpError.notFound("No such folder");
+      }
+      ctx.watcher.removeFolder(removedPath);
+      return settingsSchema.RemoveFolderResponse.parse({ removed: true });
+    },
+  );
 
   // Start over: erase everything MeOS has learned. Wipes the knowledge base,
   // the human-readable wiki and digests on disk, and the git history. LLM
   // settings and the watched-folder list are kept, so ingestion resumes from
   // a clean slate. Irreversible — the UI gates it behind a typed confirmation.
-  app.post("/api/settings/reset", async (_request, reply) => {
-    try {
-      resetDatabase(ctx.db, { keepSettings: true, keepFolders: true });
+  app.post(
+    "/api/settings/reset",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Reset the knowledge base",
+        response: settingsSchema.ResetResponse,
+      }),
+    },
+    async (_request, _reply) => {
+      try {
+        resetDatabase(ctx.db, { keepSettings: true, keepFolders: true });
 
-      // Drop the generated markdown, then re-seed the empty dirs + schema doc.
-      for (const dir of ["wiki", "digests"]) {
-        fs.rmSync(path.join(ctx.config.dataDir, dir), { recursive: true, force: true });
+        // Drop the generated markdown, then re-seed the empty dirs + schema doc.
+        for (const dir of ["wiki", "digests"]) {
+          fs.rmSync(path.join(ctx.config.dataDir, dir), { recursive: true, force: true });
+        }
+        ensureDataDirs(ctx.config);
+
+        // Fresh git history rooted at the now-empty tree.
+        await ctx.git.reset();
+
+        // The ingest ledger was cleared with the rest of the DB; re-absorb the
+        // watched folders from scratch.
+        ctx.watcher.rescan();
+
+        return settingsSchema.ResetResponse.parse({ ok: true });
+      } catch (error) {
+        throw httpError.internal(error instanceof Error ? error.message : String(error));
       }
-      ensureDataDirs(ctx.config);
-
-      // Fresh git history rooted at the now-empty tree.
-      await ctx.git.reset();
-
-      // The ingest ledger was cleared with the rest of the DB; re-absorb the
-      // watched folders from scratch.
-      ctx.watcher.rescan();
-
-      return { ok: true };
-    } catch (error) {
-      throw httpError.internal(error instanceof Error ? error.message : String(error));
-    }
-  });
+    },
+  );
 }

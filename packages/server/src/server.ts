@@ -82,20 +82,32 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   // (which assumes the repo's packages/server/dist ↔ packages/web/dist layout).
   const webDist =
     process.env.MEOS_WEB_DIST ?? path.resolve(fileURLToPath(import.meta.url), "../../../web/dist");
-  if (fs.existsSync(webDist)) {
+  const serveStatic = fs.existsSync(webDist);
+  if (serveStatic) {
     await app.register(fastifyStatic, { root: webDist });
-    app.setNotFoundHandler((request, reply) => {
-      if (request.url.startsWith("/api/")) {
-        return reply.code(404).send({
-          code: "NOT_FOUND",
-          message: "Not found",
-          requestId: request.id,
-          recoverable: false,
-        });
-      }
-      return reply.sendFile("index.html");
-    });
   }
+
+  // Unknown routes must honor the API contract. Any `/api/*` miss returns the
+  // shared error envelope (NOT_FOUND) regardless of whether the static web app
+  // is mounted — so the error model is identical in dev, test, and production.
+  // Non-API misses fall back to the SPA's index.html when it's available.
+  app.setNotFoundHandler((request, reply) => {
+    if (request.url.startsWith("/api/")) {
+      return reply.code(404).send({
+        code: "NOT_FOUND",
+        message: "Not found",
+        requestId: request.id,
+        recoverable: false,
+      });
+    }
+    if (serveStatic) return reply.sendFile("index.html");
+    return reply.code(404).send({
+      code: "NOT_FOUND",
+      message: "Not found",
+      requestId: request.id,
+      recoverable: false,
+    });
+  });
 
   return app;
 }
