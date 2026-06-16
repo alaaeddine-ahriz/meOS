@@ -1,0 +1,56 @@
+# Automates releases with Release Please while keeping publication a deliberate,
+# reviewable two-step:
+#
+#   1. On every push to main (or a manual dispatch) release-please opens/updates
+#      a "Release PR" that bumps the version in package.json +
+#      tauri.conf.json and rolls pending Conventional Commits into CHANGELOG.md.
+#      Nothing ships while that PR sits open — it's the review gate.
+#   2. When a maintainer merges that Release PR, this workflow runs again, sees
+#      `release_created == true`, and release-please creates the GitHub Release
+#      and the vX.Y.Z tag. We then build the desktop bundles and attach them to
+#      that Release.
+#
+# Why we build here instead of relying on the tag-triggered desktop-build.yml:
+# tags pushed by a workflow using the default GITHUB_TOKEN do NOT trigger other
+# workflows (GitHub's recursion guard), so we invoke the desktop build directly
+# as a reusable workflow and hand it the release tag.
+name: Release Please
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    name: Prepare release / create Release
+    runs-on: ubuntu-22.04
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ github.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Only runs on the merge of the Release PR (release_created == true). Builds
+  # the per-platform desktop bundles and attaches them to the just-created
+  # GitHub Release. Reuses desktop-build.yml's matrix so the build logic lives
+  # in one place.
+  desktop-artifacts:
+    name: Build & attach desktop artifacts
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop-build.yml
+    with:
+      release-tag: ${{ needs.release-please.outputs.tag_name }}
