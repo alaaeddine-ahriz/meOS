@@ -282,12 +282,12 @@ export class WikiWriter {
     const existing = this.readPage(entity);
     const beforeBody = existing ? stripFrontmatter(existing) : null;
 
-    // Don't create a page for a reference-only entity (a person known only from a
-    // connector — contact/email/calendar). New entities default to wiki_stale = 1,
-    // so this is where that default is cleared without writing a noise page. An
-    // existing page is still allowed to regenerate (e.g. once a real source
-    // mentions the person), and empty / relationship-only entities are unaffected.
-    if (beforeBody === null && this.store.isReferenceOnlyEntity(entityId)) {
+    // Don't create a page for an entity that doesn't warrant one — a person known
+    // only from a connector (contact/email/calendar) or a "name only" contact with
+    // no facts at all. New entities default to wiki_stale = 1, so this is where that
+    // default is cleared without writing a noise page. An existing page is still
+    // allowed to regenerate (e.g. once a real source mentions the person).
+    if (beforeBody === null && !this.store.entityWarrantsWikiPage(entityId)) {
       this.store.clearStaleSources(entity.id);
       this.store.clearWikiStale(entity.id);
       return null;

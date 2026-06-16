@@ -2067,31 +2067,27 @@ export class KnowledgeStore {
   }
 
   /**
-   * Flag an entity's page for regeneration. Returns whether the flag was actually
-   * set: a reference-only entity (one whose every fact/edge comes from a
-   * non-wiki-eligible connector source — see {@link isReferenceOnlyEntity}) never
-   * earns a page, so it is never marked. This is the single backstop covering
-   * every caller (ingest, connector sync, contradictions, source-gone), regardless
-   * of which path triggered it.
+   * Flag an entity's page for regeneration. The flag only schedules a re-evaluation
+   * — whether a page is actually written is decided later by the writer, which
+   * skips entities that don't warrant one (see {@link entityWarrantsWikiPage}). So
+   * an entity whose last fact just expired can still be flagged to update/blank its
+   * existing page, while a connector-only entity flagged by the default
+   * `wiki_stale = 1` is simply short-circuited at regeneration with no page written.
+   * Returns true (kept for callers that record stale-source credit).
    */
   markWikiStale(id: number): boolean {
-    if (this.isReferenceOnlyEntity(id)) return false;
     this.db.prepare("UPDATE entities SET wiki_stale = 1 WHERE id = ?").run(id);
     return true;
   }
 
-  // SQL fragments shared by the reference-only test and the page-set query. An
-  // entity "has knowledge" if it has any active observation or relationship; that
-  // knowledge is "page-worthy" if at least one observation is visible to the wiki
-  // (active, non-private, and from a wiki-eligible or sourceless origin) or at
-  // least one edge is backed by a wiki-eligible-or-sourceless origin. A connector
-  // source (contacts/calendar/gmail) is wiki_eligible = 0, so a person known only
-  // through one has knowledge but nothing page-worthy: reference-only.
-  private static readonly HAS_KNOWLEDGE_SQL = `(
-    EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.status = 'active')
-    OR EXISTS (SELECT 1 FROM relationships r
-                WHERE (r.from_entity = e.id OR r.to_entity = e.id) AND r.status = 'active')
-  )`;
+  // A wiki page is warranted only when an entity has at least one *page-worthy*
+  // fact or edge: an active, non-private observation from a wiki-eligible or
+  // sourceless origin, or an active edge from such an origin. Connector sources
+  // (contacts/calendar/gmail) are wiki_eligible = 0, so a person known only
+  // through a contact/email/calendar has no page-worthy backing — and neither does
+  // a "name only" contact, which has no facts at all. Both are kept out of the
+  // wiki (page, index, graph) while staying searchable, and merge into a real page
+  // once a document mentions them.
   private static readonly HAS_PAGE_WORTHY_SQL = `(
     EXISTS (SELECT 1 FROM observations o LEFT JOIN sources s ON s.id = o.source_id
              WHERE o.entity_id = e.id AND o.status = 'active' AND o.sensitivity = 'normal'
@@ -2102,36 +2098,29 @@ export class KnowledgeStore {
   )`;
 
   /**
-   * Is this entity backed *only* by reference material — i.e. it has knowledge,
-   * but every observation/edge comes from a non-wiki-eligible connector source
-   * (Google contacts/calendar/gmail)? Such a "person known only from a contact"
-   * is noise as a standalone page: it earns no page and is hidden from the wiki
-   * index, while staying fully searchable and able to merge into a real page once
-   * a document mentions it. An entity with no knowledge at all is NOT
-   * reference-only (it keeps the legacy empty/relationship-only page behaviour).
+   * Does this entity warrant a standalone wiki page? True only when it has
+   * page-worthy backing (see {@link HAS_PAGE_WORTHY_SQL}). A person known only
+   * from a connector (contact/email/calendar) and a "name only" contact with no
+   * facts both return false: they earn no page and are hidden from the wiki index,
+   * while staying fully searchable.
    */
-  isReferenceOnlyEntity(id: number): boolean {
+  entityWarrantsWikiPage(id: number): boolean {
     const row = this.db
       .prepare(
-        `SELECT (${KnowledgeStore.HAS_KNOWLEDGE_SQL} AND NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL})
-           AS refOnly
-         FROM entities e WHERE e.id = ?`,
+        `SELECT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AS warrants FROM entities e WHERE e.id = ?`,
       )
-      .get(id) as { refOnly: number } | undefined;
-    return row?.refOnly === 1;
+      .get(id) as { warrants: number } | undefined;
+    return row?.warrants === 1;
   }
 
   /**
-   * The set of entity ids that warrant a wiki page — everything except
-   * reference-only entities (see {@link isReferenceOnlyEntity}). Used to keep
-   * connector-only people out of the wiki index/graph and out of page synthesis.
+   * The set of entity ids that warrant a wiki page (see
+   * {@link entityWarrantsWikiPage}). Used to keep connector-only and factless
+   * entities out of the wiki index/graph and out of page synthesis.
    */
   wikiPageEntityIds(): Set<number> {
     const rows = this.db
-      .prepare(
-        `SELECT e.id AS id FROM entities e
-         WHERE NOT (${KnowledgeStore.HAS_KNOWLEDGE_SQL} AND NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL})`,
-      )
+      .prepare(`SELECT e.id AS id FROM entities e WHERE ${KnowledgeStore.HAS_PAGE_WORTHY_SQL}`)
       .all() as Array<{ id: number }>;
     return new Set(rows.map((r) => r.id));
   }

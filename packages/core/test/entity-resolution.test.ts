@@ -315,6 +315,8 @@ describe("wiki backfill", () => {
   it("populates wiki_pages from on-disk Markdown without an LLM", async () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });
+    // A page-worthy fact, so the entity warrants the page already on disk.
+    s.insertObservation({ entityId: dana.id, text: "Dana leads the Orion project." });
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
