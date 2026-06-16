@@ -195,8 +195,13 @@ export function createContext(rootDir = findRootDir()): AppContext {
   events.on("onSchedule", () => connectors.syncAllEnabled());
 
   // Light up the compiled-knowledge retrieval stream for pages written before
-  // wiki_pages existed (upgrade path): backfill from disk, locally, once.
+  // wiki_pages existed (upgrade path): backfill from disk, locally, once. First
+  // prune pages that no longer warrant one — connector-only or factless entities
+  // (e.g. people pulled from contacts) whose pages predate the reference-only
+  // gating — so the upgrade self-heals without a manual job.
   queue.push(async () => {
+    const pruned = wiki.pruneConnectorOnlyPages();
+    if (pruned > 0) console.log(`[wiki] pruned ${pruned} page(s) for entities without wiki backing`);
     const filled = await wiki.backfillPages();
     if (filled > 0) console.log(`[wiki] backfilled ${filled} page(s) into the retrieval index`);
   });

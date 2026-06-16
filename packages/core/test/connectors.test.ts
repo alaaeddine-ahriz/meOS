@@ -811,11 +811,11 @@ describe("connectors complement the wiki as references, not pages", () => {
     });
 
     const person = store.findEntityByName("Grace Hopper")!;
-    // Reference-only → excluded from the page set; the merge never marks it stale.
-    expect(store.isReferenceOnlyEntity(person.id)).toBe(true);
+    // No page-worthy backing → excluded from the page set; merge never marks stale.
+    expect(store.entityWarrantsWikiPage(person.id)).toBe(false);
     expect(store.wikiPageEntityIds().has(person.id)).toBe(false);
     // New entities default to wiki_stale = 1; a regeneration pass clears it without
-    // writing a noise page (no LLM call — the reference-only guard short-circuits).
+    // writing a noise page (no LLM call — the page-worthiness guard short-circuits).
     await wiki.regenerateStale();
     expect(store.getEntity(person.id)!.wiki_stale).toBe(0);
     expect(wiki.readPage(store.getEntity(person.id)!)).toBeNull();
@@ -859,8 +859,8 @@ describe("connectors complement the wiki as references, not pages", () => {
     });
 
     const person = store.findEntityByName("Grace Hopper")!;
-    // The document gives the person page-worthy backing → no longer reference-only.
-    expect(store.isReferenceOnlyEntity(person.id)).toBe(false);
+    // The document gives the person page-worthy backing → now warrants a page.
+    expect(store.entityWarrantsWikiPage(person.id)).toBe(true);
     expect(store.wikiPageEntityIds().has(person.id)).toBe(true);
     // The connector source is still attached as a reference (chip data).
     expect(store.sourcesForEntity(person.id).some((s) => s.type === "google:contacts")).toBe(true);
@@ -868,6 +868,39 @@ describe("connectors complement the wiki as references, not pages", () => {
     const visible = store.visibleObservations(person.id).map((o) => o.text);
     expect(visible.some((t) => t.includes("compiler effort"))).toBe(true);
     expect(visible.some((t) => t.toLowerCase().includes("email"))).toBe(false);
+
+    cleanup();
+  });
+
+  it("a name-only contact (no facts at all) earns no page", async () => {
+    const { store, pipeline, wiki, cleanup } = setup();
+    // A contact with just a display name: no email/phone/org, so the mapper
+    // produces a person entity with zero observations and zero relationships.
+    const nameOnly: ContactItem = {
+      externalId: "people/ref2",
+      displayName: "Antoine Kocausta",
+      nicknames: [],
+      emails: [],
+      phones: [],
+      deepLink: "https://contacts.google.com/person/ref2",
+    };
+    await pipeline.ingestExtraction({
+      type: "google:contacts",
+      title: nameOnly.displayName,
+      content: "contact",
+      path: nameOnly.deepLink,
+      extraction: mapContact(nameOnly),
+    });
+
+    const person = store.findEntityByName("Antoine Kocausta")!;
+    // Factless entity → does not warrant a page (the bug: knowledge-less contacts
+    // used to slip past the reference-only check and get an empty page).
+    expect(store.activeObservations(person.id)).toHaveLength(0);
+    expect(store.entityWarrantsWikiPage(person.id)).toBe(false);
+    expect(store.wikiPageEntityIds().has(person.id)).toBe(false);
+    await wiki.regenerateStale();
+    expect(store.getEntity(person.id)!.wiki_stale).toBe(0);
+    expect(wiki.readPage(store.getEntity(person.id)!)).toBeNull();
 
     cleanup();
   });
