@@ -153,6 +153,144 @@ export class IngestionPipeline {
     return { sourceId, merge };
   }
 
+  /**
+   * The connector materialization seam (#19), the document-shaped sibling of
+   * {@link ingestExtraction}. Where `ingestExtraction` merges a pre-built
+   * extraction with no document/chunks/revision, `materialize` turns a changed
+   * connector item into a first-class local document BEFORE semantic extraction:
+   *
+   *   1. resolve/create the *logical source* for this external item — a re-sync of
+   *      a changed item advances the SAME source's revision rather than forking a
+   *      new source row (identity is owned by the caller via `existingSourceId`,
+   *      which it reads from the connector ledger);
+   *   2. open a new revision (#16) storing the RAW provider payload separately from
+   *      the NORMALIZED human-readable text, and apply the source-type visibility
+   *      defaults (#11);
+   *   3. CHUNK + EMBED + INDEX the normalized text so the item is searchable even
+   *      if extraction later fails (#13/#14) — the search commit lands first;
+   *   4. run semantic extraction as a DERIVED stage off the saved revision, merging
+   *      its observations/relationships linked to the exact `sourceRevisionId`.
+   *
+   * Extraction failure parks the revision `incomplete` and returns `indexed`: the
+   * item stays searchable and the extraction is retryable, exactly like {@link
+   * ingest}. The deterministic mappers (mapContact/…) stay the extraction source;
+   * the seam is compatible with #15's cached map-reduce path for richer connectors.
+   */
+  async materialize(input: {
+    /** Source origin, e.g. "google:contacts" — drives the visibility defaults + chip. */
+    type: string;
+    title: string;
+    /** Deep link back to the underlying provider item. */
+    path?: string;
+    /** The raw provider payload, kept verbatim so a reprocess needs no re-fetch. */
+    rawContent: string;
+    /** A human-readable rendering of the item — what gets chunked, indexed, extracted. */
+    normalizedContent: string;
+    /** The deterministic mapping's pre-built extraction (the derived stage's input). */
+    extraction: Extraction;
+    /**
+     * The logical source to advance, when this external item was materialized
+     * before. Omit to create a fresh source. The caller resolves this from the
+     * connector ledger so identity stays keyed by (account, kind, external_id).
+     */
+    existingSourceId?: number;
+  }): Promise<{
+    sourceId: number;
+    sourceRevisionId: number;
+    status: "done" | "indexed";
+    merge?: MergeResult;
+  }> {
+    const { store, embedder } = this.deps;
+    const contentHash = createHash("sha256").update(input.normalizedContent).digest("hex");
+
+    // (1) Logical-source identity. A changed item advances its existing source;
+    // a never-seen item opens a new one with the connector visibility defaults.
+    let sourceId: number;
+    if (input.existingSourceId && store.getSource(input.existingSourceId)) {
+      sourceId = input.existingSourceId;
+      store.updateSourceContent(sourceId, input.normalizedContent, input.rawContent);
+      store.clearChunksForSource(sourceId);
+    } else {
+      sourceId = store.createSource({
+        type: input.type,
+        title: input.title,
+        path: input.path,
+        content: input.normalizedContent,
+        rawContent: input.rawContent,
+      });
+    }
+
+    // (2) Open this sync's revision; the prior active one is superseded so the
+    // facts it backed become flag-able as outdated. Raw payload is stored apart
+    // from the normalized text so a reprocess re-renders without a re-fetch.
+    const revisionId = store.createSourceRevision({
+      sourceId,
+      contentHash,
+      rawContent: input.rawContent,
+      normalizedContent: input.normalizedContent,
+    });
+
+    // (3) The SEARCH/INDEX commit — lands independently of extraction (#13/#14),
+    // so the item is searchable even if the derived extraction below fails.
+    const blocks = blocksFromText(input.normalizedContent);
+    const chunks = chunkBlocks(blocks);
+    const vectors = await embedder.embed(chunks.map((c) => c.text));
+    store.addChunks(
+      sourceId,
+      chunks.map((chunk, i) => ({
+        text: chunk.text,
+        embedding: vectors[i]!,
+        sourceBlockIds: chunk.sourceBlockIds,
+        sectionTitle: chunk.sectionTitle,
+        pageStart: chunk.pageStart,
+        pageEnd: chunk.pageEnd,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        tokenEstimate: chunk.tokenEstimate,
+        contentType: chunk.contentType,
+      })),
+      revisionId,
+    );
+
+    // (4) Derived semantic extraction off the saved revision. Failure leaves the
+    // index intact (searchable), parks the revision incomplete, and is retryable.
+    try {
+      const merge = await this.withMergeLock(async () => {
+        const merge = await mergeExtraction(
+          store,
+          embedder,
+          input.extraction,
+          sourceId,
+          input.normalizedContent,
+          revisionId,
+        );
+        for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
+        // A re-sync may leave facts on the just-superseded revision; flag their
+        // pages so the wiki reflects the now-outdated provenance.
+        for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
+        return merge;
+      });
+
+      await this.deps.events?.emit("onMemoryWrite", {
+        sourceId,
+        newObservationIds: merge.newObservationIds,
+      });
+      await this.deps.events?.emit("onNewSource", { sourceId, merge });
+
+      if (this.deps.scheduleWikiRefresh) {
+        this.deps.scheduleWikiRefresh();
+      } else {
+        await this.deps.wiki.regenerateStale();
+      }
+
+      return { sourceId, sourceRevisionId: revisionId, status: "done", merge };
+    } catch {
+      // Searchable, extraction retryable — mirror ingest()'s "indexed" outcome.
+      store.setRevisionStatus(revisionId, "incomplete");
+      return { sourceId, sourceRevisionId: revisionId, status: "indexed" };
+    }
+  }
+
   async ingest(input: IngestInput, existingInboxItemId?: number): Promise<IngestOutcome> {
     const { store, embedder, wiki } = this.deps;
     const title = input.kind === "file" ? input.filename : input.title;

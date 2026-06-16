@@ -288,6 +288,22 @@ export interface ConnectorAccountRow {
   created_at: string;
 }
 
+/**
+ * One row of the connector ledger (#17/#19): the last-seen content hash for an
+ * external item plus the logical source + revision it materialized. Keyed by
+ * (account_id, kind, external_id).
+ */
+export interface ConnectorItemRow {
+  account_id: number;
+  kind: string;
+  external_id: string;
+  content_hash: string | null;
+  source_id: number | null;
+  /** The revision this item last materialized to (#19); null on legacy rows. */
+  source_revision_id: number | null;
+  last_seen_at: string;
+}
+
 /** Per-kind sync cursor + schedule for a connected account. */
 export interface ConnectorSyncStateRow {
   account_id: number;
@@ -2748,22 +2764,45 @@ export class KnowledgeStore {
     return row?.content_hash != null && row.content_hash === contentHash;
   }
 
+  /**
+   * The ledger row for one external item, if it has been seen before — carries the
+   * logical source it materialized and the revision that source last advanced to
+   * (#19). Used so a re-sync advances the SAME source's revision rather than
+   * forking a new source, and so a delta deletion can locate the revision to mark
+   * inactive. Returns undefined when the item has never been synced.
+   */
+  getConnectorItem(
+    accountId: number,
+    kind: string,
+    externalId: string,
+  ): ConnectorItemRow | undefined {
+    return this.db
+      .prepare(
+        `SELECT account_id, kind, external_id, content_hash, source_id, source_revision_id, last_seen_at
+         FROM connector_items WHERE account_id = ? AND kind = ? AND external_id = ?`,
+      )
+      .get(accountId, kind, externalId) as ConnectorItemRow | undefined;
+  }
+
   recordConnectorItem(
     accountId: number,
     kind: string,
     externalId: string,
     contentHash: string,
     sourceId: number | null,
+    sourceRevisionId?: number | null,
   ): void {
     this.db
       .prepare(
-        `INSERT INTO connector_items (account_id, kind, external_id, content_hash, source_id, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))
+        `INSERT INTO connector_items
+           (account_id, kind, external_id, content_hash, source_id, source_revision_id, last_seen_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
          ON CONFLICT(account_id, kind, external_id) DO UPDATE SET
            content_hash = excluded.content_hash,
            source_id = COALESCE(excluded.source_id, source_id),
+           source_revision_id = COALESCE(excluded.source_revision_id, source_revision_id),
            last_seen_at = datetime('now')`,
       )
-      .run(accountId, kind, externalId, contentHash, sourceId);
+      .run(accountId, kind, externalId, contentHash, sourceId, sourceRevisionId ?? null);
   }
 }

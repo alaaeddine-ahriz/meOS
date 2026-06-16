@@ -181,7 +181,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(22);
+    expect(migrations.length).toBe(23);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -196,6 +196,7 @@ describe("migration 21 (durable ingest jobs)", () => {
       // 'extract-failed'), simulating a DB created before #13 shipped.
       db.pragma("foreign_keys = OFF");
       db.exec(`
+        ALTER TABLE connector_items DROP COLUMN source_revision_id;
         DROP TABLE IF EXISTS extraction_cache;
         DROP TABLE IF EXISTS ingest_runs;
         DROP TABLE IF EXISTS ingest_jobs;

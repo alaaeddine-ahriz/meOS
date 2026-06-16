@@ -657,6 +657,31 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX idx_extraction_cache_revision ON extraction_cache(source_revision_id);
   `,
+
+  // 23 — connector materialization layer (#19).
+  //
+  // Until now a changed connector item was mapped straight into an Extraction and
+  // merged via ingestExtraction(): no document, no chunks, no revision history —
+  // an item only became searchable once it produced entities/observations, and a
+  // re-sync re-merged into a fresh source row. #19 inserts a materialization stage
+  // before semantic extraction: each changed item becomes a *logical source* plus
+  // a *source revision* (raw payload stored separately from the normalized text),
+  // its normalized text is chunked/embedded/indexed so it is searchable even when
+  // extraction later fails, and semantic extraction runs as a derived stage off
+  // the SAVED revision.
+  //
+  // The `connector_items` ledger (migration 17) already links
+  // (account_id, kind, external_id) → source_id; this migration adds
+  // `source_revision_id` so the ledger also names the exact revision the item last
+  // materialized. Re-syncing a changed item advances the SAME logical source's
+  // revision (the prior active one is superseded) instead of forking a new source;
+  // a deletion marks that revision inactive (deleted/missing) without losing the
+  // audit trail. The column is nullable (legacy ledger rows predate revisions) and
+  // ON DELETE SET NULL so dropping a revision never orphans the ledger row.
+  `
+  ALTER TABLE connector_items ADD COLUMN source_revision_id INTEGER
+    REFERENCES source_revisions(id) ON DELETE SET NULL;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

@@ -56,9 +56,44 @@ export async function ensureAccessToken(
 const contentHash = (item: unknown): string =>
   crypto.createHash("sha256").update(JSON.stringify(item)).digest("hex");
 
-/** A small, human-readable provenance blob stored on the connector source. */
-function describe(kind: ConnectorKind, item: Record<string, unknown>): string {
-  return `${kind} item from Google\n${JSON.stringify(item, null, 2)}`;
+/** The raw provider payload, stored verbatim so a reprocess needs no re-fetch (#19). */
+function rawPayload(item: unknown): string {
+  return JSON.stringify(item, null, 2);
+}
+
+/**
+ * A human-readable rendering of a connector item — the NORMALIZED text that gets
+ * chunked, embedded, indexed, and extracted (#19). Kept terse and label-led so
+ * the document is searchable by the same phrases a user would type, without
+ * leaking the raw API envelope into retrieval.
+ */
+function normalize(kind: ConnectorKind, item: Record<string, unknown>): string {
+  const lines: string[] = [];
+  if (kind === "contacts") {
+    const c = item as unknown as ContactItem;
+    lines.push(`Contact: ${c.displayName}`);
+    if (c.nicknames?.length) lines.push(`Also known as: ${c.nicknames.join(", ")}`);
+    if (c.emails?.length) lines.push(`Email: ${c.emails.join(", ")}`);
+    if (c.phones?.length) lines.push(`Phone: ${c.phones.join(", ")}`);
+    if (c.organisation) lines.push(`Organisation: ${c.organisation}`);
+    if (c.jobTitle) lines.push(`Role: ${c.jobTitle}`);
+    if (c.birthday) lines.push(`Birthday: ${c.birthday}`);
+  } else if (kind === "calendar") {
+    const e = item as unknown as CalendarEventItem;
+    lines.push(`Event: ${e.title}`);
+    if (e.start) lines.push(`When: ${e.start}`);
+    if (e.organiserEmail) lines.push(`Organiser: ${e.organiserEmail}`);
+    if (e.attendees?.length)
+      lines.push(`Attendees: ${e.attendees.map((a) => a.name || a.email).join(", ")}`);
+  } else {
+    const m = item as unknown as GmailMessageItem;
+    lines.push(`Email: ${m.subject}`);
+    if (m.date) lines.push(`Date: ${m.date}`);
+    lines.push(`From: ${m.from.name || m.from.email}`);
+    if (m.to?.length) lines.push(`To: ${m.to.map((t) => t.name || t.email).join(", ")}`);
+    if (m.snippet) lines.push(`Snippet: ${m.snippet}`);
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -95,8 +130,20 @@ export async function syncConnector(
     delta = await run(null);
   }
 
-  const result: SyncResult = { ingested: 0, skipped: 0, deleted: delta.deletions.length };
+  const result: SyncResult = { ingested: 0, skipped: 0, deleted: 0 };
   try {
+    // Deletions first: a delta removal marks the item's latest revision inactive
+    // (#16) so its facts surface as stale, but never hard-deletes — the audit
+    // history and the ledger row (for content-hash dedup if it reappears) stay.
+    for (const externalId of delta.deletions) {
+      const ledger = store.getConnectorItem(account.id, kind, externalId);
+      if (ledger?.source_id != null) {
+        store.markSourceGone(ledger.source_id, "deleted");
+        for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
+        result.deleted++;
+      }
+    }
+
     for (const raw of delta.items) {
       const item = raw as { externalId: string } & Record<string, unknown>;
       const hash = contentHash(item);
@@ -125,23 +172,29 @@ export async function syncConnector(
         path = m.deepLink;
       }
 
-      // Skip empty mappings (e.g. an email with no external correspondents), but
-      // still record the ledger row so it isn't re-fetched every cycle.
-      let sourceId: number | null = null;
-      if (extraction.entities.length > 0) {
-        const ingest = await pipeline.ingestExtraction({
-          type: `google:${kind}`,
-          title,
-          content: describe(kind, item),
-          path,
-          extraction,
-        });
-        sourceId = ingest.sourceId;
-        result.ingested++;
-      } else {
-        result.skipped++;
-      }
-      store.recordConnectorItem(account.id, kind, item.externalId, hash, sourceId);
+      // Materialize the item as a local document + revision: searchable even if
+      // extraction yields nothing, and re-syncing a changed item advances the
+      // SAME logical source's revision (resolved from the ledger) instead of
+      // forking a new source row.
+      const existing = store.getConnectorItem(account.id, kind, item.externalId);
+      const out = await pipeline.materialize({
+        type: `google:${kind}`,
+        title,
+        path,
+        rawContent: rawPayload(item),
+        normalizedContent: normalize(kind, item),
+        extraction,
+        existingSourceId: existing?.source_id ?? undefined,
+      });
+      result.ingested++;
+      store.recordConnectorItem(
+        account.id,
+        kind,
+        item.externalId,
+        hash,
+        out.sourceId,
+        out.sourceRevisionId,
+      );
     }
 
     store.setSyncState(account.id, kind, {
