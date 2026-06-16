@@ -29,6 +29,7 @@ export * as outputs from "./schemas/outputs.js";
 export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
 export * as connectors from "./schemas/connectors.js";
+export * as calendar from "./schemas/calendar.js";
 export * as git from "./schemas/git.js";
 export * as runtime from "./schemas/runtime.js";
 
@@ -78,5 +79,6 @@ export type {
   WatchedFolder,
 } from "./schemas/settings.js";
 export type { ConnectorKind, ConnectorKindStatus, ConnectorStatus } from "./schemas/connectors.js";
+export type { CalendarEvent } from "./schemas/calendar.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
 export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./schemas/runtime.js";

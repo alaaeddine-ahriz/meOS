@@ -46,6 +46,9 @@ const ICONS = {
   quote: icon(
     '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2 1 1 0 0 1 1-1V4a1 1 0 0 0-1-1z"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2 1 1 0 0 1 1-1V4a1 1 0 0 0-1-1z"/>',
   ),
+  meeting: icon(
+    '<path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/><path d="m9 16 2 2 4-4"/>',
+  ),
 };
 
 /** The block options offered by the `/` menu, in display order. */
@@ -115,31 +118,54 @@ export const SLASH_ITEMS: SlashItem[] = [
   },
 ];
 
-function filterItems(query: string): SlashItem[] {
+function filterItems(query: string, items: SlashItem[]): SlashItem[] {
   const q = query.trim().toLowerCase();
-  if (!q) return SLASH_ITEMS;
-  return SLASH_ITEMS.filter(
+  if (!q) return items;
+  return items.filter(
     (it) => it.title.toLowerCase().includes(q) || it.keywords?.some((k) => k.includes(q)),
   );
+}
+
+/** Options the host view supplies to the slash menu. */
+export interface SlashCommandOptions {
+  /** Apply a named document template (currently just the meeting front matter). */
+  onApplyTemplate: (name: "meeting") => void;
 }
 
 /**
  * The Notion-style `/` menu. Typing `/` at the start of an empty block opens a
  * list of block types; picking one removes the trigger text and applies the
  * transform. Rendered with plain DOM (no extra deps), mirroring the `@mention`
- * popup so the two menus stay visually consistent.
+ * popup so the two menus stay visually consistent. A leading "Meeting note" item
+ * drops the meeting template — it doesn't transform a block, it asks the host
+ * view to set the note's front matter (type: meeting, today's date).
  */
-export const SlashCommand = Extension.create({
+export const SlashCommand = Extension.create<SlashCommandOptions>({
   name: "slashCommand",
 
+  addOptions() {
+    return { onApplyTemplate: () => {} };
+  },
+
   addProseMirrorPlugins() {
+    const onApplyTemplate = this.options.onApplyTemplate;
+    const meetingItem: SlashItem = {
+      title: "Meeting note",
+      icon: ICONS.meeting,
+      keywords: ["meeting", "template", "standup", "1:1", "agenda"],
+      run: ({ editor, range }) => {
+        editor.chain().focus().deleteRange(range).run();
+        onApplyTemplate("meeting");
+      },
+    };
+    const items = [meetingItem, ...SLASH_ITEMS];
     return [
       Suggestion<SlashItem>({
         editor: this.editor,
         char: "/",
         // Only trigger at the start of a block, so `/` inside prose is left alone.
         startOfLine: true,
-        items: ({ query }) => filterItems(query),
+        items: ({ query }) => filterItems(query, items),
         command: ({ editor, range, props }) => props.run({ editor, range }),
         render: renderSlashMenu,
       } satisfies Omit<SuggestionOptions<SlashItem>, "editor"> & { editor: Editor }),

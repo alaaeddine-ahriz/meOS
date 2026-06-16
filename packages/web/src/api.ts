@@ -7,6 +7,7 @@ import { isTauri } from "./lib/platform.js";
 import type {
   ActivityEvent,
   AuditEntry,
+  CalendarEvent,
   ChatEvent,
   CloudProvider,
   Contradiction,
@@ -56,6 +57,7 @@ import type {
 export type {
   ActivityEvent,
   AuditEntry,
+  CalendarEvent,
   ChatEvent,
   CloudProvider,
   Contradiction,
@@ -287,6 +289,11 @@ export const api = {
     json<{ syncing: boolean }>(`/api/connectors/google/${kind}/sync`, { method: "POST" }),
   disconnectGoogle: () =>
     json<{ disconnected: boolean }>("/api/connectors/google", { method: "DELETE" }),
+  // Synced calendar events for the `@`-mention picker (empty if not connected).
+  listCalendarEvents: (q = "", limit = 25) =>
+    json<{ events: CalendarEvent[] }>(
+      `/api/calendar/events?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   getDuplicates: () => json<{ duplicates: DuplicateProposal[] }>("/api/entities/duplicates"),
   mergeEntities: (loserId: number, winnerId: number) =>
     json<{ merged: boolean }>("/api/entities/merge", {

@@ -56,9 +56,20 @@ export interface SimpleEditorProps {
   suggest: (query: string) => LinkTarget[];
   /** Called when a mention chip is clicked. */
   onFollow: (target: FollowTarget) => void;
+  /** Called after a mention is inserted, so the view can drive front matter. */
+  onInsert?: (target: LinkTarget) => void;
+  /** Called when a `/` template is chosen (e.g. `/meeting`). */
+  onApplyTemplate?: (name: "meeting") => void;
 }
 
-export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEditorProps) {
+export function SimpleEditor({
+  markdown,
+  onChange,
+  suggest,
+  onFollow,
+  onInsert,
+  onApplyTemplate,
+}: SimpleEditorProps) {
   // Parsing the initial markdown can emit a normalising transaction while the
   // editor is still being created; ignore updates until mounted so we never
   // setState mid-render (or autosave an untouched note).
@@ -69,6 +80,10 @@ export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEd
   suggestRef.current = suggest;
   const followRef = useRef(onFollow);
   followRef.current = onFollow;
+  const insertRef = useRef(onInsert);
+  insertRef.current = onInsert;
+  const applyTemplateRef = useRef(onApplyTemplate);
+  applyTemplateRef.current = onApplyTemplate;
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -101,16 +116,21 @@ export function SimpleEditor({ markdown, onChange, suggest, onFollow }: SimpleEd
       Subscript,
       Selection,
       Placeholder.configure({
-        placeholder: "Write… type / for blocks, @ to mention a note or wiki page",
+        placeholder: "Write… type / for blocks, @ to mention a note, person, date, or event",
       }),
       // HTML mode so nodes/marks without Markdown syntax — tables and the
       // bubble-menu's underline/sub/superscript — round-trip as `<table>`,
       // `<u>`, `<sub>`, `<sup>` instead of being dropped on save.
       Markdown.configure({ html: true, transformPastedText: true }),
-      SlashCommand,
+      SlashCommand.configure({
+        onApplyTemplate: (name) => applyTemplateRef.current?.(name),
+      }),
       VaultMention.configure({
         HTMLAttributes: { class: "mention-chip" },
-        suggestion: mentionSuggestion((query) => suggestRef.current(query)),
+        suggestion: mentionSuggestion(
+          (query) => suggestRef.current(query),
+          (item) => insertRef.current?.(item),
+        ),
         onFollow: (target) => followRef.current(target),
       }),
     ],
