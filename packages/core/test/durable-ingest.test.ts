@@ -314,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(25);
+    expect(migrations.length).toBe(26);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -329,6 +329,9 @@ describe("migration 21 (durable ingest jobs)", () => {
       // 'extract-failed'), simulating a DB created before #13 shipped.
       db.pragma("foreign_keys = OFF");
       db.exec(`
+        DROP INDEX IF EXISTS idx_meeting_links_source;
+        DROP TABLE IF EXISTS meeting_link_suggestions;
+        DROP TABLE IF EXISTS meeting_notes;
         ALTER TABLE connector_items DROP COLUMN source_revision_id;
         DROP TABLE IF EXISTS extraction_cache;
         DROP TABLE IF EXISTS ingest_runs;
@@ -386,7 +389,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(25);
+    expect(migrations.length).toBe(26);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -398,6 +401,9 @@ describe("migration 24 (ingest job priority, #18)", () => {
       expect(store.getIngestJob(legacyJob)!.priority).toBe(IngestPriority.WATCH);
 
       db.exec(`
+        DROP INDEX IF EXISTS idx_meeting_links_source;
+        DROP TABLE IF EXISTS meeting_link_suggestions;
+        DROP TABLE IF EXISTS meeting_notes;
         DROP INDEX IF EXISTS idx_ingest_jobs_claim;
         ALTER TABLE ingest_jobs DROP COLUMN priority;
       `);

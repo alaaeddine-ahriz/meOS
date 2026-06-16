@@ -14,6 +14,7 @@ import { registerConnectorRoutes } from "./routes/connectors.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
+import { registerMeetingRoutes } from "./routes/meetings.js";
 import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerProfileRoutes } from "./routes/profile.js";
 import { registerRuntimeRoutes } from "./routes/runtime.js";
@@ -60,6 +61,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   app.get("/api/openapi.json", async () => app.swagger());
 
   registerIngestRoutes(app, ctx);
+  registerMeetingRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);

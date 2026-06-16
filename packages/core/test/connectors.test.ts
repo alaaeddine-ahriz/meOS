@@ -623,7 +623,7 @@ describe("connector framework (#5) — a second provider slots in", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(25);
+    expect(migrations.length).toBe(26);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -645,6 +645,9 @@ describe("migration 23 (connector materialization)", () => {
 
       // Rewind to v22: drop the migration-23 column + the migration-24 priority
       // artifacts, and reset user_version, simulating a DB created before #19.
+      db.exec(`DROP INDEX IF EXISTS idx_meeting_links_source;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_link_suggestions;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_notes;`);
       db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
       db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
       db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);
@@ -687,7 +690,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(25);
+    expect(migrations.length).toBe(26);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -727,6 +730,11 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
         DROP TABLE connector_sync_state;
         ALTER TABLE connector_sync_state_old RENAME TO connector_sync_state;
       `);
+      // Drop the migration-26 (meeting-notes) artifacts created after #5 shipped,
+      // so re-migrating from v24 re-applies them cleanly instead of colliding.
+      db.exec(`DROP INDEX IF EXISTS idx_meeting_links_source;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_link_suggestions;`);
+      db.exec(`DROP TABLE IF EXISTS meeting_notes;`);
       db.pragma("user_version = 24");
       // The old shape rejects a non-Google kind — the bug migration 25 fixes.
       expect(() =>

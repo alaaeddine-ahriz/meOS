@@ -50,6 +50,13 @@ export const CONNECTOR_SOURCE_TYPES = [
 export const PROFILE_SOURCE_TYPE = "profile_context";
 
 /**
+ * The meeting-note source type (#26). A meeting note is a first-class, trusted
+ * source the user captures by hand: searchable, answerable, and wiki-eligible,
+ * and — like local files and pasted notes — fully permissive for sync/export.
+ */
+export const MEETING_SOURCE_TYPE = "meeting";
+
+/**
  * The visibility a newly created source of `type` should get. Coherent defaults
  * per source type (DOCUMENTED here and mirrored in migration 18's backfill so
  * existing rows match new ones):
@@ -57,6 +64,7 @@ export const PROFILE_SOURCE_TYPE = "profile_context";
  *   type                                  search answer wiki sync export activity
  *   file / watch / upload / image / text    ✓      ✓     ✓    ✓     ✓      ✓
  *   conversation / session / vault          ✓      ✓     ✓    ✓     ✓      ✓
+ *   meeting                                 ✓      ✓     ✓    ✓     ✓      ✓
  *   google:contacts|calendar|gmail          ✓      ✓     ✓    ✗     ✗      ✓
  *   profile_context                         ✓      ✓     ✗    ✗     ✗      ✓
  */
@@ -69,7 +77,8 @@ export function defaultVisibilityForType(type: string): SourceVisibility {
     // Profile docs: feed retrieval, but not the wiki and not sync/export.
     return { ...ALL_TRUE, wikiEligible: false, syncable: false, exportable: false };
   }
-  // Local files, uploads, vault notes, pasted text, conversations, sessions:
-  // fully permissive, exactly as before the visibility model existed.
+  // Local files, uploads, vault notes, pasted text, conversations, sessions, and
+  // meeting notes (#26 — trusted sources): fully permissive, exactly as before
+  // the visibility model existed.
   return { ...ALL_TRUE };
 }

@@ -33,6 +33,15 @@ export type { ChunkOptions, ChunkWithMetadata } from "./ingest/chunk.js";
 export { IngestionPipeline } from "./ingest/pipeline.js";
 export type { IngestInput, IngestOutcome, PostMergeHook } from "./ingest/pipeline.js";
 export {
+  composeMeetingMarkdown,
+  MEETING_EXTRACTION_LENS,
+  meetingSourcePath,
+  processMeetingNote,
+} from "./ingest/meeting.js";
+export type { MeetingNoteInput, MeetingProcessResult } from "./ingest/meeting.js";
+export { suggestMeetingLinks } from "./knowledge/meeting-links.js";
+export type { MeetingLinkSuggestion } from "./knowledge/meeting-links.js";
+export {
   entityTypeSchema,
   extractionSchema,
   observationKindSchema,
@@ -73,6 +82,10 @@ export type {
   InboxItemRow,
   IngestCostMetric,
   IngestJobRow,
+  MeetingLinkMethod,
+  MeetingLinkStatus,
+  MeetingLinkSuggestionRow,
+  MeetingNoteRow,
   IngestJobState,
   IngestQueueDepth,
   IngestQueueKind,
@@ -112,6 +125,13 @@ export {
 export type { ObservationKind, Sensitivity } from "./knowledge/schema-doc.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
+export {
+  CONNECTOR_SOURCE_TYPES,
+  defaultVisibilityForType,
+  MEETING_SOURCE_TYPE,
+  PROFILE_SOURCE_TYPE,
+} from "./knowledge/visibility.js";
+export type { SourceVisibility } from "./knowledge/visibility.js";
 export {
   composeProfileContext,
   ensureProfileDocs,
