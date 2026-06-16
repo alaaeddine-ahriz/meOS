@@ -314,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(26);
+    expect(migrations.length).toBe(27);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -389,7 +389,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(26);
+    expect(migrations.length).toBe(27);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -421,6 +421,74 @@ describe("migration 24 (ingest job priority, #18)", () => {
       // claim orders it ahead of the backfilled one.
       const userJob = upStore.createIngestJob({ kind: "file", priority: IngestPriority.USER });
       expect(upStore.claimIngestJob("extraction")!.id).toBe(userJob);
+      upgraded.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          fs.rmSync(file + suffix);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+});
+
+describe("migration 27 (repair inbox_items CHECK)", () => {
+  it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
+    expect(migrations.length).toBe(27);
+
+    const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
+    try {
+      // Build a current-shape DB, seed an inbox row + a durable job linked to it,
+      // then simulate the migration-renumber collision: rebuild inbox_items with
+      // the OLD 7-value CHECK (no 'extract-failed') while leaving user_version at
+      // 26. Such a DB reached the tip version without ever getting migration 21's
+      // widened constraint, so 'extract-failed' writes fail the CHECK.
+      const db = openDatabase(file);
+      const store = new KnowledgeStore(db);
+      const sourceId = store.createSource({ type: "file", title: "Legacy", content: "old text" });
+      const inboxId = store.createInboxItem("legacy.txt");
+      store.updateInboxItem(inboxId, "done", "all good", sourceId);
+      const jobId = store.createIngestJob({ kind: "file", inboxItemId: inboxId });
+
+      db.pragma("foreign_keys = OFF");
+      db.exec(`
+        CREATE TABLE inbox_items_old (
+          id INTEGER PRIMARY KEY,
+          source_id INTEGER REFERENCES sources(id),
+          title TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'queued'
+            CHECK (status IN ('queued','parsing','extracting','merging','done','failed','unsupported')),
+          detail TEXT,
+          path TEXT,
+          revision INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO inbox_items_old
+          (id, source_id, title, status, detail, path, revision, created_at, updated_at)
+          SELECT id, source_id, title, status, detail, path, revision, created_at, updated_at
+          FROM inbox_items;
+        DROP TABLE inbox_items;
+        ALTER TABLE inbox_items_old RENAME TO inbox_items;
+        CREATE INDEX idx_inbox_items_path ON inbox_items(path);
+      `);
+      db.pragma("user_version = 26");
+      db.close();
+
+      // Re-open through the real migrator: migration 27 must apply, landing at tip.
+      const upgraded = openDatabase(file);
+      expect(upgraded.pragma("user_version", { simple: true })).toBe(migrations.length);
+
+      const upStore = new KnowledgeStore(upgraded);
+      // The legacy inbox row survived...
+      expect(upStore.listInbox().find((i) => i.id === inboxId)?.status).toBe("done");
+      // ...the job→inbox link survived the rebuild's ON DELETE SET NULL...
+      expect(upStore.getIngestJob(jobId)!.inbox_item_id).toBe(inboxId);
+      // ...and the CHECK now accepts the previously-rejected 'extract-failed' state.
+      expect(() => upStore.updateInboxItem(inboxId, "extract-failed", "searchable")).not.toThrow();
+      expect(upStore.listInbox().find((i) => i.id === inboxId)?.status).toBe("extract-failed");
       upgraded.close();
     } finally {
       for (const suffix of ["", "-wal", "-shm"]) {
