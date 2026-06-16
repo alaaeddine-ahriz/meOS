@@ -9,9 +9,6 @@ import {
   History,
   Laptop,
   type LucideIcon,
-  Calendar,
-  Contact,
-  Mail,
   Moon,
   Palette as PaletteIcon,
   Plug,
@@ -23,7 +20,15 @@ import {
   UserCircle,
   X,
 } from "lucide-react";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  AnthropicLogo,
+  GmailLogo,
+  GoogleCalendarLogo,
+  GoogleContactsLogo,
+  GoogleLogo,
+  OpenAILogo,
+} from "@/components/brand-logos";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
 import {
@@ -310,11 +315,11 @@ function AppearanceSection() {
   );
 }
 
-const PROVIDERS: Array<{ value: LlmProvider; label: string }> = [
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "google", label: "Google" },
-  { value: "local", label: "Local (LM Studio)" },
+const PROVIDERS: Array<{ value: LlmProvider; label: string; Logo: BrandLogo }> = [
+  { value: "anthropic", label: "Anthropic", Logo: AnthropicLogo },
+  { value: "openai", label: "OpenAI", Logo: OpenAILogo },
+  { value: "google", label: "Google", Logo: GoogleLogo },
+  { value: "local", label: "Local (LM Studio)", Logo: Laptop },
 ];
 
 const KEY_PLACEHOLDERS: Record<string, string> = {
@@ -485,7 +490,7 @@ function IntelligenceSection() {
       {llm && (
         <>
           <div className="flex flex-wrap gap-2">
-            {PROVIDERS.map(({ value, label }) => (
+            {PROVIDERS.map(({ value, label, Logo }) => (
               <Button
                 key={value}
                 variant="outline"
@@ -496,6 +501,7 @@ function IntelligenceSection() {
                   provider === value && "border-lamp-dim text-paper",
                 )}
               >
+                <Logo className="size-4" />
                 {label}
               </Button>
             ))}
@@ -672,7 +678,7 @@ function MaintainerPicker({
   const trimmed = value.trim();
   const reasoning = isReasoningModel(provider, trimmed);
   return (
-    <div className="mt-2 flex flex-col gap-2 border-t border-line pt-4">
+    <div className="mt-2 flex flex-col gap-2">
       <div>
         <p className="text-sm text-paper">Wiki maintainer model</p>
         <p className="mt-0.5 text-[13px] text-dim">
@@ -776,7 +782,7 @@ function FoldersSection() {
         Your files are never moved or modified.
       </PanelIntro>
 
-      <ul className="divide-y divide-line border-y border-line">
+      <ul className="flex flex-col">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
             <span
@@ -845,15 +851,26 @@ function FoldersSection() {
   );
 }
 
-const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb: string }> = {
+type BrandLogo = ComponentType<{ className?: string }>;
+
+const KIND_META: Record<ConnectorKind, { label: string; Logo: BrandLogo; blurb: string }> = {
   contacts: {
-    label: "Contacts",
-    icon: Contact,
+    label: "Google Contacts",
+    Logo: GoogleContactsLogo,
     blurb: "People, with email and phone (kept private).",
   },
-  calendar: { label: "Calendar", icon: Calendar, blurb: "Events and who you met with." },
-  gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
+  calendar: {
+    label: "Google Calendar",
+    Logo: GoogleCalendarLogo,
+    blurb: "Events and who you met with.",
+  },
+  gmail: { label: "Gmail", Logo: GmailLogo, blurb: "Who you correspond with (metadata only)." },
 };
+
+/** The services to show as cards, in display order. Drives the card list so all
+ * three always render — even before connecting, and regardless of what extra
+ * (possibly retired) kinds a server reports. */
+const KIND_ORDER: ConnectorKind[] = ["contacts", "calendar", "gmail"];
 
 function ConnectorsSection() {
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
@@ -946,166 +963,141 @@ function ConnectorsSection() {
 
   return (
     <section className="flex flex-col gap-5">
-      <PanelIntro>
-        Connect a Google account to turn the people you know into entities — enriched with their
-        contact details, the events you shared, and who you email. Contact details and email
-        metadata stay private (searchable, but kept out of the synced wiki).
-      </PanelIntro>
-
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-sm">
-          <span
-            className={cn("size-2 rounded-full", google?.connected ? "bg-emerald-500" : "bg-dim")}
-          />
-          <span className="text-faded">
-            {google?.connected
-              ? `Connected${google.accountEmail ? ` — ${google.accountEmail}` : ""}`
-              : "Not connected"}
-          </span>
-        </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowHelp(true)}
-          className="text-dim hover:text-paper"
-        >
-          Show me how
-        </Button>
-      </div>
-
-      {/* Credentials — the user's own Google OAuth desktop client. */}
-      <div className="flex flex-col gap-3 border-y border-line py-4">
-        <span className="text-sm text-faded">Google OAuth credentials (Desktop app client)</span>
-        <Input
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          placeholder={
-            google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
-          }
-          aria-label="Google OAuth client ID"
-          autoComplete="off"
-          className={inputClass}
-        />
-        <div className="flex items-center gap-3">
-          <Input
-            value={clientSecret}
-            onChange={(e) => setClientSecret(e.target.value)}
-            type="password"
-            placeholder={
-              google?.hasCredentials
-                ? "•••• client secret saved — paste to replace"
-                : "Client secret"
-            }
-            aria-label="Google OAuth client secret"
-            autoComplete="off"
-            className={inputClass}
-          />
-          <Button
-            variant="outline"
-            onClick={() => void saveCredentials()}
-            disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
-            className={actionButtonClass}
-          >
-            {busy === "creds" ? "Saving…" : "Save"}
-          </Button>
-        </div>
-      </div>
-
-      {/* Connect / disconnect. */}
-      <div className="flex items-center gap-3">
-        {google?.connected ? (
+      {/* Account connection — a status pill when linked, the OAuth credentials
+          form (the user's own Google Desktop client) until then. */}
+      {google?.connected ? (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-card/40 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="size-2 rounded-full bg-emerald-500" />
+            <span className="text-faded">
+              Connected{google.accountEmail ? ` — ${google.accountEmail}` : ""}
+            </span>
+          </div>
           <Button variant="outline" onClick={() => void disconnect()} className={actionButtonClass}>
             Disconnect
           </Button>
-        ) : (
-          <Button
-            variant="outline"
-            onClick={() => void connect()}
-            disabled={!google?.hasCredentials || busy === "connect"}
-            className={actionButtonClass}
-          >
-            {busy === "connect" ? "Waiting for Google…" : "Connect Google"}
-          </Button>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-xl border border-line bg-card/40 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="size-2 rounded-full bg-dim" />
+              <span className="text-faded">Not connected</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowHelp(true)}
+              className="text-dim hover:text-paper"
+            >
+              Show me how
+            </Button>
+          </div>
+          <span className="text-sm text-faded">Google OAuth credentials (Desktop app client)</span>
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder={
+              google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
+            }
+            aria-label="Google OAuth client ID"
+            autoComplete="off"
+            className={inputClass}
+          />
+          <div className="flex items-center gap-3">
+            <Input
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              type="password"
+              placeholder={
+                google?.hasCredentials
+                  ? "•••• client secret saved — paste to replace"
+                  : "Client secret"
+              }
+              aria-label="Google OAuth client secret"
+              autoComplete="off"
+              className={inputClass}
+            />
+            <Button
+              variant="outline"
+              onClick={() => void saveCredentials()}
+              disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
+              className={actionButtonClass}
+            >
+              {busy === "creds" ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      )}
 
-      {/* Per-kind sync controls — only meaningful once connected. */}
-      {google?.connected && (
-        <ul className="flex flex-col divide-y divide-line border-y border-line">
-          {google.kinds.map((k) => {
-            const meta = KIND_META[k.kind];
-            const Icon = meta.icon;
-            return (
-              <li key={k.kind} className="flex flex-col gap-2 py-3.5">
-                <div className="flex items-center gap-3">
-                  <Icon className="size-4 shrink-0 text-dim" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-paper">{meta.label}</div>
-                    <div className="text-[12px] text-dim">{meta.blurb}</div>
-                  </div>
+      {/* One card per Google service: brand logo, what it brings in, and a button
+          to connect (when not linked) or toggle the per-service sync (when linked). */}
+      <div className="flex flex-col gap-3">
+        {KIND_ORDER.map((kind) => {
+          const meta = KIND_META[kind];
+          const { Logo } = meta;
+          const k = google?.kinds.find((entry) => entry.kind === kind);
+          const connected = google?.connected ?? false;
+          return (
+            <div key={kind} className="rounded-xl border border-line bg-card/40 p-4">
+              <div className="flex items-center gap-4">
+                <Logo className="size-9 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[15px] font-medium text-paper">{meta.label}</div>
+                  <div className="text-[13px] text-faded">{meta.blurb}</div>
+                </div>
+                {connected && k ? (
                   <Button
                     variant="outline"
-                    size="sm"
-                    onClick={() => void configure(k.kind, { enabled: !k.enabled })}
+                    onClick={() => void configure(kind, { enabled: !k.enabled })}
                     className={cn(actionButtonClass, k.enabled && "border-lamp-dim text-paper")}
                   >
                     {k.enabled ? "On" : "Off"}
                   </Button>
-                </div>
-                {k.enabled && (
-                  <div className="flex flex-wrap items-center gap-3 pl-7">
-                    <label className="flex items-center gap-2 text-[12px] text-dim">
-                      every
-                      <Input
-                        type="number"
-                        min={1}
-                        defaultValue={k.intervalMinutes}
-                        onBlur={(e) => {
-                          const value = Number(e.target.value);
-                          if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
-                            void configure(k.kind, { intervalMinutes: value });
-                          }
-                        }}
-                        className={cn(inputClass, "h-7 w-16")}
-                      />
-                      min
-                    </label>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void syncNow(k.kind)}
-                      className="text-dim hover:text-paper"
-                    >
-                      <RefreshCw className="size-3.5" />
-                      Sync now
-                    </Button>
-                    {k.lastStatus && <span className="text-[11px] text-dim">{k.lastStatus}</span>}
-                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    onClick={() => void connect()}
+                    disabled={!google?.hasCredentials || busy === "connect"}
+                    className={actionButtonClass}
+                  >
+                    {busy === "connect" ? "Waiting…" : "Connect"}
+                  </Button>
                 )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {/* Visibility model — what connector data is allowed to influence. Connector
-          sources default to private: they inform you here, but never leave the device. */}
-      <div className="flex flex-col gap-2 rounded-md border border-line bg-card/50 p-3.5 text-[12px] text-dim">
-        <span className="text-faded">What synced Google data can do</span>
-        <ul className="flex flex-col gap-1">
-          <li>
-            <span className="text-paper">Searchable &amp; answerable</span> — yes. Synced people and
-            events become entities your chat can find and cite.
-          </li>
-          <li>
-            <span className="text-paper">Wiki</span> — non-private facts may appear on a person's
-            page; contact details and email metadata are kept off it.
-          </li>
-          <li>
-            <span className="text-paper">Sync &amp; export</span> — no. Connector-derived content is
-            never written to the git-synced wiki/digests or any export. It stays on this device.
-          </li>
-        </ul>
+              </div>
+              {connected && k?.enabled && (
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-[12px] text-dim">
+                  <label className="flex items-center gap-2">
+                    every
+                    <Input
+                      type="number"
+                      min={1}
+                      defaultValue={k.intervalMinutes}
+                      onBlur={(e) => {
+                        const value = Number(e.target.value);
+                        if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
+                          void configure(kind, { intervalMinutes: value });
+                        }
+                      }}
+                      className={cn(inputClass, "h-7 w-16")}
+                    />
+                    min
+                  </label>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void syncNow(kind)}
+                    className="text-dim hover:text-paper"
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Sync now
+                  </Button>
+                  {k.lastStatus && <span className="text-[11px]">{k.lastStatus}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {error && (
@@ -1327,11 +1319,11 @@ function GitHistory({ refreshKey }: { refreshKey: string }) {
   if (!commits || commits.length === 0) return null;
 
   return (
-    <div className="mt-2 border-t border-line pt-4">
+    <div className="mt-2">
       <h4 className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
         <History className="size-3.5" /> history
       </h4>
-      <ul className="mt-3 divide-y divide-line">
+      <ul className="mt-3 flex flex-col">
         {commits.map((commit) => (
           <li key={commit.hash}>
             <button

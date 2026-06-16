@@ -201,7 +201,8 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // gating — so the upgrade self-heals without a manual job.
   queue.push(async () => {
     const pruned = wiki.pruneConnectorOnlyPages();
-    if (pruned > 0) console.log(`[wiki] pruned ${pruned} page(s) for entities without wiki backing`);
+    if (pruned > 0)
+      console.log(`[wiki] pruned ${pruned} page(s) for entities without wiki backing`);
     const filled = await wiki.backfillPages();
     if (filled > 0) console.log(`[wiki] backfilled ${filled} page(s) into the retrieval index`);
   });

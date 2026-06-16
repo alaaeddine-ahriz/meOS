@@ -31,9 +31,7 @@ export function Features() {
         <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
           A brain that files itself
         </h2>
-        <p className="mt-3 max-w-xl text-muted">
-          Four things meOS does so you don't have to.
-        </p>
+        <p className="mt-3 max-w-xl text-muted">Four things meOS does so you don't have to.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2">

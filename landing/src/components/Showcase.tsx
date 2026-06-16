@@ -48,9 +48,7 @@ export function Showcase() {
   return (
     <section id="inside" className="border-b border-border px-5 py-16 sm:px-8">
       <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Inside meOS</h2>
-      <p className="mt-3 max-w-xl text-muted">
-        Three surfaces, one brain. Click through them.
-      </p>
+      <p className="mt-3 max-w-xl text-muted">Three surfaces, one brain. Click through them.</p>
 
       <div className="mt-12 grid items-center gap-12 lg:grid-cols-2">
         {/* explanations double as the stepper */}
@@ -70,19 +68,14 @@ export function Showcase() {
                       : "border-transparent hover:bg-surface/60")
                   }
                 >
-                  <span
-                    className={
-                      "mt-0.5 font-mono text-sm " + (on ? "text-accent" : "text-dim")
-                    }
-                  >
+                  <span className={"mt-0.5 font-mono text-sm " + (on ? "text-accent" : "text-dim")}>
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span>
                     <span className="block font-semibold">{s.title}</span>
                     <span
                       className={
-                        "mt-1 block text-sm leading-relaxed " +
-                        (on ? "text-muted" : "text-dim")
+                        "mt-1 block text-sm leading-relaxed " + (on ? "text-muted" : "text-dim")
                       }
                     >
                       {s.body}
