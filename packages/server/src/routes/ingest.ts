@@ -21,17 +21,22 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
   );
 
   app.post("/api/ingest/upload", async (request, reply) => {
-    const accepted: Array<{ inboxItemId: number; filename: string }> = [];
+    const accepted: Array<{ inboxItemId: number; jobId: number; filename: string }> = [];
     for await (const part of request.files()) {
       const buffer = await part.toBuffer();
       const filename = part.filename;
       const inboxItemId = ctx.store.createInboxItem(filename);
-      ctx.queue.push(() =>
-        ctx.pipeline
-          .ingest({ kind: "file", filename, buffer, origin: "upload" }, inboxItemId)
-          .then(() => undefined),
-      );
-      accepted.push({ inboxItemId, filename });
+      // Persist the ingest as a durable job before any work runs, so an upload
+      // survives a crash/restart and is retryable (#13). The buffer is held for
+      // this first run only; a recovered upload (no path) that never produced a
+      // source dead-letters for a manual re-upload.
+      const jobId = ctx.durableIngest.enqueueFile({
+        filename,
+        buffer,
+        origin: "upload",
+        inboxItemId,
+      });
+      accepted.push({ inboxItemId, jobId, filename });
     }
     if (accepted.length === 0) {
       throw httpError.badRequest("No files in request");
@@ -43,6 +48,43 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     queuePending: ctx.queue.pending,
     items: ctx.store.listInbox(),
   }));
+
+  // The durable ingest job ledger (#13): every persisted ingestion unit with its
+  // lifecycle state, attempts, and last error — enough to diagnose and retry.
+  app.get("/api/ingest/jobs", async () =>
+    ingest.IngestJobsResponse.parse({
+      jobs: ctx.store.listIngestJobs().map((j) => ({
+        id: j.id,
+        kind: j.kind,
+        queue: j.queue,
+        stage: j.stage,
+        state: j.state,
+        attempts: j.attempts,
+        maxAttempts: j.max_attempts,
+        inboxItemId: j.inbox_item_id,
+        sourceId: j.source_id,
+        lastError: j.last_error,
+        createdAt: j.created_at,
+        updatedAt: j.updated_at,
+      })),
+    }),
+  );
+
+  // Manually retry a failed or dead-letter ingest: resets the retry budget and
+  // re-pumps the queue. Idempotent stages make the re-run safe; a job that only
+  // needs its extraction retried re-runs from the stored revision (no re-read).
+  app.post<{ Params: { id: string } }>("/api/ingest/jobs/:id/retry", async (request) => {
+    const { id } = parseOrThrow(ingest.RetryJobParams, request.params, "params");
+    const job = ctx.store.getIngestJob(id);
+    if (!job) {
+      throw httpError.notFound("No such ingest job");
+    }
+    const retried = ctx.durableIngest.retry(id);
+    if (!retried) {
+      throw httpError.badRequest("Job is not in a retryable state");
+    }
+    return ingest.RetryJobResponse.parse({ retried });
+  });
 
   // What a single document created/changed in the wiki: its commits, each
   // scoped (via path filtering) to just this document's pages, with the diff.

@@ -55,6 +55,9 @@ function docLabel(item: InboxItem): string {
       return item.revision > 1 ? "updated" : "ingested";
     case "failed":
       return "failed";
+    case "extract-failed":
+      // Searchable, but semantic extraction failed and is retryable (#13).
+      return "searchable · extraction failed";
     case "unsupported":
       return "skipped";
     default:
@@ -75,6 +78,7 @@ const DOC_DOTS: Record<string, string> = {
   merging: "bg-lamp working-dot",
   done: "bg-moss",
   failed: "bg-ember",
+  "extract-failed": "bg-ember",
   unsupported: "bg-dim",
 };
 
@@ -97,7 +101,7 @@ function appendChunk(
 
 export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [runs, setRuns] = useState<WikiRun[]>([]);
-  const { items: docs } = useInbox();
+  const { items: docs, retryableByInbox, retryJob } = useInbox();
   const [transcripts, setTranscripts] = useState<ReadonlyMap<number, Segment[]>>(new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   // Runs whose transcript we've already streamed live or fetched, so expanding
@@ -246,7 +250,12 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
                 onToggle={() => void toggle(entry.run)}
               />
             ) : (
-              <DocCard key={`doc-${entry.item.id}`} item={entry.item} />
+              <DocCard
+                key={`doc-${entry.item.id}`}
+                item={entry.item}
+                retryableJobId={retryableByInbox.get(entry.item.id)?.id}
+                onRetry={retryJob}
+              />
             ),
           )}
           {feed.length === 0 && (
@@ -276,7 +285,16 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
 }
 
 /** A document moving through the pipeline: a static row, linking to its diff once done. */
-function DocCard({ item }: { item: InboxItem }) {
+function DocCard({
+  item,
+  retryableJobId,
+  onRetry,
+}: {
+  item: InboxItem;
+  /** The id of a failed/dead-letter durable ingest job for this item, if any (#13). */
+  retryableJobId?: number;
+  onRetry?: (jobId: number) => void;
+}) {
   const linkable = item.status === "done" && item.source_id != null;
   const inner = (
     <>
@@ -292,6 +310,18 @@ function DocCard({ item }: { item: InboxItem }) {
           {item.detail ? ` · ${item.detail}` : ""}
         </span>
       </span>
+      {retryableJobId != null && onRetry ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            onRetry(retryableJobId);
+          }}
+          className="shrink-0 rounded-md border border-line px-2 py-1 font-mono text-[11px] uppercase tracking-wider text-paper transition-colors hover:bg-card/40"
+        >
+          Retry
+        </button>
+      ) : null}
       <span className="shrink-0 font-mono text-[11px] text-dim">{formatTime(item.updated_at)}</span>
     </>
   );

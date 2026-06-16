@@ -37,6 +37,64 @@ describe("POST /api/ingest/upload", () => {
   });
 });
 
+describe("durable ingest jobs (#13)", () => {
+  it("GET /api/ingest/jobs returns the persisted job ledger matching the contract", async () => {
+    const { store } = server.ctx;
+    const jobId = store.createIngestJob({
+      kind: "file",
+      payload: { kind: "file", filename: "ledger.txt" },
+      contentHash: "deadbeef",
+      byteSize: 12,
+    });
+
+    const res = await server.app.inject({ method: "GET", url: "/api/ingest/jobs" });
+    expect(res.statusCode).toBe(200);
+    const parsed = ingest.IngestJobsResponse.parse(res.json());
+    const job = parsed.jobs.find((j) => j.id === jobId)!;
+    expect(job).toBeDefined();
+    expect(job.state).toBe("pending");
+    expect(job.queue).toBe("extraction");
+  });
+
+  it("POST /api/ingest/jobs/:id/retry requeues a dead-letter job", async () => {
+    const { store } = server.ctx;
+    const jobId = store.createIngestJob({ kind: "text", maxAttempts: 1 });
+    // claimIngestJob takes the oldest pending job on the queue; drain any earlier
+    // stragglers left pending by previous cases until we hold this job (attempts→1).
+    let claimed = store.claimIngestJob("extraction");
+    while (claimed && claimed.id !== jobId) claimed = store.claimIngestJob("extraction");
+    expect(claimed?.id).toBe(jobId);
+    store.failIngestJob(jobId, "boom");
+    expect(store.getIngestJob(jobId)!.state).toBe("dead-letter");
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/api/ingest/jobs/${jobId}/retry`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(ingest.RetryJobResponse.parse(res.json()).retried).toBe(true);
+    expect(store.getIngestJob(jobId)!.state).toBe("pending");
+  });
+
+  it("404s with the NOT_FOUND envelope retrying an unknown job", async () => {
+    const res = await server.app.inject({ method: "POST", url: "/api/ingest/jobs/999999/retry" });
+    expect(res.statusCode).toBe(404);
+    expect(ErrorEnvelopeSchema.parse(res.json()).code).toBe(ErrorCode.NOT_FOUND);
+  });
+
+  it("400s with the BAD_REQUEST envelope retrying a job that is not retryable", async () => {
+    const { store } = server.ctx;
+    // A fresh pending job has nothing to retry.
+    const jobId = store.createIngestJob({ kind: "text" });
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/api/ingest/jobs/${jobId}/retry`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(ErrorEnvelopeSchema.parse(res.json()).code).toBe(ErrorCode.BAD_REQUEST);
+  });
+});
+
 describe("GET /api/sources/:id/diff", () => {
   it("404s with the NOT_FOUND envelope for an unknown source id", async () => {
     const res = await server.app.inject({ method: "GET", url: "/api/sources/999999/diff" });

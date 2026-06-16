@@ -24,6 +24,7 @@ import type {
   GraphLink,
   GraphNode,
   InboxItem,
+  IngestJob,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
@@ -66,6 +67,7 @@ export type {
   GraphLink,
   GraphNode,
   InboxItem,
+  IngestJob,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
@@ -106,6 +108,9 @@ export const api = {
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getGraph: () => json<WikiGraph>("/api/wiki/graph"),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),
+  listIngestJobs: () => json<{ jobs: IngestJob[] }>("/api/ingest/jobs"),
+  retryIngestJob: (id: number) =>
+    json<{ retried: boolean }>(`/api/ingest/jobs/${id}/retry`, { method: "POST" }),
   listFolders: () => json<{ folders: WatchedFolder[] }>("/api/settings/folders"),
   addFolder: (path: string) =>
     json<{ folder: WatchedFolder }>("/api/settings/folders", {

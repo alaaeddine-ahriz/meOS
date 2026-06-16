@@ -10,6 +10,7 @@ import {
   type JobQueue,
   type KnowledgeStore,
 } from "@meos/core";
+import type { DurableIngest } from "./durable-ingest.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -41,7 +42,13 @@ export class FolderWatcher {
   private readonly watcher: FSWatcher;
 
   constructor(
-    private readonly deps: { store: KnowledgeStore; pipeline: IngestionPipeline; queue: JobQueue },
+    private readonly deps: {
+      store: KnowledgeStore;
+      pipeline: IngestionPipeline;
+      queue: JobQueue;
+      /** Durable ingestion (#13): file ingests are persisted + retryable. */
+      durableIngest: DurableIngest;
+    },
   ) {
     this.watcher = chokidar.watch([], {
       ignoreInitial: false,
@@ -127,7 +134,7 @@ export class FolderWatcher {
     if (!this.deps.store.fileNeedsIngest(filePath, stat.mtimeMs, stat.size)) return;
 
     const filename = path.basename(filePath);
-    const { store, pipeline, queue } = this.deps;
+    const { store, queue, durableIngest } = this.deps;
     queue.push(async () => {
       // Never read synchronously here: one file with stuck I/O would wedge
       // the whole event loop, taking the API down with it.
@@ -159,17 +166,19 @@ export class FolderWatcher {
       }
 
       // A genuine new file or edit — only now does it become a feed event, so a
-      // cosmetic touch never flashes a spurious "updated" row.
+      // cosmetic touch never flashes a spurious "updated" row. The ledger is
+      // recorded up front: durability now lives in the persisted ingest job
+      // (#13), which retries on its own across restarts; the file ledger only
+      // gates re-reads. If the job later dead-letters, a manual retry re-runs it.
       const { id: inboxItemId } = store.upsertInboxItemForFile(filePath, filename);
-      const outcome = await pipeline.ingest(
-        { kind: "file", filename, buffer, origin: "watch", path: filePath },
+      store.recordIngestedFile(filePath, stat.mtimeMs, stat.size, contentHash);
+      durableIngest.enqueueFile({
+        filename,
+        buffer,
+        origin: "watch",
+        path: filePath,
         inboxItemId,
-      );
-      // A failure (e.g. LLM outage) stays off the ledger so the file is
-      // retried on the next server start instead of being skipped forever.
-      if (outcome.status !== "failed") {
-        store.recordIngestedFile(filePath, stat.mtimeMs, stat.size, contentHash);
-      }
+      });
     });
   }
 }

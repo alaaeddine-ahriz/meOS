@@ -20,7 +20,17 @@ export type IngestInput =
 export interface IngestOutcome {
   inboxItemId: number;
   sourceId?: number;
-  status: "done" | "failed" | "unsupported";
+  /** The revision opened for this ingest (#16); set once parsing creates one. */
+  sourceRevisionId?: number;
+  /**
+   * `done` — fully ingested (parsed, indexed, extracted, merged).
+   * `indexed` — search/index committed but semantic extraction failed; the
+   *   source IS searchable and the extraction stage is retryable (#13). The
+   *   revision is left `incomplete` so it doesn't look fully ingested.
+   * `failed` — failed before the source became searchable.
+   * `unsupported` — no extractable text.
+   */
+  status: "done" | "indexed" | "failed" | "unsupported";
 }
 
 /**
@@ -202,9 +212,14 @@ export class IngestionPipeline {
       // Structure-aware chunking (#14): use the parser's blocks when available
       // (PDF pages, DOCX headings, CSV/JSON rows), else derive blocks from the
       // normalized text. Chunks carry section/page/span metadata for citations.
+      // This is the SEARCH/INDEX commit — it lands independently of extraction
+      // (#13), so a source is searchable even if the LLM extraction later fails.
       const blocks = parsed.blocks?.length ? parsed.blocks : blocksFromText(parsed.text);
       const chunks = chunkBlocks(blocks);
       const vectors = await embedder.embed(chunks.map((c) => c.text));
+      // Idempotent re-index: drop any chunks a prior (crashed) attempt left on
+      // this source before re-adding, so a re-run never duplicates search rows.
+      store.clearChunksForSource(sourceId);
       store.addChunks(
         sourceId,
         chunks.map((chunk, i) => ({
@@ -222,55 +237,32 @@ export class IngestionPipeline {
         revisionId,
       );
 
-      store.updateInboxItem(inboxItemId, "extracting");
-      const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
-      const profile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
-      const extraction = await extractKnowledge(this.deps.llm, parsed, schema, profile);
-
-      store.updateInboxItem(inboxItemId, "merging");
-      const { merge, postMergeNote } = await this.withMergeLock(async () => {
-        const merge = await mergeExtraction(
-          store,
-          embedder,
-          extraction,
+      // The semantic-extraction stage. It is wrapped separately so its failure
+      // doesn't undo the search index above: the source stays searchable, the
+      // revision is parked `incomplete`, and the durable worker can retry just
+      // this stage later (#13) without re-reading or re-parsing the file.
+      try {
+        await this.extractAndMerge({
           sourceId,
-          parsed.text,
           revisionId,
+          parsed,
+          inboxItemId,
+        });
+      } catch (error) {
+        // Mark the revision incomplete so it doesn't look fully ingested, and
+        // surface a retryable state. The caller (durable worker) re-runs the
+        // extraction stage; on success the revision is promoted back to active.
+        store.setRevisionStatus(revisionId, "incomplete");
+        store.updateInboxItem(
+          inboxItemId,
+          "extract-failed",
+          `searchable — extraction failed: ${error instanceof Error ? error.message : String(error)}`,
+          sourceId,
         );
-        // Credit this document for the pages it made stale; consumed when the
-        // wiki regenerates and the resulting commit is attributed back to it.
-        for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
-        // A re-ingest may leave facts behind that now hang off the just-superseded
-        // revision — flag their pages so the wiki reflects the outdated provenance.
-        for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
-        const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
-        return { merge, postMergeNote };
-      });
-
-      // Automation hooks: a source landed, and memory was written. Subscribers
-      // (contradiction checks, crystallization, etc.) react without the pipeline
-      // knowing them. Awaited inside the try so failures surface on the item.
-      await this.deps.events?.emit("onMemoryWrite", {
-        sourceId,
-        newObservationIds: merge.newObservationIds,
-      });
-      await this.deps.events?.emit("onNewSource", { sourceId, merge });
-
-      if (this.deps.scheduleWikiRefresh) {
-        this.deps.scheduleWikiRefresh();
-      } else {
-        await wiki.regenerateStale();
+        return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "indexed" };
       }
 
-      store.updateInboxItem(
-        inboxItemId,
-        "done",
-        `${merge.affectedEntityIds.length} entities touched, ` +
-          `${merge.newObservationIds.length} new observations, ` +
-          `${merge.reinforcedObservationIds.length} reinforced` +
-          (postMergeNote ? ` — ${postMergeNote}` : ""),
-      );
-      return { inboxItemId, sourceId, status: "done" };
+      return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "done" };
     } catch (error) {
       store.updateInboxItem(
         inboxItemId,
@@ -279,5 +271,107 @@ export class IngestionPipeline {
       );
       return { inboxItemId, status: "failed" };
     }
+  }
+
+  /**
+   * The semantic-extraction stage, factored out so it can run inline during a
+   * fresh ingest OR be retried standalone for a source whose index already
+   * landed but whose extraction failed (#13). Re-running is safe: `mergeExtraction`
+   * reinforces near-duplicate observations rather than inserting new ones, and a
+   * successful run re-promotes the revision to `active`. Throws on failure so the
+   * caller can record a retryable error.
+   */
+  async extractAndMerge(args: {
+    sourceId: number;
+    revisionId: number;
+    parsed: { title: string; text: string; blocks?: Block[] };
+    inboxItemId?: number;
+  }): Promise<MergeResult> {
+    const { store, embedder, wiki } = this.deps;
+    const { sourceId, revisionId, parsed, inboxItemId } = args;
+
+    if (inboxItemId) store.updateInboxItem(inboxItemId, "extracting");
+    const schema = this.deps.dataDir ? loadSchema(this.deps.dataDir) : undefined;
+    const profile = this.deps.dataDir ? loadProfileContext(this.deps.dataDir) : "";
+    const extraction = await extractKnowledge(this.deps.llm, parsed, schema, profile);
+
+    if (inboxItemId) store.updateInboxItem(inboxItemId, "merging");
+    const { merge, postMergeNote } = await this.withMergeLock(async () => {
+      const merge = await mergeExtraction(
+        store,
+        embedder,
+        extraction,
+        sourceId,
+        parsed.text,
+        revisionId,
+      );
+      // Credit this document for the pages it made stale; consumed when the
+      // wiki regenerates and the resulting commit is attributed back to it.
+      for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
+      // A re-ingest may leave facts behind that now hang off the just-superseded
+      // revision — flag their pages so the wiki reflects the outdated provenance.
+      for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
+      const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
+      return { merge, postMergeNote };
+    });
+
+    // A retried extraction on a previously-incomplete revision: promote it back
+    // to active now that its facts have landed.
+    if (store.getRevision(revisionId)?.status === "incomplete") {
+      store.setRevisionStatus(revisionId, "active");
+    }
+
+    // Automation hooks: a source landed, and memory was written. Subscribers
+    // (contradiction checks, crystallization, etc.) react without the pipeline
+    // knowing them. Awaited so failures surface to the caller.
+    await this.deps.events?.emit("onMemoryWrite", {
+      sourceId,
+      newObservationIds: merge.newObservationIds,
+    });
+    await this.deps.events?.emit("onNewSource", { sourceId, merge });
+
+    if (this.deps.scheduleWikiRefresh) {
+      this.deps.scheduleWikiRefresh();
+    } else {
+      await wiki.regenerateStale();
+    }
+
+    if (inboxItemId) {
+      store.updateInboxItem(
+        inboxItemId,
+        "done",
+        `${merge.affectedEntityIds.length} entities touched, ` +
+          `${merge.newObservationIds.length} new observations, ` +
+          `${merge.reinforcedObservationIds.length} reinforced` +
+          (postMergeNote ? ` — ${postMergeNote}` : ""),
+        sourceId,
+      );
+    }
+    return merge;
+  }
+
+  /**
+   * Retry just the extraction stage for a source that was indexed but whose
+   * extraction failed (#13). Reconstructs the parsed text from the revision's
+   * stored normalized content — no file re-read, no re-parse — and re-runs
+   * extract→merge. Returns the merge result, or null if the source/revision has
+   * no recoverable content. Throws on extraction failure so the durable worker
+   * can record a retryable error and re-queue with backoff.
+   */
+  async retryExtractionForSource(
+    sourceId: number,
+    inboxItemId?: number,
+  ): Promise<MergeResult | null> {
+    const { store } = this.deps;
+    const revision = store.latestRevision(sourceId);
+    const text = revision?.normalized_content ?? store.getSourceContent(sourceId);
+    if (!revision || !text) return null;
+    const title = store.getSourceTitle(sourceId) ?? "Document";
+    return this.extractAndMerge({
+      sourceId,
+      revisionId: revision.id,
+      parsed: { title, text },
+      inboxItemId,
+    });
   }
 }

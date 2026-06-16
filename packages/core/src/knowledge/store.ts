@@ -168,6 +168,55 @@ export interface StaleBackedObservationRow {
   revision_status: SourceRevisionStatus;
 }
 
+/** Which dedicated queue an ingest job rides (#13). */
+export type IngestQueueKind = "extraction" | "embedding";
+
+/** The durable lifecycle state of an ingest job (#13). */
+export type IngestJobState = "pending" | "processing" | "completed" | "failed" | "dead-letter";
+
+/** One durable ingestion unit — a file/upload/paste tracked across crashes (#13). */
+export interface IngestJobRow {
+  id: number;
+  kind: string;
+  queue: IngestQueueKind;
+  stage: string;
+  state: IngestJobState;
+  attempts: number;
+  max_attempts: number;
+  payload: string | null;
+  inbox_item_id: number | null;
+  source_id: number | null;
+  source_revision_id: number | null;
+  content_hash: string | null;
+  byte_size: number | null;
+  last_error: string | null;
+  leased_at: string | null;
+  run_after: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One attempt's audit/debug record for an ingest job (#13, read by #18). */
+export interface IngestRunRow {
+  id: number;
+  job_id: number;
+  attempt: number;
+  stage: string;
+  state: "processing" | "completed" | "failed" | "dead-letter";
+  error: string | null;
+  started_at: string;
+  finished_at: string | null;
+}
+
+/** Aggregate per-queue health for the runtime surface (#13). */
+export interface IngestQueueDepth {
+  queue: IngestQueueKind;
+  pending: number;
+  processing: number;
+  failed: number;
+  deadLetter: number;
+}
+
 export interface SourceRef {
   id: number;
   title: string;
@@ -914,6 +963,279 @@ export class KnowledgeStore {
     return this.db
       .prepare("SELECT * FROM inbox_items ORDER BY updated_at DESC, id DESC LIMIT ?")
       .all(limit) as InboxItemRow[];
+  }
+
+  // --- durable ingest jobs (#13) ---------------------------------------
+
+  /**
+   * Persist a new ingestion unit in the `pending` state. The `payload` is a
+   * small JSON pointer to the input (a file path or inbox item), never raw
+   * buffers — the worker re-reads the source from disk so a crash mid-ingest
+   * loses no data. Returns the new job id.
+   */
+  createIngestJob(input: {
+    kind: string;
+    queue?: IngestQueueKind;
+    payload?: unknown;
+    inboxItemId?: number;
+    sourceId?: number;
+    contentHash?: string | null;
+    byteSize?: number | null;
+    maxAttempts?: number;
+  }): number {
+    const result = this.db
+      .prepare(
+        `INSERT INTO ingest_jobs
+           (kind, queue, payload, inbox_item_id, source_id, content_hash, byte_size, max_attempts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.kind,
+        input.queue ?? "extraction",
+        input.payload === undefined ? null : JSON.stringify(input.payload),
+        input.inboxItemId ?? null,
+        input.sourceId ?? null,
+        input.contentHash ?? null,
+        input.byteSize ?? null,
+        input.maxAttempts ?? 3,
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  getIngestJob(id: number): IngestJobRow | undefined {
+    return this.db.prepare("SELECT * FROM ingest_jobs WHERE id = ?").get(id) as
+      | IngestJobRow
+      | undefined;
+  }
+
+  listIngestJobs(limit = 100): IngestJobRow[] {
+    return this.db
+      .prepare("SELECT * FROM ingest_jobs ORDER BY updated_at DESC, id DESC LIMIT ?")
+      .all(limit) as IngestJobRow[];
+  }
+
+  /**
+   * Atomically claim the oldest runnable job on a queue: a `pending` row whose
+   * backoff window (`run_after`) has elapsed, flipped to `processing` and
+   * stamped `leased_at` so a crash leaves it recoverable. Opens an `ingest_runs`
+   * row for this attempt. Returns the claimed job, or undefined if none is ready.
+   */
+  claimIngestJob(queue: IngestQueueKind): IngestJobRow | undefined {
+    const claim = this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT * FROM ingest_jobs
+           WHERE queue = ? AND state = 'pending' AND run_after <= datetime('now')
+           ORDER BY id LIMIT 1`,
+        )
+        .get(queue) as IngestJobRow | undefined;
+      if (!row) return undefined;
+      const attempt = row.attempts + 1;
+      this.db
+        .prepare(
+          `UPDATE ingest_jobs
+           SET state = 'processing', attempts = ?, leased_at = datetime('now'),
+               updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(attempt, row.id);
+      this.db
+        .prepare(
+          `INSERT INTO ingest_runs (job_id, attempt, stage, state)
+           VALUES (?, ?, ?, 'processing')`,
+        )
+        .run(row.id, attempt, row.stage);
+      return { ...row, state: "processing" as const, attempts: attempt };
+    });
+    return claim();
+  }
+
+  /** Record progress through a stage (and reflect it on the active run row). */
+  setIngestJobStage(id: number, stage: string): void {
+    this.db
+      .prepare("UPDATE ingest_jobs SET stage = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(stage, id);
+  }
+
+  /** Attach the resolved source + revision (#16) to a job once known. */
+  setIngestJobSource(id: number, sourceId: number, sourceRevisionId?: number): void {
+    this.db
+      .prepare(
+        `UPDATE ingest_jobs SET source_id = ?, source_revision_id = COALESCE(?, source_revision_id),
+           updated_at = datetime('now') WHERE id = ?`,
+      )
+      .run(sourceId, sourceRevisionId ?? null, id);
+  }
+
+  /** Mark a job (and its open run) completed; clears the lease. */
+  completeIngestJob(id: number, stage = "done"): void {
+    const tx = this.db.transaction(() => {
+      const job = this.getIngestJob(id);
+      this.db
+        .prepare(
+          `UPDATE ingest_jobs
+           SET state = 'completed', stage = ?, leased_at = NULL, last_error = NULL,
+               updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(stage, id);
+      this.finishRun(id, job?.attempts ?? 0, "completed");
+    });
+    tx();
+  }
+
+  /**
+   * Record a stage failure. Below `max_attempts` the job returns to `pending`
+   * with an exponential backoff window (`run_after`); at the cap it parks at
+   * `dead-letter`. Returns the job's resulting state so the caller can log it.
+   */
+  failIngestJob(id: number, error: string, backoffBaseMs = 1000): IngestJobState {
+    const tx = this.db.transaction(() => {
+      const job = this.getIngestJob(id);
+      if (!job) return "failed";
+      const exhausted = job.attempts >= job.max_attempts;
+      const nextState: IngestJobState = exhausted ? "dead-letter" : "pending";
+      if (exhausted) {
+        this.db
+          .prepare(
+            `UPDATE ingest_jobs
+             SET state = 'dead-letter', leased_at = NULL, last_error = ?, updated_at = datetime('now')
+             WHERE id = ?`,
+          )
+          .run(error, id);
+        this.finishRun(id, job.attempts, "dead-letter", error);
+      } else {
+        // Exponential backoff in whole seconds (SQLite datetime granularity).
+        const delaySec = Math.max(1, Math.round((backoffBaseMs * 2 ** (job.attempts - 1)) / 1000));
+        this.db
+          .prepare(
+            `UPDATE ingest_jobs
+             SET state = 'pending', leased_at = NULL, last_error = ?,
+                 run_after = datetime('now', '+' || ? || ' seconds'), updated_at = datetime('now')
+             WHERE id = ?`,
+          )
+          .run(error, delaySec, id);
+        this.finishRun(id, job.attempts, "failed", error);
+      }
+      return nextState;
+    });
+    return tx();
+  }
+
+  /** Close the open `processing` run for a job's attempt with a terminal state. */
+  private finishRun(
+    jobId: number,
+    attempt: number,
+    state: "completed" | "failed" | "dead-letter",
+    error?: string,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE ingest_runs
+         SET state = ?, error = COALESCE(?, error), finished_at = datetime('now')
+         WHERE job_id = ? AND attempt = ? AND state = 'processing'`,
+      )
+      .run(state, error ?? null, jobId, attempt);
+  }
+
+  /**
+   * Crash/restart recovery: any job stuck in `processing` (its worker died
+   * before completing) is returned to `pending` so it runs again. Its open run
+   * row is closed as failed. Idempotent stages make the re-run safe. Returns how
+   * many jobs were recovered. `olderThanSeconds` guards against reclaiming a job
+   * that is legitimately in flight right now (0 = reclaim all, used on startup).
+   */
+  recoverStaleIngestJobs(olderThanSeconds = 0): number {
+    const tx = this.db.transaction(() => {
+      const stale = this.db
+        .prepare(
+          `SELECT id, attempts FROM ingest_jobs
+           WHERE state = 'processing'
+             AND (leased_at IS NULL OR leased_at <= datetime('now', '-' || ? || ' seconds'))`,
+        )
+        .all(olderThanSeconds) as Array<{ id: number; attempts: number }>;
+      for (const job of stale) {
+        this.finishRun(job.id, job.attempts, "failed", "recovered from stale processing state");
+        this.db
+          .prepare(
+            `UPDATE ingest_jobs
+             SET state = 'pending', leased_at = NULL, updated_at = datetime('now')
+             WHERE id = ?`,
+          )
+          .run(job.id);
+      }
+      return stale.length;
+    });
+    return tx();
+  }
+
+  /**
+   * Requeue a `failed` or `dead-letter` job for a manual retry: reset attempts so
+   * the bounded-retry budget starts fresh, clear the backoff, return to
+   * `pending`. Returns false if the job is unknown or not in a retryable state.
+   */
+  retryIngestJob(id: number): boolean {
+    const job = this.getIngestJob(id);
+    if (!job || (job.state !== "failed" && job.state !== "dead-letter")) return false;
+    this.db
+      .prepare(
+        `UPDATE ingest_jobs
+         SET state = 'pending', attempts = 0, leased_at = NULL,
+             run_after = datetime('now'), updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(id);
+    return true;
+  }
+
+  /** Per-queue depth + failure counts for the runtime health surface (#13/#18). */
+  ingestQueueDepths(): IngestQueueDepth[] {
+    const rows = this.db
+      .prepare(
+        `SELECT queue,
+                SUM(state = 'pending')     AS pending,
+                SUM(state = 'processing')  AS processing,
+                SUM(state = 'failed')      AS failed,
+                SUM(state = 'dead-letter') AS deadLetter
+         FROM ingest_jobs GROUP BY queue`,
+      )
+      .all() as Array<{
+      queue: IngestQueueKind;
+      pending: number;
+      processing: number;
+      failed: number;
+      deadLetter: number;
+    }>;
+    return rows.map((r) => ({
+      queue: r.queue,
+      pending: r.pending ?? 0,
+      processing: r.processing ?? 0,
+      failed: r.failed ?? 0,
+      deadLetter: r.deadLetter ?? 0,
+    }));
+  }
+
+  getIngestRuns(jobId: number): IngestRunRow[] {
+    return this.db
+      .prepare("SELECT * FROM ingest_runs WHERE job_id = ? ORDER BY attempt, id")
+      .all(jobId) as IngestRunRow[];
+  }
+
+  /**
+   * Retention sweep: delete `completed` jobs (and their cascade-linked runs)
+   * older than the cutoff, keeping recent history for audit/debug. Failed and
+   * dead-letter jobs are always retained so a stuck ingest stays diagnosable +
+   * retryable. Returns how many jobs were pruned.
+   */
+  pruneCompletedIngestJobs(olderThanDays: number): number {
+    const result = this.db
+      .prepare(
+        `DELETE FROM ingest_jobs
+         WHERE state = 'completed'
+           AND updated_at < datetime('now', '-' || ? || ' days')`,
+      )
+      .run(olderThanDays);
+    return result.changes;
   }
 
   // --- entities ---
