@@ -115,6 +115,23 @@ export function GoogleLogo({ className }: LogoProps) {
   );
 }
 
+/** Google Tasks — the blue check badge. */
+export function GoogleTasksLogo({ className }: LogoProps) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
+      <circle cx="24" cy="24" r="20" fill="#1a73e8" />
+      <path
+        fill="none"
+        stroke="#fff"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15 24.5l6 6 12-13"
+      />
+    </svg>
+  );
+}
+
 /** A service's display label + logo, keyed by connector source type. */
 export interface ServiceBrand {
   label: string;

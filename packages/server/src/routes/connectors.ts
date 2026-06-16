@@ -1,8 +1,20 @@
 import { connectors as connectorsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import { connectorRegistry, createPkcePair, fetchSelf } from "@meos/core";
+import {
+  completeTask,
+  connectorRegistry,
+  createPkcePair,
+  createTask,
+  ensureAccessToken,
+  fetchSelf,
+  listTaskLists,
+} from "@meos/core";
+import type { ConnectorKindConfig } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["connectors"];
 
 // The Google connector drives this route's auth flow, kinds, and validation —
 // the framework owns "what Google is", the route owns the HTTP surface (#5).
@@ -33,6 +45,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         intervalMinutes: state?.interval_minutes ?? manifest.defaultIntervalMinutes,
         lastSyncedAt: state?.last_synced_at ?? null,
         lastStatus: state?.last_status ?? null,
+        coverage: account ? coverageFor(account.id, kind) : undefined,
       };
     });
     return {
@@ -45,11 +58,67 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     };
   };
 
-  app.get("/api/connectors", async () => statusView());
+  /**
+   * Build the additive coverage block (#68) for a kind: indexed item count + oldest
+   * indexed date from the ledger, the chosen window/content mode, Gmail backfill
+   * progress, and per-calendar selection + progress. Makes partial coverage
+   * explicit in the status payload so the UI can surface it.
+   */
+  const coverageFor = (accountId: number, kind: string) => {
+    const config = ctx.store.getSyncConfig(accountId, kind);
+    const stats = ctx.store.connectorCoverageStats(accountId, kind);
+    const base = {
+      itemCount: stats.itemCount,
+      oldestIndexed: stats.oldestIndexed,
+      coverageWindow: config.coverageWindow ?? "recent",
+    } as Record<string, unknown>;
+    if (kind === "gmail") {
+      base.contentMode = config.contentMode ?? "metadata";
+      if (config.backfill) {
+        base.backfill = {
+          indexed: config.backfill.indexed,
+          oldestIndexed: config.backfill.oldestIndexed,
+          complete: config.backfill.complete,
+        };
+      }
+    }
+    if (kind === "calendar") {
+      base.enabledCalendars =
+        config.enabledCalendars && config.enabledCalendars.length > 0
+          ? config.enabledCalendars
+          : ["primary"];
+      base.calendars = Object.entries(config.calendars ?? {}).map(([id, c]) => ({
+        id,
+        indexed: c.indexed,
+        lastSyncedAt: c.lastSyncedAt,
+      }));
+    }
+    return base;
+  };
+
+  app.get(
+    "/api/connectors",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Connector status",
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
+    async () => connectorsSchema.ConnectorStatusSchema.parse(statusView()),
+  );
 
   // Save the user's OAuth client id/secret (no tokens yet).
   app.put<{ Body: { clientId?: string; clientSecret?: string } }>(
     "/api/connectors/google/credentials",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Save Google OAuth credentials",
+        body: connectorsSchema.GoogleCredentialsBody,
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
     async (request) => {
       const body = parseOrThrow(connectorsSchema.GoogleCredentialsBody, request.body, "body");
       const clientId = body.clientId.trim();
@@ -58,28 +127,38 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         throw httpError.validation("Both clientId and clientSecret are required");
       }
       ctx.store.upsertConnectorAccount({ provider: "google", clientId, clientSecret });
-      return statusView();
+      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
     },
   );
 
   // Begin the consent flow: build the PKCE auth URL the UI opens in a browser.
-  app.post("/api/connectors/google/auth/start", async () => {
-    const account = ctx.store.getConnectorAccount("google");
-    if (!account?.client_id) {
-      throw httpError.badRequest("Save your Google OAuth credentials first");
-    }
-    const { verifier, challenge, state } = createPkcePair();
-    pending.set(state, verifier);
-    // Don't leak verifiers forever if the user abandons the flow.
-    setTimeout(() => pending.delete(state), 10 * 60_000).unref();
-    const url = google.oauth.buildAuthUrl({
-      clientId: account.client_id,
-      redirectUri,
-      challenge,
-      state,
-    });
-    return { url };
-  });
+  app.post(
+    "/api/connectors/google/auth/start",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Start Google OAuth",
+        response: connectorsSchema.AuthStartResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (!account?.client_id) {
+        throw httpError.badRequest("Save your Google OAuth credentials first");
+      }
+      const { verifier, challenge, state } = createPkcePair();
+      pending.set(state, verifier);
+      // Don't leak verifiers forever if the user abandons the flow.
+      setTimeout(() => pending.delete(state), 10 * 60_000).unref();
+      const url = google.oauth.buildAuthUrl({
+        clientId: account.client_id,
+        redirectUri,
+        challenge,
+        state,
+      });
+      return connectorsSchema.AuthStartResponse.parse({ url });
+    },
+  );
 
   // Loopback callback: exchange the code, store tokens, record the account email.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
@@ -135,9 +214,29 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     },
   );
 
-  // Enable/disable a kind and set its sync interval, then rebuild the schedule.
-  app.put<{ Params: { kind: string }; Body: { enabled?: boolean; intervalMinutes?: number } }>(
+  // Enable/disable a kind, set its interval, and (additively) its coverage window,
+  // content mode, and enabled calendars (#68). Rebuilds the schedule; a coverage
+  // change re-syncs so the new window/mode/calendars take effect immediately.
+  app.put<{
+    Params: { kind: string };
+    Body: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      coverageWindow?: string;
+      contentMode?: string;
+      enabledCalendars?: string[];
+    };
+  }>(
     "/api/connectors/google/:kind/config",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Configure a connector kind",
+        params: connectorsSchema.ConnectorKindParam,
+        body: connectorsSchema.ConfigureKindBody,
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
     async (request) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
       const kind = params.kind;
@@ -145,26 +244,65 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
 
-      const { enabled, intervalMinutes } = parseOrThrow(
-        connectorsSchema.ConfigureKindBody,
-        request.body,
-        "body",
-      );
+      const body = parseOrThrow(connectorsSchema.ConfigureKindBody, request.body, "body");
+      const { enabled, intervalMinutes, coverageWindow, contentMode, enabledCalendars } = body;
+
+      // Assemble any coverage-config changes into a single config patch (#68).
+      const configPatch: ConnectorKindConfig = {};
+      if (coverageWindow != null) configPatch.coverageWindow = coverageWindow;
+      if (kind === "gmail" && contentMode != null) configPatch.contentMode = contentMode;
+      if (kind === "calendar" && enabledCalendars != null)
+        configPatch.enabledCalendars = enabledCalendars;
+      const coverageChanged = Object.keys(configPatch).length > 0;
+      // Re-seeding coverage: clear the cursor so the new window/calendars re-pull from
+      // the bound (a wider window must not be limited to the old incremental cursor).
+      if (coverageChanged) configPatch.backfill = undefined;
+
       ctx.store.setSyncState(account.id, kind, {
         enabled,
         intervalMinutes:
           intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
+        ...(coverageChanged
+          ? { config: configPatch, ...(coverageWindow != null ? { syncToken: null } : {}) }
+          : {}),
       });
       ctx.connectors.reschedule();
-      // Pull immediately on first enable so the user sees data without waiting.
-      if (enabled) ctx.connectors.enqueueSync("google", kind);
-      return statusView();
+      // Pull immediately on first enable or a coverage change so the user sees the
+      // new coverage without waiting for the next scheduled tick.
+      if (enabled || coverageChanged) ctx.connectors.enqueueSync("google", kind);
+      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+    },
+  );
+
+  // List the user's Google calendars for the multi-calendar picker (#68).
+  app.get(
+    "/api/connectors/google/calendars",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List Google calendars",
+        response: connectorsSchema.ListCalendarsResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (!account) throw httpError.badRequest("Google is not connected");
+      const calendars = await ctx.connectors.listCalendars("google");
+      return connectorsSchema.ListCalendarsResponse.parse({ calendars });
     },
   );
 
   // Sync one kind now.
   app.post<{ Params: { kind: string } }>(
     "/api/connectors/google/:kind/sync",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Sync a connector kind now",
+        params: connectorsSchema.ConnectorKindParam,
+        response: { 202: connectorsSchema.SyncKindResponse },
+      }),
+    },
     async (request, reply) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
       const kind = params.kind;
@@ -172,16 +310,103 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
       ctx.connectors.enqueueSync("google", kind);
-      return reply.code(202).send({ syncing: true });
+      return reply.code(202).send(connectorsSchema.SyncKindResponse.parse({ syncing: true }));
     },
   );
 
-  // Disconnect: revoke the token, stop timers, forget the account.
-  app.delete("/api/connectors/google", async () => {
+  // --- Google Tasks (read + write) ---
+  //
+  // A connected, live access token for the Google account, refreshed if needed
+  // through the existing OAuth lifecycle. Throws the standard error envelope when
+  // Google isn't connected so the routes share one guard.
+  const taskAccessToken = async (): Promise<string> => {
     const account = ctx.store.getConnectorAccount("google");
-    if (account?.access_token) await google.oauth.revokeToken(account.access_token);
-    ctx.store.deleteConnectorAccount("google");
-    ctx.connectors.reschedule();
-    return { disconnected: true };
+    if (!account) throw httpError.badRequest("Google is not connected");
+    try {
+      return await ensureAccessToken(ctx.store, account, google);
+    } catch (err) {
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // List the account's task lists — for the sync-selection + default-list picker.
+  app.get("/api/connectors/google/tasks/lists", async () => {
+    const token = await taskAccessToken();
+    try {
+      const lists = await listTaskLists(token);
+      return { lists };
+    } catch (err) {
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
   });
+
+  // WRITE PATH: create a task in Google Tasks on the user's behalf. This is the
+  // connector's explicit write capability (the `tasks` scope is read/write).
+  // Provenance: the created task flows back into the graph on the next `tasks`
+  // sync as a google:tasks source (deep-linked), exactly like a synced task.
+  app.post<{ Body: { taskListId?: string; title?: string; notes?: string; due?: string } }>(
+    "/api/connectors/google/tasks/create",
+    async (request, reply) => {
+      const body = parseOrThrow(connectorsSchema.CreateTaskBody, request.body, "body");
+      const token = await taskAccessToken();
+      let taskListId = body.taskListId;
+      try {
+        if (!taskListId) {
+          // No list specified — fall back to the account's first (default) list.
+          const lists = await listTaskLists(token);
+          taskListId = lists[0]?.id;
+          if (!taskListId) throw httpError.badRequest("No Google Tasks list is available");
+        }
+        const task = await createTask(token, taskListId, {
+          title: body.title,
+          notes: body.notes,
+          due: body.due ?? null,
+        });
+        // Pull the new task into the graph promptly (best-effort; non-blocking).
+        ctx.connectors.enqueueSync("google", "tasks");
+        return reply.code(201).send({ task });
+      } catch (err) {
+        if (err && typeof err === "object" && "statusCode" in err) throw err;
+        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+
+  // WRITE PATH: mark a task completed (or reopen it).
+  app.post<{
+    Body: { taskListId?: string; completed?: boolean };
+    Params: { taskId: string };
+  }>("/api/connectors/google/tasks/:taskId/complete", async (request) => {
+    const token = await taskAccessToken();
+    const taskId = request.params.taskId;
+    const body = request.body ?? {};
+    if (!body.taskListId) throw httpError.validation("taskListId is required");
+    try {
+      const task = await completeTask(token, body.taskListId, taskId, body.completed !== false);
+      ctx.connectors.enqueueSync("google", "tasks");
+      return { task };
+    } catch (err) {
+      if (err && typeof err === "object" && "statusCode" in err) throw err;
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // Disconnect: revoke the token, stop timers, forget the account.
+  app.delete(
+    "/api/connectors/google",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Disconnect Google",
+        response: connectorsSchema.DisconnectResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (account?.access_token) await google.oauth.revokeToken(account.access_token);
+      ctx.store.deleteConnectorAccount("google");
+      ctx.connectors.reschedule();
+      return connectorsSchema.DisconnectResponse.parse({ disconnected: true });
+    },
+  );
 }

@@ -10,3 +10,6 @@ packages/desktop/src-tauri/payload/
 pnpm-lock.yaml
 *.log
 .DS_Store
+# Ingestion test fixtures must stay byte-exact: parsers assert deterministic
+# char spans against the raw bytes, so Prettier must not rewrite them.
+packages/core/test/fixtures/

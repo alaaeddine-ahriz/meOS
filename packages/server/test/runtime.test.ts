@@ -1,4 +1,4 @@
-import { runtime } from "@meos/contracts";
+import { ErrorCode, ErrorEnvelopeSchema, runtime } from "@meos/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
@@ -50,5 +50,13 @@ describe("GET /api/health", () => {
     expect(body.ok).toBe(true);
     expect(typeof body.llmProvider).toBe("string");
     expect(body.workers.length).toBeGreaterThan(0);
+  });
+
+  it("returns the shared error envelope for an unknown runtime route", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/runtime/does-not-exist" });
+    expect(res.statusCode).toBe(404);
+    const envelope = ErrorEnvelopeSchema.parse(res.json());
+    expect(envelope.code).toBe(ErrorCode.NOT_FOUND);
+    expect(envelope.recoverable).toBe(false);
   });
 });

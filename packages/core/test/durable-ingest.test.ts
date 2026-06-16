@@ -314,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(30);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -356,6 +356,7 @@ describe("migration 21 (durable ingest jobs)", () => {
         ALTER TABLE inbox_items_v20 RENAME TO inbox_items;
         CREATE INDEX idx_inbox_items_path ON inbox_items(path);
       `);
+      db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.pragma("user_version = 20");
       db.close();
 
@@ -389,7 +390,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(30);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -407,6 +408,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
         DROP INDEX IF EXISTS idx_ingest_jobs_claim;
         ALTER TABLE ingest_jobs DROP COLUMN priority;
       `);
+      db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.pragma("user_version = 23");
       db.close();
 
@@ -436,7 +438,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
 
 describe("migration 27 (repair inbox_items CHECK)", () => {
   it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(30);
 
     const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
     try {
@@ -474,6 +476,9 @@ describe("migration 27 (repair inbox_items CHECK)", () => {
         ALTER TABLE inbox_items_old RENAME TO inbox_items;
         CREATE INDEX idx_inbox_items_path ON inbox_items(path);
       `);
+      // Drop the migration-29 column too, so re-running 27→29 from v26 re-applies
+      // it cleanly instead of colliding on a duplicate ADD COLUMN.
+      db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.pragma("user_version = 26");
       db.close();
 

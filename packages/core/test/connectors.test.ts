@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { migrations, openDatabase } from "../src/db/database.js";
 import { HashEmbedder } from "../src/embedding/embedder.js";
 import { IngestionPipeline } from "../src/ingest/pipeline.js";
@@ -11,11 +11,14 @@ import { WikiWriter } from "../src/wiki/writer.js";
 import { mapCalendarEvent } from "../src/connectors/map/calendar.js";
 import { mapContact } from "../src/connectors/map/contacts.js";
 import { mapGmailMessage } from "../src/connectors/map/gmail.js";
+import { mapTask } from "../src/connectors/map/tasks.js";
+import { createTask, fetchTasksDelta } from "../src/connectors/google/tasks.js";
 import type {
   CalendarEventItem,
   ContactItem,
   GmailMessageItem,
   SelfIdentity,
+  TaskItem,
 } from "../src/connectors/types.js";
 import type {
   Connector,
@@ -117,6 +120,163 @@ describe("connector mappers", () => {
       to: "Charles Babbage",
       label: "knows",
     });
+  });
+
+  it("maps a task to a searchable task observation with list + due provenance", () => {
+    const task: TaskItem = {
+      externalId: "task1",
+      title: "Punch the cards",
+      notes: "Use the spare deck",
+      due: "2026-08-01T00:00:00.000Z",
+      status: "needsAction",
+      completed: false,
+      taskListId: "list1",
+      taskListTitle: "Engine work",
+      updated: "2026-06-10T09:00:00.000Z",
+      deepLink: "https://tasks.google.com/",
+    };
+    const extraction = mapTask(task);
+
+    // The task itself is the entity, kept high-relevance so it survives the gate.
+    const entity = extraction.entities.find((e) => e.name === "Punch the cards")!;
+    expect(entity.relevance).toBe("high");
+
+    const obs = extraction.observations.find((o) => o.entity === "Punch the cards")!;
+    expect(obs.kind).toBe("task");
+    expect(obs.validFrom).toBe("2026-08-01");
+    // Provenance: the list anchors it and the notes ride along.
+    expect(obs.claim).toContain("Engine work");
+    expect(obs.claim).toContain("Use the spare deck");
+    expect(obs.claim).toContain("To do");
+    // No people edges — a task is a thing-to-do, not a relationship.
+    expect(extraction.relationships).toHaveLength(0);
+  });
+
+  it("marks a completed task as Completed in its observation", () => {
+    const extraction = mapTask({
+      externalId: "task2",
+      title: "File the report",
+      due: null,
+      status: "completed",
+      completed: true,
+      taskListId: "list1",
+      taskListTitle: "Admin",
+      updated: "2026-06-10T09:00:00.000Z",
+      deepLink: "https://tasks.google.com/",
+    });
+    const obs = extraction.observations.find((o) => o.entity === "File the report")!;
+    expect(obs.claim).toContain("Completed");
+  });
+});
+
+describe("Google Tasks REST client (read + write)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // A minimal fetch stub: route by URL to a scripted JSON body.
+  function stubFetch(routes: (url: string, init?: RequestInit) => unknown) {
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const body = routes(url, init);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      } as Response;
+    });
+  }
+
+  it("pages through lists and tasks, returning a high-water cursor", async () => {
+    stubFetch((url) => {
+      if (url.includes("/users/@me/lists")) {
+        return { items: [{ id: "list1", title: "Engine work" }] };
+      }
+      if (url.includes("/lists/list1/tasks")) {
+        return {
+          items: [
+            {
+              id: "t1",
+              title: "First",
+              status: "needsAction",
+              updated: "2026-06-01T00:00:00.000Z",
+            },
+            { id: "t2", title: "Second", status: "completed", updated: "2026-06-03T00:00:00.000Z" },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const delta = await fetchTasksDelta("tok", null);
+    expect(delta.items.map((t) => t.externalId)).toEqual(["t1", "t2"]);
+    expect(delta.items[1]!.completed).toBe(true);
+    expect(delta.items[0]!.taskListTitle).toBe("Engine work");
+    // Cursor is the latest `updated` we saw — the basis for the next incremental run.
+    expect(delta.nextSyncToken).toBe("2026-06-03T00:00:00.000Z");
+  });
+
+  it("passes the saved cursor as updatedMin for an incremental pull", async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      if (url.includes("/users/@me/lists")) return { items: [{ id: "list1", title: "L" }] };
+      if (url.includes("/lists/list1/tasks")) {
+        return { items: [{ id: "t9", title: "New", updated: "2026-07-01T00:00:00.000Z" }] };
+      }
+      return {};
+    });
+
+    const cursor = "2026-06-03T00:00:00.000Z";
+    const delta = await fetchTasksDelta("tok", cursor);
+    const tasksCall = seen.find((u) => u.includes("/lists/list1/tasks"))!;
+    // updatedMin is the cursor bumped by 1ms so the boundary task isn't re-fetched.
+    expect(tasksCall).toContain("updatedMin=");
+    expect(decodeURIComponent(tasksCall)).toContain("2026-06-03T00:00:00.001Z");
+    expect(delta.items.map((t) => t.externalId)).toEqual(["t9"]);
+  });
+
+  it("reports deleted tasks as deletions", async () => {
+    stubFetch((url) => {
+      if (url.includes("/users/@me/lists")) return { items: [{ id: "list1", title: "L" }] };
+      if (url.includes("/lists/list1/tasks")) {
+        return {
+          items: [
+            { id: "keep", title: "Keep", updated: "2026-06-01T00:00:00.000Z" },
+            { id: "gone", deleted: true },
+          ],
+        };
+      }
+      return {};
+    });
+    const delta = await fetchTasksDelta("tok", null);
+    expect(delta.items.map((t) => t.externalId)).toEqual(["keep"]);
+    expect(delta.deletions).toEqual(["gone"]);
+  });
+
+  it("creates a task via the write path and returns it normalized", async () => {
+    let posted: unknown;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      let body: unknown = {};
+      if (url.includes("/users/@me/lists")) {
+        body = { items: [{ id: "list1", title: "Engine work" }] };
+      } else if (init?.method === "POST" && url.includes("/lists/list1/tasks")) {
+        posted = JSON.parse(String(init.body));
+        body = { id: "created1", title: "Punch cards", status: "needsAction" };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      } as Response;
+    });
+
+    const task = await createTask("tok", "list1", { title: "Punch cards", notes: "deck" });
+    expect(posted).toMatchObject({ title: "Punch cards", notes: "deck" });
+    expect(task.externalId).toBe("created1");
+    expect(task.taskListTitle).toBe("Engine work");
+    expect(task.completed).toBe(false);
   });
 });
 
@@ -623,7 +783,7 @@ describe("connector framework (#5) — a second provider slots in", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(30);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -651,6 +811,7 @@ describe("migration 23 (connector materialization)", () => {
       db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
       db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
       db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);
+      db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.pragma("user_version = 22");
       db.close();
 
@@ -690,7 +851,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(30);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {

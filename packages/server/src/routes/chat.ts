@@ -4,6 +4,9 @@ import { buildContextPack, ChatService, LlmError, loadProfileContext } from "@me
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { isProfileCommand, runProfileCommand } from "../profile-command.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["chat"];
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
   // Re-read the profile each turn so edits apply immediately (no restart). The
@@ -18,35 +21,89 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     () => ctx.connectors.gmailFetcher(),
   );
 
-  app.post("/api/conversations", async (_request, reply) => {
-    return reply.code(201).send({ id: ctx.store.createConversation() });
-  });
+  app.post(
+    "/api/conversations",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Create a conversation",
+        response: { 201: chatSchema.CreateConversationResponse },
+      }),
+    },
+    async (_request, reply) => {
+      return reply
+        .code(201)
+        .send(chatSchema.CreateConversationResponse.parse({ id: ctx.store.createConversation() }));
+    },
+  );
 
-  app.get("/api/conversations", async () => ({
-    conversations: ctx.store.listConversations(),
-  }));
+  app.get(
+    "/api/conversations",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List conversations",
+        response: chatSchema.ListConversationsResponse,
+      }),
+    },
+    async () =>
+      chatSchema.ListConversationsResponse.parse({
+        conversations: ctx.store.listConversations(),
+      }),
+  );
 
-  app.get<{ Params: { id: string } }>("/api/conversations/:id/messages", async (request) => {
-    const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
-    if (!ctx.store.conversationExists(id)) {
-      throw httpError.notFound("No such conversation");
-    }
-    return { messages: ctx.store.listMessages(id) };
-  });
+  app.get<{ Params: { id: string } }>(
+    "/api/conversations/:id/messages",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List messages in a conversation",
+        params: chatSchema.ConversationIdParam,
+        response: chatSchema.MessagesResponse,
+      }),
+    },
+    async (request) => {
+      const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
+      if (!ctx.store.conversationExists(id)) {
+        throw httpError.notFound("No such conversation");
+      }
+      return chatSchema.MessagesResponse.parse({ messages: ctx.store.listMessages(id) });
+    },
+  );
 
   // Close a conversation: distil it into a first-class session source in the
   // background (crystallization). Fires the onSessionEnd hook.
-  app.post<{ Params: { id: string } }>("/api/conversations/:id/end", async (request, reply) => {
-    const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
-    if (!ctx.store.conversationExists(id)) {
-      throw httpError.notFound("No such conversation");
-    }
-    await ctx.events.emit("onSessionEnd", { conversationId: id });
-    return reply.code(202).send({ crystallizing: true });
-  });
+  app.post<{ Params: { id: string } }>(
+    "/api/conversations/:id/end",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "End a conversation",
+        params: chatSchema.ConversationIdParam,
+        response: { 202: chatSchema.EndConversationResponse },
+      }),
+    },
+    async (request, reply) => {
+      const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
+      if (!ctx.store.conversationExists(id)) {
+        throw httpError.notFound("No such conversation");
+      }
+      await ctx.events.emit("onSessionEnd", { conversationId: id });
+      return reply
+        .code(202)
+        .send(chatSchema.EndConversationResponse.parse({ crystallizing: true }));
+    },
+  );
 
   app.post<{ Body: { conversationId?: number; message: string } }>(
     "/api/chat",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Stream a chat response (SSE)",
+        body: chatSchema.ChatBody,
+      }),
+    },
     async (request, reply) => {
       // Validate the body before hijacking the socket, so a bad request still gets
       // the standard JSON error envelope (the error handler can't run post-hijack).
@@ -118,16 +175,31 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  app.get<{ Querystring: { q?: string } }>("/api/search", async (request) => {
-    const { q } = parseOrThrow(chatSchema.SearchQuery, request.query, "query");
-    const query = q.trim();
-    if (!query) {
-      throw httpError.validation("Query parameter 'q' is required");
-    }
-    const context = await buildContextPack(ctx.store, ctx.embedder, query);
-    return {
-      entities: context.matchedEntities.map((e) => ({ name: e.name, slug: e.slug, type: e.type })),
-      sources: context.sources,
-    };
-  });
+  app.get<{ Querystring: { q?: string } }>(
+    "/api/search",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Search entities and sources",
+        querystring: chatSchema.SearchQuery,
+        response: chatSchema.SearchResponse,
+      }),
+    },
+    async (request) => {
+      const { q } = parseOrThrow(chatSchema.SearchQuery, request.query, "query");
+      const query = q.trim();
+      if (!query) {
+        throw httpError.validation("Query parameter 'q' is required");
+      }
+      const context = await buildContextPack(ctx.store, ctx.embedder, query);
+      return chatSchema.SearchResponse.parse({
+        entities: context.matchedEntities.map((e) => ({
+          name: e.name,
+          slug: e.slug,
+          type: e.type,
+        })),
+        sources: context.sources,
+      });
+    },
+  );
 }

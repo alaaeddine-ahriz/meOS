@@ -27,6 +27,7 @@ import {
   GoogleCalendarLogo,
   GoogleContactsLogo,
   GoogleLogo,
+  GoogleTasksLogo,
   OpenAILogo,
 } from "@/components/brand-logos";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ import {
   api,
   type ConnectorKind,
   type ConnectorStatus,
+  type TaskList,
   type GitCommit,
   type GitStatus,
   type LlmProvider,
@@ -844,8 +846,8 @@ function FoldersSection() {
         </p>
       )}
       <p className="font-mono text-[11px] text-dim">
-        reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left
-        alone
+        reads .md .txt .csv .json .org .pdf .docx .xlsx .xls .ods .pptx .eml .mbox .html .rtf .odt
+        .ipynb .sql .png .jpg .gif .webp — everything else is left alone
       </p>
     </section>
   );
@@ -853,7 +855,10 @@ function FoldersSection() {
 
 type BrandLogo = ComponentType<{ className?: string }>;
 
-const KIND_META: Record<ConnectorKind, { label: string; Logo: BrandLogo; blurb: string }> = {
+const KIND_META: Record<
+  ConnectorKind,
+  { label: string; Logo: BrandLogo; blurb: string; writeNotice?: string }
+> = {
   contacts: {
     label: "Google Contacts",
     Logo: GoogleContactsLogo,
@@ -865,12 +870,27 @@ const KIND_META: Record<ConnectorKind, { label: string; Logo: BrandLogo; blurb: 
     blurb: "Events and who you met with.",
   },
   gmail: { label: "Gmail", Logo: GmailLogo, blurb: "Who you correspond with (metadata only)." },
+  tasks: {
+    label: "Google Tasks",
+    Logo: GoogleTasksLogo,
+    blurb: "Your to-dos from Google Tasks, by list.",
+    // This is meOS's only read/write connector — make the capability explicit.
+    writeNotice: "Read & write — meOS can create tasks in your Google Tasks.",
+  },
 };
 
 /** The services to show as cards, in display order. Drives the card list so all
- * three always render — even before connecting, and regardless of what extra
- * (possibly retired) kinds a server reports. */
-const KIND_ORDER: ConnectorKind[] = ["contacts", "calendar", "gmail"];
+ * cards render even before connecting, regardless of what kinds a server reports. */
+const KIND_ORDER: ConnectorKind[] = ["contacts", "calendar", "gmail", "tasks"];
+
+/** The coverage windows offered in the UI, ordered narrowest → broadest (#68). */
+const COVERAGE_WINDOWS: Array<{ value: string; label: string }> = [
+  { value: "recent", label: "Recent" },
+  { value: "30d", label: "30 days" },
+  { value: "90d", label: "90 days" },
+  { value: "1y", label: "1 year" },
+  { value: "all", label: "Everything" },
+];
 
 function ConnectorsSection() {
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
@@ -879,6 +899,16 @@ function ConnectorsSection() {
   const [busy, setBusy] = useState<null | "creds" | "connect">(null);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  // The user's Google calendars, loaded lazily when Calendar is connected (#68).
+  const [calendars, setCalendars] = useState<
+    Array<{ id: string; summary: string; primary: boolean }>
+  >([]);
+  // Google Tasks (read/write): the user's task lists + a quick create-task form.
+  const [taskLists, setTaskLists] = useState<TaskList[] | null>(null);
+  const [taskListId, setTaskListId] = useState<string>("");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
 
   const refresh = () =>
     api
@@ -891,6 +921,59 @@ function ConnectorsSection() {
   }, []);
 
   const google = status?.google;
+  const tasksEnabled = google?.kinds.some((k) => k.kind === "tasks" && k.enabled) ?? false;
+
+  // Load task lists once Tasks is connected + enabled, for the picker + create form.
+  useEffect(() => {
+    if (!google?.connected || !tasksEnabled) {
+      setTaskLists(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listGoogleTaskLists()
+      .then(({ lists }) => {
+        if (cancelled) return;
+        setTaskLists(lists);
+        setTaskListId((prev) => prev || lists[0]?.id || "");
+      })
+      .catch(() => {
+        if (!cancelled) setTaskLists([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [google?.connected, tasksEnabled]);
+
+  const createTask = async () => {
+    const title = newTaskTitle.trim();
+    if (!title) return;
+    setCreatingTask(true);
+    setError(null);
+    setTaskNotice(null);
+    try {
+      const { task } = await api.createGoogleTask({
+        title,
+        taskListId: taskListId || undefined,
+      });
+      setNewTaskTitle("");
+      setTaskNotice(`Created "${task.title}" in ${task.taskListTitle}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreatingTask(false);
+    }
+  };
+
+  // Load the calendar list once Google is connected so the multi-calendar picker
+  // has options (#68). Best-effort — a failure just leaves the picker empty.
+  useEffect(() => {
+    if (!google?.connected) return;
+    api
+      .listGoogleCalendars()
+      .then((r) => setCalendars(r.calendars))
+      .catch(() => {});
+  }, [google?.connected]);
 
   const saveCredentials = async () => {
     if (!clientId.trim() || !clientSecret.trim()) return;
@@ -940,7 +1023,13 @@ function ConnectorsSection() {
 
   const configure = async (
     kind: ConnectorKind,
-    config: { enabled?: boolean; intervalMinutes?: number },
+    config: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      coverageWindow?: string;
+      contentMode?: string;
+      enabledCalendars?: string[];
+    },
   ) => {
     setError(null);
     try {
@@ -1045,6 +1134,9 @@ function ConnectorsSection() {
                 <div className="min-w-0 flex-1">
                   <div className="text-[15px] font-medium text-paper">{meta.label}</div>
                   <div className="text-[13px] text-faded">{meta.blurb}</div>
+                  {meta.writeNotice && (
+                    <div className="mt-0.5 text-[11px] text-lamp">{meta.writeNotice}</div>
+                  )}
                 </div>
                 {connected && k ? (
                   <Button
@@ -1066,33 +1158,174 @@ function ConnectorsSection() {
                 )}
               </div>
               {connected && k?.enabled && (
-                <div className="mt-1 flex flex-wrap items-center gap-3 text-[12px] text-dim">
-                  <label className="flex items-center gap-2">
-                    every
-                    <Input
-                      type="number"
-                      min={1}
-                      defaultValue={k.intervalMinutes}
-                      onBlur={(e) => {
-                        const value = Number(e.target.value);
-                        if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
-                          void configure(kind, { intervalMinutes: value });
+                <div className="mt-3 flex flex-col gap-2.5 text-[12px] text-dim">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2">
+                      every
+                      <Input
+                        type="number"
+                        min={1}
+                        defaultValue={k.intervalMinutes}
+                        onBlur={(e) => {
+                          const value = Number(e.target.value);
+                          if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
+                            void configure(kind, { intervalMinutes: value });
+                          }
+                        }}
+                        className={cn(inputClass, "h-7 w-16")}
+                      />
+                      min
+                    </label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void syncNow(kind)}
+                      className="text-dim hover:text-paper"
+                    >
+                      <RefreshCw className="size-3.5" />
+                      Sync now
+                    </Button>
+                    {k.lastStatus && <span className="text-[11px]">{k.lastStatus}</span>}
+                  </div>
+
+                  {/* Coverage window — how far back we index (#68). Default "recent"
+                      keeps the privacy-preserving seed; broader windows are explicit. */}
+                  {(kind === "gmail" || kind === "calendar") && (
+                    <label className="flex items-center gap-2">
+                      coverage
+                      <select
+                        value={k.coverage?.coverageWindow ?? "recent"}
+                        onChange={(e) => void configure(kind, { coverageWindow: e.target.value })}
+                        className={cn(inputClass, "h-7 w-auto px-2")}
+                      >
+                        {COVERAGE_WINDOWS.map((w) => (
+                          <option key={w.value} value={w.value}>
+                            {w.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+
+                  {/* Gmail content mode — metadata-only (default, private) vs richer
+                      body indexing (explicit opt-in, clearly labelled) (#68). */}
+                  {kind === "gmail" && (
+                    <label className="flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        checked={k.coverage?.contentMode === "rich"}
+                        onChange={(e) =>
+                          void configure(kind, {
+                            contentMode: e.target.checked ? "rich" : "metadata",
+                          })
                         }
-                      }}
-                      className={cn(inputClass, "h-7 w-16")}
-                    />
-                    min
-                  </label>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void syncNow(kind)}
-                    className="text-dim hover:text-paper"
-                  >
-                    <RefreshCw className="size-3.5" />
-                    Sync now
-                  </Button>
-                  {k.lastStatus && <span className="text-[11px]">{k.lastStatus}</span>}
+                        className="mt-0.5"
+                      />
+                      <span>
+                        Index email bodies (not just metadata).{" "}
+                        <span className="text-ember">
+                          Broader: stores message text on this device.
+                        </span>
+                      </span>
+                    </label>
+                  )}
+
+                  {/* Gmail backfill progress — make partial coverage obvious (#68). */}
+                  {kind === "gmail" && k.coverage?.backfill && (
+                    <span className="text-[11px]">
+                      {k.coverage.backfill.complete
+                        ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
+                        : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
+                      {k.coverage.oldestIndexed
+                        ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
+                        : ""}
+                    </span>
+                  )}
+
+                  {/* Calendar multi-select — pick which calendars to sync (#68). */}
+                  {kind === "calendar" && calendars.length > 0 && (
+                    <div className="flex flex-col gap-1">
+                      <span className="text-[11px]">Calendars</span>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {calendars.map((cal) => {
+                          const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
+                          const on = enabledCals.includes(cal.id);
+                          return (
+                            <label key={cal.id} className="flex items-center gap-1.5 text-faded">
+                              <input
+                                type="checkbox"
+                                checked={on}
+                                onChange={(e) => {
+                                  const next = e.target.checked
+                                    ? [...new Set([...enabledCals, cal.id])]
+                                    : enabledCals.filter((id) => id !== cal.id);
+                                  void configure(kind, {
+                                    enabledCalendars: next.length > 0 ? next : ["primary"],
+                                  });
+                                }}
+                              />
+                              {cal.summary}
+                              {cal.primary ? " (primary)" : ""}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Calendar per-calendar coverage counts (#68). */}
+                  {kind === "calendar" &&
+                    k.coverage?.calendars &&
+                    k.coverage.calendars.length > 0 && (
+                      <span className="text-[11px]">
+                        {k.coverage.itemCount ?? 0} events indexed across{" "}
+                        {k.coverage.calendars.length} calendar
+                        {k.coverage.calendars.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+
+                  {/* Google Tasks (read/write): default list + a quick create form. */}
+                  {kind === "tasks" && (
+                    <div className="flex flex-col gap-2">
+                      {taskLists && taskLists.length > 0 && (
+                        <label className="flex items-center gap-2">
+                          default list
+                          <select
+                            value={taskListId}
+                            onChange={(e) => setTaskListId(e.target.value)}
+                            className={cn(inputClass, "h-7 w-44")}
+                          >
+                            {taskLists.map((list) => (
+                              <option key={list.id} value={list.id}>
+                                {list.title}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <Input
+                          value={newTaskTitle}
+                          onChange={(e) => setNewTaskTitle(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void createTask();
+                          }}
+                          placeholder="New task in Google Tasks…"
+                          className={cn(inputClass, "h-7 flex-1")}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void createTask()}
+                          disabled={creatingTask || !newTaskTitle.trim()}
+                          className={actionButtonClass}
+                        >
+                          {creatingTask ? "Creating…" : "Create"}
+                        </Button>
+                      </div>
+                      {taskNotice && <span className="text-[11px] text-lamp">{taskNotice}</span>}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1127,7 +1360,7 @@ function ConnectorsSection() {
               </button>{" "}
               and create (or pick) a project.
             </li>
-            <li>Enable the People API, Google Calendar API, and Gmail API.</li>
+            <li>Enable the People API, Google Calendar API, Gmail API, and Tasks API.</li>
             <li>Configure the OAuth consent screen (External, add yourself as a test user).</li>
             <li>
               Create an OAuth client ID of type <strong>Desktop app</strong>.

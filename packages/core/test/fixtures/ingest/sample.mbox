@@ -1,0 +1,15 @@
+From ada@example.com Mon Jan 01 10:00:00 2024
+From: Ada Lovelace <ada@example.com>
+To: Grace Hopper <grace@example.com>
+Subject: First message
+Date: Mon, 01 Jan 2024 10:00:00 +0000
+
+Body of the first message.
+
+From grace@example.com Tue Jan 02 11:00:00 2024
+From: Grace Hopper <grace@example.com>
+To: Ada Lovelace <ada@example.com>
+Subject: Second message
+Date: Tue, 02 Jan 2024 11:00:00 +0000
+
+Body of the second message.

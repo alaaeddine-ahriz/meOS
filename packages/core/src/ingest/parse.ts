@@ -46,7 +46,22 @@ export interface ParsedDocument {
   blocks?: Block[];
 }
 
-const TEXT_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text", ".csv", ".json", ".org"]);
+const TEXT_EXTENSIONS = new Set([
+  ".md",
+  ".markdown",
+  ".txt",
+  ".text",
+  ".csv",
+  ".json",
+  ".org",
+  // Tier 2: code/config files ingested as plain text/code.
+  ".sql",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".log",
+]);
 
 const IMAGE_MEDIA_TYPES: Record<string, string> = {
   ".png": "image/png",
@@ -61,6 +76,22 @@ export const SUPPORTED_EXTENSIONS = new Set([
   ...TEXT_EXTENSIONS,
   ".pdf",
   ".docx",
+  // Spreadsheets (SheetJS).
+  ".xlsx",
+  ".xls",
+  ".ods",
+  // Presentations (zip+XML).
+  ".pptx",
+  // Email.
+  ".eml",
+  ".mbox",
+  // Web / rich text.
+  ".html",
+  ".htm",
+  ".rtf",
+  ".odt",
+  // Notebooks.
+  ".ipynb",
   ...Object.keys(IMAGE_MEDIA_TYPES),
 ]);
 
@@ -372,6 +403,48 @@ export async function parseDocument(
     // extractRawText flattens away; we walk it to recover headingPath.
     const { value: html } = await mammoth.convertToHtml({ buffer });
     return { title, ...blocksFromDocxHtml(html) };
+  }
+
+  // Spreadsheets: .xlsx / .xls / .ods (SheetJS reads all three).
+  if (ext === ".xlsx" || ext === ".xls" || ext === ".ods") {
+    const { parseSpreadsheet } = await import("./parsers/spreadsheet.js");
+    return { title, ...(await parseSpreadsheet(buffer)) };
+  }
+
+  // Presentations: .pptx (zip of per-slide XML).
+  if (ext === ".pptx") {
+    const { parsePptx } = await import("./parsers/pptx.js");
+    return { title, ...(await parsePptx(buffer)) };
+  }
+
+  // Email: single message (.eml) or mailbox of many (.mbox).
+  if (ext === ".eml") {
+    const { parseEml } = await import("./parsers/email.js");
+    return { title, ...(await parseEml(buffer)) };
+  }
+  if (ext === ".mbox") {
+    const { parseMbox } = await import("./parsers/email.js");
+    return { title, ...(await parseMbox(buffer)) };
+  }
+
+  // Web / rich text.
+  if (ext === ".html" || ext === ".htm") {
+    const { parseHtml } = await import("./parsers/html.js");
+    return { title, ...(await parseHtml(buffer.toString("utf-8"))) };
+  }
+  if (ext === ".rtf") {
+    const { parseRtf } = await import("./parsers/rtf.js");
+    return { title, ...parseRtf(buffer.toString("utf-8")) };
+  }
+  if (ext === ".odt") {
+    const { parseOdt } = await import("./parsers/odf.js");
+    return { title, ...(await parseOdt(buffer)) };
+  }
+
+  // Jupyter notebooks (JSON document of markdown/code cells).
+  if (ext === ".ipynb") {
+    const { parseNotebook } = await import("./parsers/notebook.js");
+    return { title, ...parseNotebook(buffer.toString("utf-8")) };
   }
 
   return null;

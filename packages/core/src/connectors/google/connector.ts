@@ -17,15 +17,19 @@ import type {
 import { mapCalendarEvent } from "../map/calendar.js";
 import { mapContact } from "../map/contacts.js";
 import { mapGmailMessage } from "../map/gmail.js";
+import { mapTask } from "../map/tasks.js";
 import type {
   CalendarEventItem,
+  CalendarListEntry,
   ContactItem,
   DeltaResult,
   GmailMessageItem,
   SelfIdentity,
+  TaskItem,
 } from "../types.js";
-import { fetchCalendarDelta } from "./calendar.js";
+import { fetchCalendarDelta, fetchCalendarList } from "./calendar.js";
 import { fetchGmailDelta } from "./gmail.js";
+import { fetchTasksDelta } from "./tasks.js";
 import {
   buildAuthUrl,
   exchangeCode,
@@ -61,6 +65,13 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:gmail",
       contentMode: "metadata",
       defaultIntervalMinutes: 15,
+    },
+    {
+      kind: "tasks",
+      displayName: "Tasks",
+      sourceType: "google:tasks",
+      contentMode: "metadata",
+      defaultIntervalMinutes: 30,
     },
   ],
 };
@@ -100,12 +111,23 @@ function renderEvent(e: CalendarEventItem): string {
   return lines.join("\n");
 }
 
+function renderTask(t: TaskItem): string {
+  const lines = [`Task: ${t.title}`];
+  lines.push(`Status: ${t.completed ? "completed" : "to do"}`);
+  if (t.due) lines.push(`Due: ${t.due.slice(0, 10)}`);
+  if (t.taskListTitle) lines.push(`List: ${t.taskListTitle}`);
+  if (t.notes) lines.push(`Notes: ${t.notes}`);
+  return lines.join("\n");
+}
+
 function renderMessage(m: GmailMessageItem): string {
   const lines = [`Email: ${m.subject}`];
   if (m.date) lines.push(`Date: ${m.date}`);
   lines.push(`From: ${m.from.name || m.from.email}`);
   if (m.to?.length) lines.push(`To: ${m.to.map((t) => t.name || t.email).join(", ")}`);
   if (m.snippet) lines.push(`Snippet: ${m.snippet}`);
+  // The full body is present only in the explicit "rich" opt-in mode.
+  if (m.body) lines.push(`Body: ${m.body}`);
   return lines.join("\n");
 }
 
@@ -123,6 +145,8 @@ function toNormalized(
     deletions: delta.deletions,
     nextCursor: delta.nextSyncToken ?? null,
     fullResync: delta.fullResync,
+    nextConfig: delta.nextConfig,
+    hasMore: delta.hasMore,
   };
 }
 
@@ -130,12 +154,17 @@ export class GoogleConnector implements Connector {
   readonly manifest = GOOGLE_MANIFEST;
   readonly oauth = oauth;
 
+  /** List the user's Google calendars for the multi-calendar picker (#68). */
+  async listCalendars(ctx: SyncContext): Promise<CalendarListEntry[]> {
+    return fetchCalendarList(ctx.accessToken);
+  }
+
   async fetchDelta(
     ctx: SyncContext,
     kind: string,
     cursor: string | null,
   ): Promise<NormalizedDelta> {
-    const { accessToken } = ctx;
+    const { accessToken, config } = ctx;
     if (kind === "contacts") {
       const delta = await fetchContactsDelta(accessToken, cursor);
       return toNormalized(delta, (raw) => {
@@ -151,10 +180,26 @@ export class GoogleConnector implements Connector {
       });
     }
 
+    if (kind === "tasks") {
+      // Tasks are things-to-do, not relationships — no self identity needed.
+      const delta = await fetchTasksDelta(accessToken, cursor);
+      return toNormalized(delta, (raw) => {
+        const t = raw as TaskItem;
+        return {
+          externalId: t.externalId,
+          title: t.title,
+          path: t.deepLink,
+          rawContent: rawPayload(t),
+          normalizedContent: renderTask(t),
+          extraction: mapTask(t),
+        };
+      });
+    }
+
     // Calendar + Gmail anchor "knows" edges to you, so they need the self identity.
     const self: SelfIdentity = await fetchSelf(accessToken);
     if (kind === "calendar") {
-      const delta = await fetchCalendarDelta(accessToken, cursor);
+      const delta = await fetchCalendarDelta(accessToken, cursor, config);
       return toNormalized(delta, (raw) => {
         const e = raw as CalendarEventItem;
         return {
@@ -168,7 +213,7 @@ export class GoogleConnector implements Connector {
       });
     }
     if (kind === "gmail") {
-      const delta = await fetchGmailDelta(accessToken, cursor);
+      const delta = await fetchGmailDelta(accessToken, cursor, config);
       return toNormalized(delta, (raw) => {
         const m = raw as GmailMessageItem;
         return {

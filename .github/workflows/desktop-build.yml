@@ -1,20 +1,42 @@
 # Builds the MeOS desktop app per platform. Native modules (better-sqlite3,
 # onnxruntime-node, sharp) can't be cross-compiled, so each target gets its own
 # native runner; scripts/bundle-runtime.mjs auto-detects that runner's
-# platform/arch. Trigger manually (Actions ▸ Run workflow) or by pushing a
-# v* tag. Artifacts are uploaded per platform; nothing is code-signed yet.
+# platform/arch. Trigger manually (Actions ▸ Run workflow), by pushing a
+# v* tag, or via workflow_call from release-please.yml (which passes the release
+# tag so the bundles are attached to the matching GitHub Release).
+# Artifacts are uploaded per platform; nothing is code-signed yet.
 name: Desktop build
 
 on:
   workflow_dispatch:
+    inputs:
+      release-tag:
+        description: "Tag of the GitHub Release to attach bundles to (e.g. v0.1.0). Leave empty to only upload workflow artifacts."
+        required: false
+        type: string
   push:
     tags:
       - "v*"
+  # Reusable entry point. release-please.yml calls this after merging the
+  # Release PR, passing the freshly created tag so each platform's bundles are
+  # uploaded straight onto that GitHub Release (not just the workflow run).
+  workflow_call:
+    inputs:
+      release-tag:
+        description: "Tag of the GitHub Release to attach bundles to (e.g. v0.1.0)."
+        required: false
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   bundle:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
+    # Only needs write access when we actually attach bundles to a Release.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -112,3 +134,33 @@ jobs:
             packages/desktop/src-tauri/target/release/bundle/**/*.exe
             packages/desktop/src-tauri/target/release/bundle/**/*.AppImage
             packages/desktop/src-tauri/target/release/bundle/**/*.deb
+
+      # Attach this platform's bundles directly to the GitHub Release so end
+      # users download installers from the Release page (not from per-run
+      # workflow artifacts). Runs when a release tag is available — either the
+      # one passed in via workflow_call (release-please) or the v* tag that
+      # triggered this run. `gh release upload --clobber` is idempotent, so a
+      # re-run replaces rather than duplicates assets. `find` keeps the upload
+      # platform-agnostic (each runner only produced its own bundle types).
+      - name: Attach bundles to GitHub Release
+        if: inputs.release-tag != '' || startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag != '' && inputs.release-tag || github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # macOS runners ship Bash 3.2, which has no `mapfile`/`readarray`, so
+          # collect matches with a portable read loop instead.
+          assets=()
+          while IFS= read -r f; do
+            assets+=("$f")
+          done < <(find packages/desktop/src-tauri/target/release/bundle \
+            -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \))
+          if [ ${#assets[@]} -eq 0 ]; then
+            echo "::error::no desktop bundles found to attach to ${RELEASE_TAG}"
+            exit 1
+          fi
+          printf 'Attaching to %s:\n' "${RELEASE_TAG}"
+          printf '  %s\n' "${assets[@]}"
+          gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber

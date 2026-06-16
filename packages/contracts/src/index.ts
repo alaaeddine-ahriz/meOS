@@ -47,7 +47,7 @@ export type {
   IngestCostMetric,
   IngestMetrics,
 } from "./schemas/ingest.js";
-export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
+export type { WikiPage, WikiGraph, DuplicateProposal, LinkedEntity } from "./schemas/wiki.js";
 export type {
   MeetingSummary,
   MeetingObservation,
@@ -78,7 +78,98 @@ export type {
   ModelListing,
   WatchedFolder,
 } from "./schemas/settings.js";
-export type { ConnectorKind, ConnectorKindStatus, ConnectorStatus } from "./schemas/connectors.js";
+export type {
+  CalendarListEntry,
+  ConnectorCoverage,
+  ConnectorKind,
+  ConnectorKindStatus,
+  ConnectorStatus,
+  CoverageWindow,
+  GmailContentMode,
+  Task,
+  TaskList,
+} from "./schemas/connectors.js";
 export type { CalendarEvent } from "./schemas/calendar.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
 export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./schemas/runtime.js";
+
+// --- Inferred response-envelope TYPES, one per endpoint, for the web client. ---
+// These are the exact JSON shapes each route returns. The typed client binds
+// every method's return type to one of these so the client and the server's
+// per-route response schema cannot silently drift. (Type-only: importing these
+// never pulls a runtime schema into the web bundle.)
+import type { z } from "zod";
+import type * as activitySchemas from "./schemas/activity.js";
+import type * as calendarSchemas from "./schemas/calendar.js";
+import type * as chatSchemas from "./schemas/chat.js";
+import type * as connectorsSchemas from "./schemas/connectors.js";
+import type * as digestSchemas from "./schemas/digest.js";
+import type * as gitSchemas from "./schemas/git.js";
+import type * as ingestSchemas from "./schemas/ingest.js";
+import type * as meetingsSchemas from "./schemas/meetings.js";
+import type * as outputsSchemas from "./schemas/outputs.js";
+import type * as profileSchemas from "./schemas/profile.js";
+import type * as settingsSchemas from "./schemas/settings.js";
+import type * as vaultSchemas from "./schemas/vault.js";
+import type * as wikiSchemas from "./schemas/wiki.js";
+
+export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
+export type LinkedEntitiesResponse = z.infer<typeof wikiSchemas.LinkedEntitiesResponse>;
+export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;
+export type DuplicatesResponse = z.infer<typeof wikiSchemas.DuplicatesResponse>;
+export type MergeEntitiesResponse = z.infer<typeof wikiSchemas.MergeEntitiesResponse>;
+export type DismissDuplicateResponse = z.infer<typeof wikiSchemas.DismissDuplicateResponse>;
+export type BackfillWikiResponse = z.infer<typeof wikiSchemas.BackfillWikiResponse>;
+
+export type InboxResponse = z.infer<typeof ingestSchemas.InboxResponse>;
+export type IngestJobsResponse = z.infer<typeof ingestSchemas.IngestJobsResponse>;
+export type RetryJobResponse = z.infer<typeof ingestSchemas.RetryJobResponse>;
+export type UploadResponse = z.infer<typeof ingestSchemas.UploadResponse>;
+
+export type ListMeetingsResponse = z.infer<typeof meetingsSchemas.ListMeetingsResponse>;
+export type ReviewLinkResponse = z.infer<typeof meetingsSchemas.ReviewLinkResponse>;
+export type ReprocessMeetingResponse = z.infer<typeof meetingsSchemas.ReprocessMeetingResponse>;
+
+export type ListNotesResponse = z.infer<typeof vaultSchemas.ListNotesResponse>;
+export type DeleteNoteResponse = z.infer<typeof vaultSchemas.DeleteNoteResponse>;
+
+export type CreateConversationResponse = z.infer<typeof chatSchemas.CreateConversationResponse>;
+export type ListConversationsResponse = z.infer<typeof chatSchemas.ListConversationsResponse>;
+export type MessagesResponse = z.infer<typeof chatSchemas.MessagesResponse>;
+export type EndConversationResponse = z.infer<typeof chatSchemas.EndConversationResponse>;
+export type SearchResponse = z.infer<typeof chatSchemas.SearchResponse>;
+
+export type ActivityResponse = z.infer<typeof activitySchemas.ActivityResponse>;
+export type RunEventsResponse = z.infer<typeof activitySchemas.RunEventsResponse>;
+
+export type DigestResponse = z.infer<typeof digestSchemas.DigestResponse>;
+export type ConsolidateResponse = z.infer<typeof digestSchemas.ConsolidateResponse>;
+export type ContradictionsResponse = z.infer<typeof digestSchemas.ContradictionsResponse>;
+export type ResolveContradictionResponse = z.infer<
+  typeof digestSchemas.ResolveContradictionResponse
+>;
+export type AuditResponse = z.infer<typeof digestSchemas.AuditResponse>;
+
+export type OutputJsonResponse = z.infer<typeof outputsSchemas.OutputJsonResponse>;
+
+export type ApplyProfileResponse = z.infer<typeof profileSchemas.ApplyProfileResponse>;
+export type ProfileUploadResponse = z.infer<typeof profileSchemas.ProfileUploadResponse>;
+export type ProfileProposalResponse = z.infer<typeof profileSchemas.ProfileProposalResponse>;
+export type ProfileHistoryResponse = z.infer<typeof profileSchemas.ProfileHistoryResponse>;
+export type ProfileAuditResponse = z.infer<typeof profileSchemas.ProfileAuditResponse>;
+export type ProfilePrivacyResponse = z.infer<typeof profileSchemas.ProfilePrivacyResponse>;
+
+export type LocalModelsResponse = z.infer<typeof settingsSchemas.LocalModelsResponse>;
+export type ListFoldersResponse = z.infer<typeof settingsSchemas.ListFoldersResponse>;
+export type AddFolderResponse = z.infer<typeof settingsSchemas.AddFolderResponse>;
+export type RemoveFolderResponse = z.infer<typeof settingsSchemas.RemoveFolderResponse>;
+export type ResetResponse = z.infer<typeof settingsSchemas.ResetResponse>;
+
+export type AuthStartResponse = z.infer<typeof connectorsSchemas.AuthStartResponse>;
+export type SyncKindResponse = z.infer<typeof connectorsSchemas.SyncKindResponse>;
+export type DisconnectResponse = z.infer<typeof connectorsSchemas.DisconnectResponse>;
+
+export type ListCalendarEventsResponse = z.infer<typeof calendarSchemas.ListCalendarEventsResponse>;
+
+export type GitAutoResponse = z.infer<typeof gitSchemas.GitAutoResponse>;
+export type GitLogResponse = z.infer<typeof gitSchemas.GitLogResponse>;

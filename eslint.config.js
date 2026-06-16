@@ -23,6 +23,9 @@ export default tseslint.config(
       // tsconfig project — type-aware linting can't resolve them, so skip.
       "**/vitest.config.ts",
       "**/*.d.ts",
+      // Fixture generators are standalone tooling scripts (run by hand to
+      // regenerate binary test fixtures), not part of any tsconfig project.
+      "**/test/fixtures/**/generate.mjs",
     ],
   },
 

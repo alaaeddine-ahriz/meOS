@@ -20,6 +20,9 @@ import {
 } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["profile"];
 
 /** The source type uploaded profile documents are stored under — a lens input, never a raw graph source. */
 const PROFILE_SOURCE_TYPE = "profile_context";
@@ -106,11 +109,30 @@ function wikiKnowledge(ctx: AppContext): string {
 }
 
 export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get("/api/profile", async () => profileView(ctx));
+  app.get(
+    "/api/profile",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Get profile",
+        response: profileSchema.ProfileDataSchema,
+      }),
+    },
+    async () => profileSchema.ProfileDataSchema.parse(profileView(ctx)),
+  );
 
   // Save one section. The store snapshots the prior version before overwriting.
   app.put<{ Params: { id: string }; Body: { content?: string } }>(
     "/api/profile/:id",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Save a profile section",
+        params: profileSchema.ProfileIdParam,
+        body: profileSchema.SaveProfileSectionBody,
+        response: profileSchema.ProfileDataSchema,
+      }),
+    },
     async (request) => {
       const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
       const section = profileSection(params.id);
@@ -118,118 +140,172 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       const { content } = parseOrThrow(profileSchema.SaveProfileSectionBody, request.body, "body");
       saveProfileSection(ctx.config.dataDir, section.id, content ?? "");
       logProfileEdit(ctx, "edit_section", { section: section.id });
-      return profileView(ctx);
+      return profileSchema.ProfileDataSchema.parse(profileView(ctx));
     },
   );
 
   // Apply a reviewed proposal (or hand edit): persist every changed section in
   // one shot, after the user has accepted the diff.
-  app.post<{ Body: { profile?: Partial<Profile> } }>("/api/profile/apply", async (request) => {
-    const { profile: proposed } = parseOrThrow(
-      profileSchema.ApplyProfileBody,
-      request.body,
-      "body",
-    );
-    const current = loadProfile(ctx.config.dataDir);
-    const applied: string[] = [];
-    for (const section of PROFILE_SECTIONS) {
-      const next = proposed[section.id];
-      if (typeof next !== "string") continue;
-      if (next.trim() === (current[section.id] ?? "").trim()) continue;
-      saveProfileSection(ctx.config.dataDir, section.id, next);
-      applied.push(section.id);
-    }
-    if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
-    return { ...profileView(ctx), applied };
-  });
+  app.post<{ Body: { profile?: Partial<Profile> } }>(
+    "/api/profile/apply",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Apply a reviewed profile proposal",
+        body: profileSchema.ApplyProfileBody,
+        response: profileSchema.ApplyProfileResponse,
+      }),
+    },
+    async (request) => {
+      const { profile: proposed } = parseOrThrow(
+        profileSchema.ApplyProfileBody,
+        request.body,
+        "body",
+      );
+      const current = loadProfile(ctx.config.dataDir);
+      const applied: string[] = [];
+      for (const section of PROFILE_SECTIONS) {
+        const next = proposed[section.id];
+        if (typeof next !== "string") continue;
+        if (next.trim() === (current[section.id] ?? "").trim()) continue;
+        saveProfileSection(ctx.config.dataDir, section.id, next);
+        applied.push(section.id);
+      }
+      if (applied.length > 0) logProfileEdit(ctx, "apply_proposal", { sections: applied });
+      return profileSchema.ApplyProfileResponse.parse({ ...profileView(ctx), applied });
+    },
+  );
 
   // Upload context documents: parse each, store as a private profile_context
   // source (never run through extraction), then propose a profile update for
   // the user to review. Nothing is applied automatically.
-  app.post("/api/profile/upload", async (request, reply) => {
-    const stored: Array<{ title: string; text: string }> = [];
-    for await (const part of request.files()) {
-      const buffer = await part.toBuffer();
-      const filename = part.filename;
-      const mediaType = imageMediaType(filename);
-      let parsed: { title: string; text: string } | null;
-      if (mediaType) {
-        const text = await readImage(ctx.llm, filename, {
-          mediaType,
-          data: buffer.toString("base64"),
+  app.post(
+    "/api/profile/upload",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Upload profile context documents",
+        response: profileSchema.ProfileUploadResponse,
+      }),
+    },
+    async (request, reply) => {
+      const stored: Array<{ title: string; text: string }> = [];
+      for await (const part of request.files()) {
+        const buffer = await part.toBuffer();
+        const filename = part.filename;
+        const mediaType = imageMediaType(filename);
+        let parsed: { title: string; text: string } | null;
+        if (mediaType) {
+          const text = await readImage(ctx.llm, filename, {
+            mediaType,
+            data: buffer.toString("base64"),
+          });
+          parsed = { title: filename.replace(/\.[^.]+$/, ""), text };
+        } else {
+          parsed = await parseDocument(filename, buffer);
+        }
+        if (!parsed || !parsed.text.trim()) continue;
+        ctx.store.createSource({
+          type: PROFILE_SOURCE_TYPE,
+          title: parsed.title,
+          content: parsed.text,
         });
-        parsed = { title: filename.replace(/\.[^.]+$/, ""), text };
-      } else {
-        parsed = await parseDocument(filename, buffer);
+        stored.push(parsed);
       }
-      if (!parsed || !parsed.text.trim()) continue;
-      ctx.store.createSource({
-        type: PROFILE_SOURCE_TYPE,
-        title: parsed.title,
-        content: parsed.text,
-      });
-      stored.push(parsed);
-    }
-    if (stored.length === 0) {
-      throw httpError.badRequest("No readable documents in request");
-    }
-    logProfileEdit(ctx, "upload_documents", { titles: stored.map((d) => d.title) });
+      if (stored.length === 0) {
+        throw httpError.badRequest("No readable documents in request");
+      }
+      logProfileEdit(ctx, "upload_documents", { titles: stored.map((d) => d.title) });
 
-    try {
-      const proposal = await draftProfileFromContext({
-        llm: ctx.llm,
-        currentProfile: loadProfile(ctx.config.dataDir),
-        documents: stored,
-      });
-      return reply.code(200).send({ proposal, documents: stored.map((d) => d.title) });
-    } catch (error) {
-      throw httpError.upstream(error instanceof Error ? error.message : String(error));
-    }
-  });
+      try {
+        const proposal = await draftProfileFromContext({
+          llm: ctx.llm,
+          currentProfile: loadProfile(ctx.config.dataDir),
+          documents: stored,
+        });
+        return reply.code(200).send(
+          profileSchema.ProfileUploadResponse.parse({
+            proposal,
+            documents: stored.map((d) => d.title),
+          }),
+        );
+      } catch (error) {
+        throw httpError.upstream(error instanceof Error ? error.message : String(error));
+      }
+    },
+  );
 
   // Bootstrap an initial profile from the wiki MeOS has already compiled — a
   // first draft the user reviews and edits, rather than starting from blank.
-  app.post("/api/profile/draft-from-wiki", async () => {
-    const knowledge = wikiKnowledge(ctx);
-    if (!knowledge.trim()) {
-      throw httpError.badRequest(
-        "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
-      );
-    }
-    try {
-      const proposal = await draftProfileFromKnowledge({
-        llm: ctx.llm,
-        currentProfile: loadProfile(ctx.config.dataDir),
-        knowledge,
-      });
-      logProfileEdit(ctx, "draft_from_wiki", {});
-      return { proposal };
-    } catch (error) {
-      throw httpError.upstream(error instanceof Error ? error.message : String(error));
-    }
-  });
+  app.post(
+    "/api/profile/draft-from-wiki",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Draft a profile from the wiki",
+        response: profileSchema.ProfileProposalResponse,
+      }),
+    },
+    async () => {
+      const knowledge = wikiKnowledge(ctx);
+      if (!knowledge.trim()) {
+        throw httpError.badRequest(
+          "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
+        );
+      }
+      try {
+        const proposal = await draftProfileFromKnowledge({
+          llm: ctx.llm,
+          currentProfile: loadProfile(ctx.config.dataDir),
+          knowledge,
+        });
+        logProfileEdit(ctx, "draft_from_wiki", {});
+        return profileSchema.ProfileProposalResponse.parse({ proposal });
+      } catch (error) {
+        throw httpError.upstream(error instanceof Error ? error.message : String(error));
+      }
+    },
+  );
 
   // Re-draft a proposal from all uploaded context documents (without a new upload).
-  app.post("/api/profile/draft", async () => {
-    const { documents } = uploadedContext(ctx);
-    if (documents.length === 0) {
-      throw httpError.badRequest("No uploaded context documents to draft from");
-    }
-    try {
-      const proposal = await draftProfileFromContext({
-        llm: ctx.llm,
-        currentProfile: loadProfile(ctx.config.dataDir),
-        documents,
-      });
-      return { proposal };
-    } catch (error) {
-      throw httpError.upstream(error instanceof Error ? error.message : String(error));
-    }
-  });
+  app.post(
+    "/api/profile/draft",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Draft a profile from uploaded context",
+        response: profileSchema.ProfileProposalResponse,
+      }),
+    },
+    async () => {
+      const { documents } = uploadedContext(ctx);
+      if (documents.length === 0) {
+        throw httpError.badRequest("No uploaded context documents to draft from");
+      }
+      try {
+        const proposal = await draftProfileFromContext({
+          llm: ctx.llm,
+          currentProfile: loadProfile(ctx.config.dataDir),
+          documents,
+        });
+        return profileSchema.ProfileProposalResponse.parse({ proposal });
+      } catch (error) {
+        throw httpError.upstream(error instanceof Error ? error.message : String(error));
+      }
+    },
+  );
 
   // Natural-language edit: returns a proposed profile to review, never applied directly.
   app.post<{ Body: { instruction?: string; useUploaded?: boolean } }>(
     "/api/profile/edit",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Edit profile with a natural-language instruction",
+        body: profileSchema.EditProfileBody,
+        response: profileSchema.ProfileProposalResponse,
+      }),
+    },
     async (request) => {
       const { instruction, useUploaded } = parseOrThrow(
         profileSchema.EditProfileBody,
@@ -245,7 +321,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
           instruction: trimmed,
           uploadedContext: useUploaded ? uploadedContext(ctx).combined || undefined : undefined,
         });
-        return { proposal };
+        return profileSchema.ProfileProposalResponse.parse({ proposal });
       } catch (error) {
         throw httpError.upstream(error instanceof Error ? error.message : String(error));
       }
@@ -253,15 +329,36 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
   );
 
   // Version history for a section.
-  app.get<{ Params: { id: string } }>("/api/profile/:id/history", async (request) => {
-    const { id } = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
-    const section = profileSection(id);
-    if (!section) throw httpError.notFound("No such profile section");
-    return { versions: listProfileHistory(ctx.config.dataDir, section.id) };
-  });
+  app.get<{ Params: { id: string } }>(
+    "/api/profile/:id/history",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Profile section version history",
+        params: profileSchema.ProfileIdParam,
+        response: profileSchema.ProfileHistoryResponse,
+      }),
+    },
+    async (request) => {
+      const { id } = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
+      const section = profileSection(id);
+      if (!section) throw httpError.notFound("No such profile section");
+      return profileSchema.ProfileHistoryResponse.parse({
+        versions: listProfileHistory(ctx.config.dataDir, section.id),
+      });
+    },
+  );
 
   app.get<{ Params: { id: string; version: string } }>(
     "/api/profile/:id/history/:version",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Profile section version content",
+        params: profileSchema.ProfileIdVersionParam,
+        response: profileSchema.ProfileVersionContentResponse,
+      }),
+    },
     async (request) => {
       const { id, version } = parseOrThrow(
         profileSchema.ProfileIdVersionParam,
@@ -272,13 +369,22 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (!section) throw httpError.notFound("No such profile section");
       const content = readProfileVersion(ctx.config.dataDir, section.id, version);
       if (content === null) throw httpError.notFound("No such version");
-      return { content };
+      return profileSchema.ProfileVersionContentResponse.parse({ content });
     },
   );
 
   // Restore a prior version (snapshotting the current one first, via save).
   app.post<{ Params: { id: string }; Body: { version?: string } }>(
     "/api/profile/:id/restore",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Restore a profile section version",
+        params: profileSchema.ProfileIdParam,
+        body: profileSchema.RestoreProfileBody,
+        response: profileSchema.ProfileDataSchema,
+      }),
+    },
     async (request) => {
       const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
       const section = profileSection(params.id);
@@ -288,23 +394,45 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (content === null) throw httpError.notFound("No such version");
       saveProfileSection(ctx.config.dataDir, section.id, content);
       logProfileEdit(ctx, "restore_version", { section: section.id, version });
-      return profileView(ctx);
+      return profileSchema.ProfileDataSchema.parse(profileView(ctx));
     },
   );
 
   // The profile-edit audit trail (governance).
-  app.get("/api/profile/audit", async () => ({
-    entries: ctx.store.recentAudit(100).filter((e) => e.op === "profile_edit"),
-  }));
+  app.get(
+    "/api/profile/audit",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Profile edit audit trail",
+        response: profileSchema.ProfileAuditResponse,
+      }),
+    },
+    async () =>
+      profileSchema.ProfileAuditResponse.parse({
+        entries: ctx.store.recentAudit(100).filter((e) => e.op === "profile_edit"),
+      }),
+  );
 
   // Privacy toggle: whether the profile dir is exported to git. Off by default.
-  app.put<{ Body: { sync?: boolean } }>("/api/profile/privacy", async (request, reply) => {
-    const { sync } = parseOrThrow(profileSchema.ProfilePrivacyBody, request.body, "body");
-    ensureProfilePrivacy(ctx.config.dataDir, sync);
-    ctx.store.setSetting(GIT_SYNC_KEY, sync);
-    logProfileEdit(ctx, "set_git_sync", { sync });
-    return reply.send({ gitSync: sync });
-  });
+  app.put<{ Body: { sync?: boolean } }>(
+    "/api/profile/privacy",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Toggle profile git-sync privacy",
+        body: profileSchema.ProfilePrivacyBody,
+        response: profileSchema.ProfilePrivacyResponse,
+      }),
+    },
+    async (request, reply) => {
+      const { sync } = parseOrThrow(profileSchema.ProfilePrivacyBody, request.body, "body");
+      ensureProfilePrivacy(ctx.config.dataDir, sync);
+      ctx.store.setSetting(GIT_SYNC_KEY, sync);
+      logProfileEdit(ctx, "set_git_sync", { sync });
+      return reply.send(profileSchema.ProfilePrivacyResponse.parse({ gitSync: sync }));
+    },
+  );
 }
 
 /** Compose the current profile lens — used by stages that re-read it each run. */

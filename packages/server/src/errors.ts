@@ -103,9 +103,28 @@ export function registerErrorHandler(app: FastifyInstance): void {
       return;
     }
 
-    // Fastify's own validation failures (e.g. malformed JSON body) carry a
-    // statusCode and validation context — surface them as 400s.
-    const fastifyError = error as { statusCode?: number; message?: string };
+    // Fastify's own schema validation failures (a per-route body/params/query
+    // JSON schema rejected the request) carry `validation` context — surface
+    // them as the same VALIDATION_ERROR a handler's `parseOrThrow` would, with
+    // the offending fields in `details`, so the error code is identical whether
+    // the route validates via an attached schema or inline.
+    const fastifyError = error as {
+      statusCode?: number;
+      code?: string;
+      message?: string;
+      validation?: Array<{ instancePath?: string; message?: string }>;
+    };
+    if (fastifyError.code === "FST_ERR_VALIDATION" || fastifyError.validation) {
+      const details = fastifyError.validation?.map((v) => ({
+        path: (v.instancePath ?? "").replace(/^\//, "").replace(/\//g, "."),
+        message: v.message ?? "invalid",
+      }));
+      envelope(400, ErrorCode.VALIDATION_ERROR, "Invalid request", true, details);
+      return;
+    }
+
+    // Other Fastify 4xx faults (e.g. malformed JSON body, unsupported media
+    // type) surface as a generic bad request.
     const statusCode = fastifyError.statusCode;
     if (statusCode && statusCode >= 400 && statusCode < 500) {
       envelope(statusCode, ErrorCode.BAD_REQUEST, fastifyError.message ?? "Bad request", true);

@@ -1,4 +1,4 @@
-import type { CalendarEventItem } from "../connectors/types.js";
+import type { CalendarEventItem, ConnectorKindConfig } from "../connectors/types.js";
 import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
 import type { EntityType, Extraction } from "../extract/schema.js";
@@ -448,6 +448,16 @@ export interface ConnectorSyncStateRow {
   sync_token: string | null;
   last_synced_at: string | null;
   last_status: string | null;
+  /** JSON coverage config (#68): window, content mode, backfill, calendars. */
+  config: string;
+}
+
+/** Aggregate coverage stats for a kind, derived from the connector ledger (#68). */
+export interface ConnectorCoverageStats {
+  /** Distinct external items indexed for this kind. */
+  itemCount: number;
+  /** Oldest indexed item's date (ISO), parsed from the materialized source. */
+  oldestIndexed: string | null;
 }
 
 /** An active observation with its embedding and owning-entity context, for retrieval. */
@@ -3336,7 +3346,8 @@ export class KnowledgeStore {
   getSyncState(accountId: number, kind: string): ConnectorSyncStateRow | undefined {
     return this.db
       .prepare(
-        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at,
+                last_status, config
          FROM connector_sync_state WHERE account_id = ? AND kind = ?`,
       )
       .get(accountId, kind) as ConnectorSyncStateRow | undefined;
@@ -3345,10 +3356,22 @@ export class KnowledgeStore {
   listSyncState(accountId: number): ConnectorSyncStateRow[] {
     return this.db
       .prepare(
-        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+        `SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at,
+                last_status, config
          FROM connector_sync_state WHERE account_id = ? ORDER BY kind`,
       )
       .all(accountId) as ConnectorSyncStateRow[];
+  }
+
+  /** The parsed per-kind coverage config (#68), or an empty object on a fresh/legacy row. */
+  getSyncConfig(accountId: number, kind: string): ConnectorKindConfig {
+    const row = this.getSyncState(accountId, kind);
+    if (!row?.config) return {};
+    try {
+      return JSON.parse(row.config) as ConnectorKindConfig;
+    } catch {
+      return {};
+    }
   }
 
   setSyncState(
@@ -3360,12 +3383,18 @@ export class KnowledgeStore {
       syncToken?: string | null;
       lastSyncedAt?: string | null;
       lastStatus?: string | null;
+      /** Replace the per-kind coverage config blob (#68); shallow-merged with existing. */
+      config?: ConnectorKindConfig;
     },
   ): void {
     // Read-merge-write: create the row on first touch, then patch only the keys
     // present in `patch` so e.g. a cursor write doesn't reset the enabled toggle.
     // (`syncToken: null` deliberately clears the cursor for a full resync.)
     const existing = this.getSyncState(accountId, kind);
+    const mergedConfig =
+      "config" in patch
+        ? { ...this.getSyncConfig(accountId, kind), ...(patch.config ?? {}) }
+        : undefined;
     const next = {
       enabled: patch.enabled !== undefined ? Number(patch.enabled) : (existing?.enabled ?? 0),
       intervalMinutes: patch.intervalMinutes ?? existing?.interval_minutes ?? 15,
@@ -3374,18 +3403,21 @@ export class KnowledgeStore {
         "lastSyncedAt" in patch ? (patch.lastSyncedAt ?? null) : (existing?.last_synced_at ?? null),
       lastStatus:
         "lastStatus" in patch ? (patch.lastStatus ?? null) : (existing?.last_status ?? null),
+      config: mergedConfig ? JSON.stringify(mergedConfig) : (existing?.config ?? "{}"),
     };
     this.db
       .prepare(
         `INSERT INTO connector_sync_state
-           (account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+           (account_id, kind, enabled, interval_minutes, sync_token, last_synced_at,
+            last_status, config)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(account_id, kind) DO UPDATE SET
            enabled = excluded.enabled,
            interval_minutes = excluded.interval_minutes,
            sync_token = excluded.sync_token,
            last_synced_at = excluded.last_synced_at,
-           last_status = excluded.last_status`,
+           last_status = excluded.last_status,
+           config = excluded.config`,
       )
       .run(
         accountId,
@@ -3395,7 +3427,43 @@ export class KnowledgeStore {
         next.syncToken,
         next.lastSyncedAt,
         next.lastStatus,
+        next.config,
       );
+  }
+
+  /**
+   * Coverage stats for a kind (#68): how many distinct items the connector ledger
+   * has indexed, and the oldest indexed item's date. The date is parsed from the
+   * materialized source's normalized {@link CalendarEventItem}/{@link GmailMessageItem}
+   * payload (its `start`/`date`), so it reflects real content recency, not row age.
+   */
+  connectorCoverageStats(accountId: number, kind: string): ConnectorCoverageStats {
+    const count = (
+      this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM connector_items WHERE account_id = ? AND kind = ? AND source_id IS NOT NULL",
+        )
+        .get(accountId, kind) as { n: number }
+    ).n;
+
+    const rows = this.db
+      .prepare(
+        `SELECT s.raw_content AS raw
+         FROM connector_items ci JOIN sources s ON s.id = ci.source_id
+         WHERE ci.account_id = ? AND ci.kind = ? AND s.raw_content IS NOT NULL`,
+      )
+      .all(accountId, kind) as Array<{ raw: string }>;
+    let oldest: string | null = null;
+    for (const r of rows) {
+      try {
+        const parsed = JSON.parse(r.raw) as { start?: string | null; date?: string | null };
+        const when = parsed.start ?? parsed.date ?? null;
+        if (when && (!oldest || when < oldest)) oldest = when;
+      } catch {
+        /* skip unparseable payloads */
+      }
+    }
+    return { itemCount: count, oldestIndexed: oldest };
   }
 
   connectorItemUnchanged(
