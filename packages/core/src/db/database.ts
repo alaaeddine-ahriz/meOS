@@ -772,6 +772,55 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX idx_meeting_links_source ON meeting_link_suggestions(source_id, status);
   `,
+
+  // 27 — repair the inbox_items status CHECK to include 'extract-failed'.
+  //
+  // Migration 21 widened the constraint to add the 'extract-failed' state, but a
+  // migration renumbering during a branch merge meant some databases had already
+  // bumped user_version past 21 under an earlier migration that never rebuilt
+  // inbox_items. Because the runner only applies migrations with index >=
+  // user_version, editing migration 21 in place can't reach those databases, so
+  // they stay on the original 7-value constraint. The durable pipeline's
+  // 'extract-failed' writes then fail the CHECK and surface as hard 'failed' rows
+  // ("check constraint failed: status in (…)"). Rebuild inbox_items with the full
+  // set so those databases converge; on a database that already has the wider
+  // constraint this is a harmless identity rebuild.
+  //
+  // inbox_items is referenced by ingest_jobs(inbox_item_id) ON DELETE SET NULL, so
+  // dropping the table fires that action and nulls the linkage. Stash the
+  // (job, inbox_item) pairs first and restore them after the rebuild — row ids are
+  // preserved, so the mapping stays valid.
+  `
+  CREATE TEMP TABLE _inbox_job_link AS
+    SELECT id AS job_id, inbox_item_id FROM ingest_jobs WHERE inbox_item_id IS NOT NULL;
+
+  CREATE TABLE inbox_items_new (
+    id INTEGER PRIMARY KEY,
+    source_id INTEGER REFERENCES sources(id),
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued'
+      CHECK (status IN ('queued','parsing','extracting','merging','done','failed','unsupported','extract-failed')),
+    detail TEXT,
+    path TEXT,
+    revision INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO inbox_items_new
+    (id, source_id, title, status, detail, path, revision, created_at, updated_at)
+    SELECT id, source_id, title, status, detail, path, revision, created_at, updated_at
+    FROM inbox_items;
+  DROP TABLE inbox_items;
+  ALTER TABLE inbox_items_new RENAME TO inbox_items;
+  CREATE INDEX idx_inbox_items_path ON inbox_items(path);
+
+  UPDATE ingest_jobs
+    SET inbox_item_id = (
+      SELECT inbox_item_id FROM _inbox_job_link WHERE _inbox_job_link.job_id = ingest_jobs.id
+    )
+    WHERE id IN (SELECT job_id FROM _inbox_job_link);
+  DROP TABLE _inbox_job_link;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
