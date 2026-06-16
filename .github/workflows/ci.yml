@@ -61,11 +61,13 @@ jobs:
       - name: Test
         run: pnpm test
 
-      # TODO(#21): once `pnpm test:coverage` exists, run coverage here (or in a
-      # dedicated job) and enforce a threshold. Left out now because the script
-      # does not exist yet and would fail the run.
-      # - name: Test with coverage
-      #   run: pnpm test:coverage
+      # Coverage gate (#21): runs the critical packages (@meos/core, @meos/server)
+      # with v8 coverage and FAILS the build if any package drops below the
+      # thresholds pinned in its vitest.config.ts. The thresholds sit just below
+      # current measured coverage, so they pass today and only ratchet upward.
+      # See docs/testing.md for the test strategy and the per-package numbers.
+      - name: Test with coverage
+        run: pnpm test:coverage
 
   # Style/quality gate: lint + formatting. Independent of build output, so it
   # runs in parallel with build-and-test for faster overall feedback.
