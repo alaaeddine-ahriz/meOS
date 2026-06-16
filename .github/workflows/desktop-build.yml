@@ -32,7 +32,7 @@ jobs:
             label: Linux
             bundles: appimage
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # Tauri's Linux bundler (WebKitGTK + AppImage tooling) needs system libs.
       # linuxdeploy is itself an AppImage, so libfuse2 and extract-and-run support
@@ -58,12 +58,12 @@ jobs:
       # bundled better-sqlite3 prebuild is ABI-bound to the Node we ship, and
       # the script guards against a mismatch.
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -103,7 +103,7 @@ jobs:
           fi
 
       - name: Upload bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: meos-${{ matrix.os }}
           if-no-files-found: error
