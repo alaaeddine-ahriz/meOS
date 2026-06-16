@@ -1,18 +1,30 @@
-import { FilePenLine, FileText, Search, Sparkles, Terminal } from "lucide-react";
+import {
+  Ban,
+  CheckCircle2,
+  Clock,
+  FilePenLine,
+  FileText,
+  GitMerge,
+  type LucideIcon,
+  PencilLine,
+  ScanText,
+  Search,
+  Sparkles,
+  Terminal,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { ListRow } from "@/components/list";
 import { Page, PageBody, PageHeader } from "@/components/Page";
 import { Reasoning, ReasoningContent, ReasoningTrigger } from "@/components/ai-elements/reasoning";
 import { MessageResponse } from "@/components/ai-elements/message";
-import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
 import {
   api,
   streamActivity,
   type ActivityEvent,
   type InboxItem,
-  type LlmSettings,
   type WikiRun,
   type WikiRunEventKind,
 } from "../api.js";
@@ -58,22 +70,116 @@ function docLabel(item: InboxItem): string {
   }
 }
 
-// The leading icon's colour conveys status at a glance.
-const RUN_COLOR: Record<WikiRun["status"], string> = {
-  running: "text-primary",
-  done: "text-moss",
-  failed: "text-destructive",
+/**
+ * The processing stages a feed element can be in. A document flows queued →
+ * reading → extracting → merging → done; a maintainer run is writing → done.
+ * The leading icon (and its colour) is the stage, so a glance down the feed
+ * reads as a status column. {@link STATUS_META} drives both the icons and the
+ * legend so they can never drift apart.
+ */
+type ProcStatus =
+  | "queued"
+  | "reading"
+  | "extracting"
+  | "merging"
+  | "writing"
+  | "done"
+  | "failed"
+  | "skipped";
+
+const STATUS_META: Record<ProcStatus, { Icon: LucideIcon; label: string; className: string }> = {
+  queued: { Icon: Clock, label: "Queued", className: "text-muted-foreground" },
+  reading: { Icon: ScanText, label: "Reading", className: "text-primary" },
+  extracting: { Icon: Sparkles, label: "Extracting", className: "text-primary" },
+  merging: { Icon: GitMerge, label: "Merging", className: "text-primary" },
+  writing: { Icon: PencilLine, label: "Writing", className: "text-primary" },
+  done: { Icon: CheckCircle2, label: "Done", className: "text-moss" },
+  failed: { Icon: XCircle, label: "Failed", className: "text-destructive" },
+  skipped: { Icon: Ban, label: "Skipped", className: "text-muted-foreground" },
 };
-const DOC_COLOR: Record<string, string> = {
-  queued: "text-muted-foreground",
-  parsing: "text-primary",
-  extracting: "text-primary",
-  merging: "text-primary",
-  done: "text-moss",
-  failed: "text-destructive",
-  "extract-failed": "text-destructive",
-  unsupported: "text-muted-foreground",
-};
+
+const LEGEND_ORDER: ProcStatus[] = [
+  "queued",
+  "reading",
+  "extracting",
+  "merging",
+  "writing",
+  "done",
+  "failed",
+  "skipped",
+];
+
+/** Map a document's ingest status onto a processing stage. */
+function docStatus(status: InboxItem["status"]): ProcStatus {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "parsing":
+      return "reading";
+    case "extracting":
+      return "extracting";
+    case "merging":
+      return "merging";
+    case "done":
+      return "done";
+    case "failed":
+    case "extract-failed":
+      return "failed";
+    case "unsupported":
+      return "skipped";
+    default:
+      return "queued";
+  }
+}
+
+/** Map a maintainer run's status onto a processing stage. */
+function runStatus(status: WikiRun["status"]): ProcStatus {
+  return status === "running" ? "writing" : status === "done" ? "done" : "failed";
+}
+
+/** The processing stage of a feed element, used for the status filter. */
+function feedStatus(entry: FeedItem): ProcStatus {
+  return entry.kind === "run" ? runStatus(entry.run.status) : docStatus(entry.item.status);
+}
+
+/**
+ * A key showing what each status icon means, pinned above the feed. Each entry
+ * is a toggle: with none selected the whole feed shows; selecting one or more
+ * narrows the feed to just those stages.
+ */
+function StatusLegend({
+  selected,
+  onToggle,
+}: {
+  selected: ReadonlySet<ProcStatus>;
+  onToggle: (status: ProcStatus) => void;
+}) {
+  const filtering = selected.size > 0;
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-1.5 border-b border-border pb-3 text-xs">
+      {LEGEND_ORDER.map((key) => {
+        const { Icon, label, className } = STATUS_META[key];
+        const on = selected.has(key);
+        return (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onToggle(key)}
+            aria-pressed={on}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              on ? "bg-accent text-foreground" : "text-muted-foreground hover:bg-accent",
+              filtering && !on && "opacity-50",
+            )}
+          >
+            <Icon className={cn("size-3.5", className)} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Append a streamed chunk to a transcript: merge consecutive reasoning/text, push tools. */
 function appendChunk(
@@ -98,16 +204,20 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   const [transcripts, setTranscripts] = useState<ReadonlyMap<number, Segment[]>>(new Map());
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
   const loaded = useRef<Set<number>>(new Set());
-  const [maintainer, setMaintainer] = useState<LlmSettings["maintainer"] | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReadonlySet<ProcStatus>>(new Set());
+
+  const toggleStatus = (status: ProcStatus) =>
+    setStatusFilter((current) => {
+      const next = new Set(current);
+      if (next.has(status)) next.delete(status);
+      else next.add(status);
+      return next;
+    });
 
   useEffect(() => {
     api
       .getActivity()
       .then((r) => setRuns(r.runs))
-      .catch(() => {});
-    api
-      .getLlmSettings()
-      .then((s) => setMaintainer(s.maintainer))
       .catch(() => {});
   }, []);
 
@@ -198,30 +308,12 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
     [runs, docs],
   );
 
-  const needsReasoningModel = maintainer !== null && !maintainer.reasoning;
+  const visibleFeed =
+    statusFilter.size === 0 ? feed : feed.filter((entry) => statusFilter.has(feedStatus(entry)));
 
   const content = (
     <>
-      {needsReasoningModel && (
-        <div className="mb-5 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          <p className="flex items-center gap-2 text-foreground">
-            <Sparkles className="size-4" />
-            {maintainer?.configured
-              ? "Your maintainer model can't stream reasoning."
-              : "Pick a reasoning-capable model to narrate wiki updates."}
-          </p>
-          <p className="mt-1">
-            Tool calls and edits still stream. To see the agent's thinking too, choose a Claude
-            Opus/Sonnet, GPT-5/o-series, or Gemini 2.5/3 model.{" "}
-            <Link
-              to="/settings"
-              className="font-medium text-foreground underline underline-offset-2"
-            >
-              Open Settings → Model
-            </Link>
-          </p>
-        </div>
-      )}
+      {feed.length > 0 && <StatusLegend selected={statusFilter} onToggle={toggleStatus} />}
 
       {feed.length === 0 ? (
         <p className="text-sm text-muted-foreground">
@@ -231,8 +323,10 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
           </Link>{" "}
           and MeOS starts reading — each document and the pages it rewrites show up here.
         </p>
+      ) : visibleFeed.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No activity matches the selected status.</p>
       ) : (
-        feed.map((entry) =>
+        visibleFeed.map((entry) =>
           entry.kind === "run" ? (
             <RunRow
               key={`run-${entry.run.id}`}
@@ -264,13 +358,12 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
 /** A document in the feed: links to its diff once done. */
 function DocRow({ item }: { item: InboxItem }) {
   const linkable = item.status === "done" && item.source_id != null;
+  const { Icon, className } = STATUS_META[docStatus(item.status)];
   return (
     <ListRow
       to={linkable ? `/changes/${item.source_id}` : undefined}
       title={docLabel(item)}
-      icon={
-        <FileText className={cn("size-4", DOC_COLOR[item.status] ?? "text-muted-foreground")} />
-      }
+      icon={<Icon className={cn("size-4", className)} />}
       label={item.title}
       meta={formatTime(item.updated_at)}
     />
@@ -289,13 +382,13 @@ function RunRow({
   segments: Segment[] | undefined;
   onToggle: () => void;
 }) {
-  const Icon = ENTITY_TYPES[run.type]?.icon ?? FileText;
+  const { Icon, className } = STATUS_META[runStatus(run.status)];
   return (
     <div>
       <ListRow
         active={open}
         onClick={onToggle}
-        icon={<Icon className={cn("size-4", RUN_COLOR[run.status])} />}
+        icon={<Icon className={cn("size-4", className)} />}
         label={run.name}
         meta={formatTime(run.created_at)}
       />
