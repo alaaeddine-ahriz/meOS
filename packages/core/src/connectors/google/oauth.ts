@@ -4,8 +4,9 @@ import type { OAuthTokens } from "../types.js";
 /**
  * Google OAuth for an installed "Desktop app" client, loopback + PKCE. No
  * `googleapis` dependency — raw `fetch` to the token/authorize endpoints and
- * node `crypto` for the PKCE challenge. Read-only scopes only: we never write to
- * the user's Google data.
+ * node `crypto` for the PKCE challenge. Scopes are read-only EXCEPT Google Tasks,
+ * which is read/write so meOS can create tasks on your behalf (the connector
+ * framework's first explicit write capability — surfaced plainly in the UI).
  */
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -16,6 +17,10 @@ export const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/contacts.readonly",
   "https://www.googleapis.com/auth/calendar.readonly",
   "https://www.googleapis.com/auth/gmail.readonly",
+  // Tasks is READ + WRITE: meOS syncs your tasks AND can create new ones for you.
+  // This is the only non-readonly scope; it's requested intentionally so the
+  // create-task feature works. We never broaden beyond Tasks.
+  "https://www.googleapis.com/auth/tasks",
   // profile + email let us read the account owner's own name via People people/me
   // (to anchor "knows" edges to you) and label which account is connected.
   "https://www.googleapis.com/auth/userinfo.profile",

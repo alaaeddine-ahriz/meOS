@@ -22,6 +22,8 @@ import type {
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
+  Task,
+  TaskList,
   DiffFile,
   DuplicateProposal,
   EntitySummary,
@@ -128,6 +130,8 @@ export type {
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
+  Task,
+  TaskList,
   DiffFile,
   DuplicateProposal,
   EntitySummary,
@@ -432,6 +436,20 @@ export const api = {
   listGoogleCalendars: () =>
     json<{ calendars: CalendarListEntry[] }>("/api/connectors/google/calendars"),
   disconnectGoogle: () => json<DisconnectResponse>("/api/connectors/google", { method: "DELETE" }),
+  // Google Tasks (read + write). List task lists, and create a task in Google.
+  listGoogleTaskLists: () => json<{ lists: TaskList[] }>("/api/connectors/google/tasks/lists"),
+  createGoogleTask: (input: { taskListId?: string; title: string; notes?: string; due?: string }) =>
+    json<{ task: Task }>("/api/connectors/google/tasks/create", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    }),
+  completeGoogleTask: (taskId: string, taskListId: string, completed = true) =>
+    json<{ task: Task }>(`/api/connectors/google/tasks/${encodeURIComponent(taskId)}/complete`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ taskListId, completed }),
+    }),
   // Synced calendar events for the `@`-mention picker (empty if not connected).
   listCalendarEvents: (q = "", limit = 25) =>
     json<ListCalendarEventsResponse>(

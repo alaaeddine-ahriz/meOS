@@ -1,6 +1,14 @@
 import { connectors as connectorsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import { connectorRegistry, createPkcePair, fetchSelf } from "@meos/core";
+import {
+  completeTask,
+  connectorRegistry,
+  createPkcePair,
+  createTask,
+  ensureAccessToken,
+  fetchSelf,
+  listTaskLists,
+} from "@meos/core";
 import type { ConnectorKindConfig } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
@@ -305,6 +313,83 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       return reply.code(202).send(connectorsSchema.SyncKindResponse.parse({ syncing: true }));
     },
   );
+
+  // --- Google Tasks (read + write) ---
+  //
+  // A connected, live access token for the Google account, refreshed if needed
+  // through the existing OAuth lifecycle. Throws the standard error envelope when
+  // Google isn't connected so the routes share one guard.
+  const taskAccessToken = async (): Promise<string> => {
+    const account = ctx.store.getConnectorAccount("google");
+    if (!account) throw httpError.badRequest("Google is not connected");
+    try {
+      return await ensureAccessToken(ctx.store, account, google);
+    } catch (err) {
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // List the account's task lists — for the sync-selection + default-list picker.
+  app.get("/api/connectors/google/tasks/lists", async () => {
+    const token = await taskAccessToken();
+    try {
+      const lists = await listTaskLists(token);
+      return { lists };
+    } catch (err) {
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  // WRITE PATH: create a task in Google Tasks on the user's behalf. This is the
+  // connector's explicit write capability (the `tasks` scope is read/write).
+  // Provenance: the created task flows back into the graph on the next `tasks`
+  // sync as a google:tasks source (deep-linked), exactly like a synced task.
+  app.post<{ Body: { taskListId?: string; title?: string; notes?: string; due?: string } }>(
+    "/api/connectors/google/tasks/create",
+    async (request, reply) => {
+      const body = parseOrThrow(connectorsSchema.CreateTaskBody, request.body, "body");
+      const token = await taskAccessToken();
+      let taskListId = body.taskListId;
+      try {
+        if (!taskListId) {
+          // No list specified — fall back to the account's first (default) list.
+          const lists = await listTaskLists(token);
+          taskListId = lists[0]?.id;
+          if (!taskListId) throw httpError.badRequest("No Google Tasks list is available");
+        }
+        const task = await createTask(token, taskListId, {
+          title: body.title,
+          notes: body.notes,
+          due: body.due ?? null,
+        });
+        // Pull the new task into the graph promptly (best-effort; non-blocking).
+        ctx.connectors.enqueueSync("google", "tasks");
+        return reply.code(201).send({ task });
+      } catch (err) {
+        if (err && typeof err === "object" && "statusCode" in err) throw err;
+        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
+
+  // WRITE PATH: mark a task completed (or reopen it).
+  app.post<{
+    Body: { taskListId?: string; completed?: boolean };
+    Params: { taskId: string };
+  }>("/api/connectors/google/tasks/:taskId/complete", async (request) => {
+    const token = await taskAccessToken();
+    const taskId = request.params.taskId;
+    const body = request.body ?? {};
+    if (!body.taskListId) throw httpError.validation("taskListId is required");
+    try {
+      const task = await completeTask(token, body.taskListId, taskId, body.completed !== false);
+      ctx.connectors.enqueueSync("google", "tasks");
+      return { task };
+    } catch (err) {
+      if (err && typeof err === "object" && "statusCode" in err) throw err;
+      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+    }
+  });
 
   // Disconnect: revoke the token, stop timers, forget the account.
   app.delete(

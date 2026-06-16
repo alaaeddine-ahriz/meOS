@@ -11,6 +11,7 @@ import {
   type LucideIcon,
   Calendar,
   Contact,
+  ListTodo,
   Mail,
   Moon,
   Palette as PaletteIcon,
@@ -64,6 +65,7 @@ import {
   api,
   type ConnectorKind,
   type ConnectorStatus,
+  type TaskList,
   type GitCommit,
   type GitStatus,
   type LlmProvider,
@@ -887,7 +889,10 @@ function FoldersSection() {
   );
 }
 
-const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb: string }> = {
+const KIND_META: Record<
+  ConnectorKind,
+  { label: string; icon: LucideIcon; blurb: string; writeNotice?: string }
+> = {
   contacts: {
     label: "Contacts",
     icon: Contact,
@@ -895,6 +900,13 @@ const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb:
   },
   calendar: { label: "Calendar", icon: Calendar, blurb: "Events and who you met with." },
   gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
+  tasks: {
+    label: "Tasks",
+    icon: ListTodo,
+    blurb: "Your to-dos from Google Tasks, by list.",
+    // This is meOS's only read/write connector — make the capability explicit.
+    writeNotice: "Read & write — meOS can create tasks in your Google Tasks.",
+  },
 };
 
 /** The coverage windows offered in the UI, ordered narrowest → broadest (#68). */
@@ -917,6 +929,12 @@ function ConnectorsSection() {
   const [calendars, setCalendars] = useState<
     Array<{ id: string; summary: string; primary: boolean }>
   >([]);
+  // Google Tasks (read/write): the user's task lists + a quick create-task form.
+  const [taskLists, setTaskLists] = useState<TaskList[] | null>(null);
+  const [taskListId, setTaskListId] = useState<string>("");
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [creatingTask, setCreatingTask] = useState(false);
+  const [taskNotice, setTaskNotice] = useState<string | null>(null);
 
   const refresh = () =>
     api
@@ -929,6 +947,49 @@ function ConnectorsSection() {
   }, []);
 
   const google = status?.google;
+  const tasksEnabled = google?.kinds.some((k) => k.kind === "tasks" && k.enabled) ?? false;
+
+  // Load task lists once Tasks is connected + enabled, for the picker + create form.
+  useEffect(() => {
+    if (!google?.connected || !tasksEnabled) {
+      setTaskLists(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listGoogleTaskLists()
+      .then(({ lists }) => {
+        if (cancelled) return;
+        setTaskLists(lists);
+        setTaskListId((prev) => prev || lists[0]?.id || "");
+      })
+      .catch(() => {
+        if (!cancelled) setTaskLists([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [google?.connected, tasksEnabled]);
+
+  const createTask = async () => {
+    const title = newTaskTitle.trim();
+    if (!title) return;
+    setCreatingTask(true);
+    setError(null);
+    setTaskNotice(null);
+    try {
+      const { task } = await api.createGoogleTask({
+        title,
+        taskListId: taskListId || undefined,
+      });
+      setNewTaskTitle("");
+      setTaskNotice(`Created "${task.title}" in ${task.taskListTitle}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCreatingTask(false);
+    }
+  };
 
   // Load the calendar list once Google is connected so the multi-calendar picker
   // has options (#68). Best-effort — a failure just leaves the picker empty.
@@ -1109,6 +1170,9 @@ function ConnectorsSection() {
                   <div className="min-w-0 flex-1">
                     <div className="text-sm text-paper">{meta.label}</div>
                     <div className="text-[12px] text-dim">{meta.blurb}</div>
+                    {meta.writeNotice && (
+                      <div className="mt-0.5 text-[11px] text-lamp">{meta.writeNotice}</div>
+                    )}
                   </div>
                   <Button
                     variant="outline"
@@ -1256,6 +1320,49 @@ function ConnectorsSection() {
                       )}
                   </div>
                 )}
+                {k.kind === "tasks" && k.enabled && (
+                  <div className="flex flex-col gap-2 pl-7">
+                    {/* Default list for both syncing and new tasks. */}
+                    {taskLists && taskLists.length > 0 && (
+                      <label className="flex items-center gap-2 text-[12px] text-dim">
+                        default list
+                        <select
+                          value={taskListId}
+                          onChange={(e) => setTaskListId(e.target.value)}
+                          className={cn(inputClass, "h-7 w-44")}
+                        >
+                          {taskLists.map((list) => (
+                            <option key={list.id} value={list.id}>
+                              {list.title}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    {/* Write path: create a task in Google Tasks from meOS. */}
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") void createTask();
+                        }}
+                        placeholder="New task in Google Tasks…"
+                        className={cn(inputClass, "h-7 flex-1")}
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void createTask()}
+                        disabled={creatingTask || !newTaskTitle.trim()}
+                        className={actionButtonClass}
+                      >
+                        {creatingTask ? "Creating…" : "Create"}
+                      </Button>
+                    </div>
+                    {taskNotice && <span className="text-[11px] text-lamp">{taskNotice}</span>}
+                  </div>
+                )}
               </li>
             );
           })}
@@ -1305,7 +1412,7 @@ function ConnectorsSection() {
               </button>{" "}
               and create (or pick) a project.
             </li>
-            <li>Enable the People API, Google Calendar API, and Gmail API.</li>
+            <li>Enable the People API, Google Calendar API, Gmail API, and Tasks API.</li>
             <li>Configure the OAuth consent screen (External, add yourself as a test user).</li>
             <li>
               Create an OAuth client ID of type <strong>Desktop app</strong>.

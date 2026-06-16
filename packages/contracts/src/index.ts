@@ -86,6 +86,8 @@ export type {
   ConnectorStatus,
   CoverageWindow,
   GmailContentMode,
+  Task,
+  TaskList,
 } from "./schemas/connectors.js";
 export type { CalendarEvent } from "./schemas/calendar.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";

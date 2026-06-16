@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ConnectorKindSchema = z.enum(["contacts", "calendar", "gmail"]);
+export const ConnectorKindSchema = z.enum(["contacts", "calendar", "gmail", "tasks"]);
 
 /** How far back a kind indexes (#68). "recent" is the safe default seed. */
 export const CoverageWindowSchema = z.enum(["recent", "30d", "90d", "1y", "all"]);
@@ -116,6 +116,42 @@ export const ListCalendarsResponse = z.object({
 /** DELETE /api/connectors/google */
 export const DisconnectResponse = z.object({ disconnected: z.boolean() });
 
+// --- Google Tasks (read + write) ---
+
+/** One Google Tasks task list (selection + the create-task default list). */
+export const TaskListSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+});
+
+/** GET /api/connectors/google/tasks/lists */
+export const TaskListsResponse = z.object({ lists: z.array(TaskListSchema) });
+
+/** One created/synced task returned to the client. */
+export const TaskSchema = z.object({
+  externalId: z.string(),
+  title: z.string(),
+  notes: z.string().optional(),
+  due: z.string().nullable().optional(),
+  status: z.enum(["needsAction", "completed"]),
+  completed: z.boolean(),
+  taskListId: z.string(),
+  taskListTitle: z.string(),
+  deepLink: z.string(),
+});
+
+/** POST /api/connectors/google/tasks/create — the explicit WRITE path. */
+export const CreateTaskBody = z.object({
+  /** Target list; omit to use the account's default (first) list. */
+  taskListId: z.string().optional(),
+  title: z.string().min(1),
+  notes: z.string().optional(),
+  /** ISO date/time for the due date, when set. */
+  due: z.string().optional(),
+});
+
+export const CreateTaskResponse = z.object({ task: TaskSchema });
+
 export type ConnectorKind = z.infer<typeof ConnectorKindSchema>;
 export type ConnectorKindStatus = z.infer<typeof ConnectorKindStatusSchema>;
 export type ConnectorStatus = z.infer<typeof ConnectorStatusSchema>;
@@ -123,3 +159,5 @@ export type ConnectorCoverage = z.infer<typeof ConnectorCoverageSchema>;
 export type CalendarListEntry = z.infer<typeof CalendarListEntrySchema>;
 export type CoverageWindow = z.infer<typeof CoverageWindowSchema>;
 export type GmailContentMode = z.infer<typeof GmailContentModeSchema>;
+export type TaskList = z.infer<typeof TaskListSchema>;
+export type Task = z.infer<typeof TaskSchema>;
