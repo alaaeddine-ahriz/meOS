@@ -880,8 +880,8 @@ function FoldersSection() {
       </div>
       {error && <p className="text-sm text-ember">⚠ {error}</p>}
       <p className="font-mono text-[11px] text-dim">
-        reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left
-        alone
+        reads .md .txt .csv .json .org .pdf .docx .xlsx .xls .ods .pptx .eml .mbox .html .rtf .odt
+        .ipynb .sql .png .jpg .gif .webp — everything else is left alone
       </p>
     </section>
   );
