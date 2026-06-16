@@ -4,11 +4,17 @@ import type { Extraction } from "../extract/schema.js";
 import { initialConfidence } from "../memory/confidence.js";
 import { classifyMemoryTier } from "../memory/memory-tiers.js";
 import { detectSensitivity, redactSecrets } from "../memory/privacy.js";
+import { resolveCandidate } from "./entity-resolution.js";
 import { normalizeRelationshipLabel, strongerSensitivity } from "./schema-doc.js";
 import { slugify, type KnowledgeStore } from "./store.js";
 
 /** Observations at or above this similarity to an existing active one reinforce it instead of duplicating. */
 const REINFORCE_THRESHOLD = 0.9;
+
+/** Case-insensitive comparison key for two names. */
+function foldKey(name: string): string {
+  return name.trim().toLowerCase();
+}
 
 /** Char span of a quote within its source text, or null when it can't be located. */
 function locateQuote(
@@ -68,22 +74,54 @@ export async function mergeExtraction(
     return existing?.id;
   };
 
-  for (const candidate of extraction.entities) {
+  // Candidate vectors for the embedding-similarity resolution signal: embed each
+  // entity's summary once so resolveCandidate can compare against an existing
+  // entity's observation vectors. Names without a summary get no vector (the
+  // nominal/contact signals still apply).
+  const entitySummaries = extraction.entities.map((e) => e.summary || e.name);
+  const entityVectors = await embedder.embed(entitySummaries);
+  // Pairs the user has already rejected — never re-queue them for review.
+  const dismissed = store.dismissedDuplicateKeys();
+
+  for (let i = 0; i < extraction.entities.length; i++) {
+    const candidate = extraction.entities[i]!;
     let id = resolve(candidate.name);
     if (id === undefined) {
-      // Relevance gate (profile lens): a brand-new entity the extractor judged
-      // only loosely relevant to the user is not promoted into the graph — it
-      // would just become a generic encyclopedia page. Existing entities are
-      // still reinforced below; only the creation of new low-relevance ones is
-      // suppressed.
-      if (candidate.relevance === "low") continue;
-      const entity = store.createEntity({
-        type: candidate.type,
-        name: candidate.name,
-        summary: candidate.summary || undefined,
-      });
-      id = entity.id;
-      changed.add(id);
+      // Candidate generation before creating: the name may be an existing entity
+      // written differently (accent, abbreviation, org suffix, alias/codename,
+      // or shared email/domain). A high-confidence match folds in; an ambiguous
+      // one still creates a fresh entity but is surfaced through the human-gated
+      // duplicates review (findDuplicateEntities) rather than merged silently.
+      const decision = resolveCandidate(
+        store,
+        { name: candidate.name, type: candidate.type, aliases: candidate.aliases },
+        { vector: entityVectors[i], dismissed },
+      );
+      if (decision?.action === "merge") {
+        id = decision.entity.id;
+        // The extracted surface form becomes an alias so it resolves directly
+        // next time without re-running candidate generation.
+        if (foldKey(candidate.name) !== foldKey(decision.entity.name)) {
+          store.addAlias(decision.entity.id, candidate.name);
+        }
+      } else {
+        // Relevance gate (profile lens): a brand-new entity the extractor judged
+        // only loosely relevant to the user is not promoted into the graph — it
+        // would just become a generic encyclopedia page. Existing entities are
+        // still reinforced below; only the creation of new low-relevance ones is
+        // suppressed.
+        if (candidate.relevance === "low") continue;
+        const entity = store.createEntity({
+          type: candidate.type,
+          name: candidate.name,
+          summary: candidate.summary || undefined,
+        });
+        id = entity.id;
+        changed.add(id);
+        // An ambiguous match is left for review: the new entity exists, and
+        // findDuplicateEntities will surface the pair (name/contact overlap) on
+        // the duplicates screen for a human to merge or dismiss.
+      }
     }
     entityIdByName.set(candidate.name.trim().toLowerCase(), id);
     for (const alias of candidate.aliases) {

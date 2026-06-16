@@ -192,6 +192,9 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
                     <p className="truncate text-sm text-paper">
                       {d.aName} <span className="text-dim">↔</span> {d.bName}{" "}
                       <span className="text-xs text-dim">({d.type})</span>
+                      <span className="ml-2 text-xs text-lamp" title="Match confidence">
+                        {Math.round(d.score * 100)}% match
+                      </span>
                     </p>
                     <p className="text-xs text-faded">
                       {d.reasons.join("; ")} — keep <span className="text-paper">{winnerName}</span>
