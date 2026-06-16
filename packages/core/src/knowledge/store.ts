@@ -1,3 +1,4 @@
+import type { CalendarEventItem } from "../connectors/types.js";
 import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
 import type { EntityType, Extraction } from "../extract/schema.js";
@@ -162,6 +163,21 @@ export interface MeetingNoteRow {
   attendees: string[];
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * A synced calendar event surfaced for `@`-mention autocomplete. Derived from the
+ * materialized `google:calendar` sources (their `raw_content` is the normalized
+ * {@link CalendarEventItem}), so it needs no extra storage.
+ */
+export interface CalendarEventRef {
+  sourceId: number;
+  externalId: string | null;
+  title: string;
+  /** ISO start (date or date-time), or null when unknown. */
+  start: string | null;
+  attendees: string[];
+  htmlLink: string;
 }
 
 /** Review status of an auto-suggested meeting → entity link (#26). */
@@ -692,6 +708,63 @@ export class KnowledgeStore {
   /** Set a source's title — kept in sync when a meeting note is edited (#26). */
   updateSourceTitle(id: number, title: string): void {
     this.db.prepare("UPDATE sources SET title = ? WHERE id = ?").run(title, id);
+  }
+
+  /**
+   * Synced calendar events matching `query`, for `@`-mention autocomplete. Reads
+   * the materialized `google:calendar` sources (each event is one source whose
+   * `raw_content` is the normalized {@link CalendarEventItem}) and parses out the
+   * start, attendees, and deep link. Returns nothing when Calendar isn't
+   * connected. Soonest-or-most-recent first; a malformed payload degrades to
+   * title + link only.
+   */
+  listCalendarEvents(query = "", limit = 8): CalendarEventRef[] {
+    const q = query.trim().toLowerCase();
+    const rows = this.db
+      .prepare(
+        `SELECT s.id AS id, s.title AS title, s.path AS path, s.raw_content AS raw_content,
+                ci.external_id AS external_id
+         FROM sources s
+         LEFT JOIN connector_items ci ON ci.source_id = s.id AND ci.kind = 'calendar'
+         WHERE s.type = 'google:calendar' AND (? = '' OR lower(s.title) LIKE ?)
+         ORDER BY s.id DESC
+         LIMIT ?`,
+      )
+      .all(q, `%${q}%`, Math.max(limit * 4, limit)) as Array<{
+      id: number;
+      title: string;
+      path: string | null;
+      raw_content: string | null;
+      external_id: string | null;
+    }>;
+    const events = rows.map((r): CalendarEventRef => {
+      let start: string | null = null;
+      let attendees: string[] = [];
+      let htmlLink = r.path ?? "https://calendar.google.com/";
+      if (r.raw_content) {
+        try {
+          const e = JSON.parse(r.raw_content) as CalendarEventItem;
+          start = e.start ?? null;
+          attendees = (e.attendees ?? [])
+            .map((a) => a.name?.trim() || a.email)
+            .filter((name): name is string => Boolean(name));
+          if (e.htmlLink) htmlLink = e.htmlLink;
+        } catch {
+          /* keep title + link only */
+        }
+      }
+      return {
+        sourceId: r.id,
+        externalId: r.external_id,
+        title: r.title,
+        start,
+        attendees,
+        htmlLink,
+      };
+    });
+    // Sort by start (most recent / upcoming first); undated events sink to the end.
+    events.sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""));
+    return events.slice(0, limit);
   }
 
   // --- meeting notes (#26) ---

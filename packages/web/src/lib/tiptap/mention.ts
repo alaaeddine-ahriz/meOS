@@ -3,12 +3,20 @@ import Mention, { type MentionOptions } from "@tiptap/extension-mention";
 import { Plugin } from "@tiptap/pm/state";
 import type { SuggestionOptions } from "@tiptap/suggestion";
 
-/** One thing an `@mention` can point at: another note, or a wiki entity. */
+/** What an `@mention` can point at. */
+export type MentionKind = "note" | "wiki" | "date" | "event";
+
+/** One thing an `@mention` can point at: a note, a wiki entity, a date, or an event. */
 export interface LinkTarget {
   label: string;
-  type: "note" | "wiki";
-  /** Note path or wiki slug — used by the view to route. */
+  type: MentionKind;
+  /** Note path / wiki slug / ISO date / event deep-link — used by the view to route. */
   target: string;
+  /**
+   * Extra data a date or event carries so inserting it can drive a meeting's
+   * front matter (set the date, prefill attendees). Ignored for note/wiki.
+   */
+  meta?: { date?: string; attendees?: string[] };
 }
 
 /** What a clicked chip resolves to, handed back to the view to navigate. */
@@ -23,6 +31,43 @@ interface MentionExtraOptions {
 }
 
 const MENTION_RE = /\[\[([^\]\n]+)\]\]/g;
+
+/**
+ * Decode the inner text of a `[[…]]` link into a chip's kind/target/label. Dates
+ * persist as `[[date:YYYY-MM-DD]]` and events as `[[event:<deep-link>|Title]]`;
+ * everything else is a plain note/wiki label resolved by the view.
+ */
+function parseMentionToken(inner: string): {
+  kind?: "date" | "event";
+  target?: string;
+  label: string;
+} {
+  if (inner.startsWith("date:")) {
+    const value = inner.slice(5).trim();
+    return { kind: "date", target: value, label: value };
+  }
+  if (inner.startsWith("event:")) {
+    const rest = inner.slice(6);
+    const bar = rest.indexOf("|");
+    const target = (bar >= 0 ? rest.slice(0, bar) : rest).trim();
+    const label = (bar >= 0 ? rest.slice(bar + 1) : rest).trim();
+    return { kind: "event", target, label: label || target };
+  }
+  return { label: inner };
+}
+
+/** Encode a chip's attrs back to its on-disk `[[…]]` form. */
+function serializeMention(attrs: {
+  label?: string;
+  id?: string;
+  kind?: string;
+  target?: string;
+}): string {
+  const text = attrs.label ?? attrs.id ?? "";
+  if (attrs.kind === "date" && attrs.target) return `[[date:${attrs.target}]]`;
+  if (attrs.kind === "event" && attrs.target) return `[[event:${attrs.target}|${text}]]`;
+  return `[[${text}]]`;
+}
 
 /**
  * Obsidian-style mentions rendered as atomic "chips". Typing `@` opens an
@@ -74,9 +119,9 @@ export const VaultMention = Mention.extend<MentionOptions & MentionExtraOptions>
       markdown: {
         serialize(
           state: { write: (text: string) => void },
-          node: { attrs: { label?: string; id?: string } },
+          node: { attrs: { label?: string; id?: string; kind?: string; target?: string } },
         ) {
-          state.write(`[[${node.attrs.label ?? node.attrs.id ?? ""}]]`);
+          state.write(serializeMention(node.attrs));
         },
       },
     };
@@ -107,9 +152,14 @@ export const VaultMention = Mention.extend<MentionOptions & MentionExtraOptions>
   },
 });
 
-/** Build the `@` suggestion config from the view's data source + insert command. */
+/**
+ * Build the `@` suggestion config from the view's data source + insert command.
+ * `onInsert` fires after a chip is inserted so the view can react (e.g. a date or
+ * event mention populating a meeting's front matter).
+ */
 export function mentionSuggestion(
   suggest: (query: string) => LinkTarget[],
+  onInsert?: (item: LinkTarget) => void,
 ): Partial<SuggestionOptions<LinkTarget>> {
   return {
     char: "@",
@@ -131,6 +181,7 @@ export function mentionSuggestion(
           { type: "text", text: " " },
         ])
         .run();
+      onInsert?.(props);
     },
     render: renderSuggestion,
   };
@@ -159,10 +210,15 @@ export function linkifyMentions(
   const tr = state.tr;
   // Apply back-to-front so earlier offsets stay valid as we splice.
   for (const match of matches.reverse()) {
-    const info = resolve(match.label);
+    const token = parseMentionToken(match.label);
+    // Dates/events carry their own kind+target; note/wiki labels resolve via the view.
+    const info =
+      token.kind === "date" || token.kind === "event"
+        ? { kind: token.kind, target: token.target ?? "" }
+        : resolve(token.label);
     const chip = state.schema.nodes.mention!.create({
-      id: info?.target || match.label,
-      label: match.label,
+      id: info?.target || token.label,
+      label: token.label,
       kind: info?.kind ?? "new",
       target: info?.target ?? "",
     });
@@ -193,7 +249,7 @@ function renderSuggestion(): ReturnType<NonNullable<SuggestionOptions<LinkTarget
       const row = document.createElement("button");
       row.type = "button";
       row.className = "mention-menu-item" + (i === active ? " is-active" : "");
-      row.innerHTML = `<span class="mention-menu-kind">${item.type === "wiki" ? "wiki" : "note"}</span><span class="mention-menu-label"></span>`;
+      row.innerHTML = `<span class="mention-menu-kind">${item.type}</span><span class="mention-menu-label"></span>`;
       row.querySelector(".mention-menu-label")!.textContent = item.label;
       row.addEventListener("mousedown", (e) => {
         e.preventDefault();

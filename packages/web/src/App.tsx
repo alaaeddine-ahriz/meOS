@@ -1,6 +1,5 @@
 import {
   Activity,
-  CalendarDays,
   Library,
   type LucideIcon,
   MessageSquare,
@@ -9,7 +8,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { useInbox } from "./lib/inbox-context.js";
@@ -18,7 +17,6 @@ import { cn } from "./lib/utils.js";
 import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
-import { MeetingsView } from "./views/MeetingsView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { VaultView } from "./views/VaultView.js";
 import { WikiPageView } from "./views/WikiPage.js";
@@ -27,10 +25,15 @@ import { WikiView } from "./views/WikiView.js";
 const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> = [
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/notes", label: "Notes", key: "2", icon: NotebookPen },
-  { to: "/meetings", label: "Meetings", key: "3", icon: CalendarDays },
-  { to: "/wiki", label: "Wiki", key: "4", icon: Library },
-  { to: "/activity", label: "Activity", key: "5", icon: Activity },
+  { to: "/wiki", label: "Wiki", key: "3", icon: Library },
+  { to: "/activity", label: "Activity", key: "4", icon: Activity },
 ];
+
+/** Legacy `/meetings/:id` links now open inside the unified Notes surface. */
+function MeetingRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/notes?item=meeting:${id}`} replace />;
+}
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -128,8 +131,8 @@ export function App() {
         <Routes>
           <Route path="/" element={<ChatView />} />
           <Route path="/notes" element={<VaultView />} />
-          <Route path="/meetings" element={<MeetingsView />} />
-          <Route path="/meetings/:id" element={<MeetingsView />} />
+          <Route path="/meetings" element={<Navigate to="/notes?filter=meeting" replace />} />
+          <Route path="/meetings/:id" element={<MeetingRedirect />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/activity" element={<ActivityHub />} />
