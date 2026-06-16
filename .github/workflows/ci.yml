@@ -89,6 +89,12 @@ jobs:
       - name: Install workspace deps
         run: pnpm install --frozen-lockfile
 
+      # Build the cross-package libs so eslint's import resolver can resolve
+      # value imports of @meos/contracts and @meos/core (e.g. the ErrorCode
+      # enum) — without their dist, import/no-unresolved fails in CI.
+      - name: Build shared packages
+        run: pnpm --filter @meos/contracts --filter @meos/core build
+
       - name: Lint
         run: pnpm lint
 
