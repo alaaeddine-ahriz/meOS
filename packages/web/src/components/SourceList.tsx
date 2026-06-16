@@ -46,6 +46,19 @@ export function SourceList({
           const revealable = !ConnectorIcon && isTauri && isRevealablePath(source.path);
           const clickable = Boolean(linkUrl) || revealable;
           const Icon = ConnectorIcon ?? FileText;
+          // Structure-aware locator (#14): show the section/page the citation
+          // points at, when retrieval surfaced it. Backward-compatible: a source
+          // without metadata renders exactly as before.
+          const locatorParts: string[] = [];
+          if (source.section) locatorParts.push(source.section);
+          if (source.pageStart != null) {
+            locatorParts.push(
+              source.pageEnd != null && source.pageEnd !== source.pageStart
+                ? `p.${source.pageStart}–${source.pageEnd}`
+                : `p.${source.pageStart}`,
+            );
+          }
+          const locator = locatorParts.join(" · ");
           return (
             <Source
               key={source.id}
@@ -63,6 +76,7 @@ export function SourceList({
             >
               <Icon className="size-3.5 shrink-0 text-dim" />
               <span className="truncate">{source.title}</span>
+              {locator ? <span className="shrink-0 text-dim">· {locator}</span> : null}
             </Source>
           );
         })}

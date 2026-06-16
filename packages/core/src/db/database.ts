@@ -422,6 +422,35 @@ const migrations: string[] = [
   UPDATE sources SET wiki_eligible = 0, syncable = 0, exportable = 0
     WHERE type = 'profile_context';
   `,
+  // 19 — structure-aware ingestion (#14). Chunks gain provenance/navigation
+  // metadata so a retrieval result can travel chunk → section → page → source,
+  // and citations can point at a page/section/char-span, not just a document:
+  //   source_block_ids   — JSON array of the parsed Block ids this chunk spans
+  //   section_title      — nearest enclosing heading (retrieval can boost it)
+  //   page_start/page_end— 1-based page range (PDFs), nullable
+  //   char_start/char_end— span in the source's normalized text, nullable
+  //   token_estimate     — cheap chars/4 estimate, for budgeting
+  //   content_type       — dominant block type (paragraph/list/table/code/heading)
+  //   source_revision_id — PLACEHOLDER for #16 (source revisions); nullable now,
+  //                        so revision-aware re-chunking can backfill it later
+  //                        without another chunk-table migration.
+  // Sources now store the raw bytes-as-text separately from the normalized text,
+  // so future parsers can be re-run without re-reading the original file:
+  //   raw_content        — the unnormalized source text (content stays normalized).
+  // All columns are nullable, so the backfill is a no-op on existing rows.
+  `
+  ALTER TABLE chunks ADD COLUMN source_block_ids TEXT;
+  ALTER TABLE chunks ADD COLUMN section_title TEXT;
+  ALTER TABLE chunks ADD COLUMN page_start INTEGER;
+  ALTER TABLE chunks ADD COLUMN page_end INTEGER;
+  ALTER TABLE chunks ADD COLUMN char_start INTEGER;
+  ALTER TABLE chunks ADD COLUMN char_end INTEGER;
+  ALTER TABLE chunks ADD COLUMN token_estimate INTEGER;
+  ALTER TABLE chunks ADD COLUMN content_type TEXT;
+  ALTER TABLE chunks ADD COLUMN source_revision_id INTEGER;
+
+  ALTER TABLE sources ADD COLUMN raw_content TEXT;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
