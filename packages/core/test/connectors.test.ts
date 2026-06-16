@@ -17,6 +17,14 @@ import type {
   GmailMessageItem,
   SelfIdentity,
 } from "../src/connectors/types.js";
+import type {
+  Connector,
+  NormalizedDelta,
+  OAuthProvider,
+  SyncContext,
+} from "../src/connectors/framework.js";
+import { ConnectorRegistry } from "../src/connectors/registry.js";
+import { syncConnector } from "../src/connectors/sync.js";
 
 const self: SelfIdentity = { name: "Ada Lovelace", email: "ada@example.com" };
 
@@ -393,9 +401,229 @@ describe("connector materialization (#19)", () => {
   });
 });
 
+describe("connector framework (#5) — a second provider slots in", () => {
+  // A fake OAuth surface: refresh returns a fresh token so ensureAccessToken
+  // works without any network. The framework never inspects how tokens are minted.
+  const fakeOAuth: OAuthProvider = {
+    scopes: ["read"],
+    buildAuthUrl: () => "https://example.com/auth",
+    exchangeCode: async () => ({ accessToken: "fresh", refreshToken: "r", expiry: null }),
+    refreshAccessToken: async () => ({ accessToken: "refreshed", refreshToken: "r", expiry: null }),
+    revokeToken: async () => {},
+  };
+
+  /**
+   * An in-memory connector for a fictional "memo" provider. It supports one kind
+   * ("notes"), serves a scripted delta keyed by cursor, and normalizes each memo
+   * into a NormalizedItem — exactly what a real connector emits. No DB, no
+   * network, no Google: proof the orchestrator is provider-agnostic.
+   */
+  class FakeMemoConnector implements Connector {
+    readonly manifest = {
+      id: "memo",
+      displayName: "Memo",
+      auth: { kind: "oauth2", scopes: ["read"] } as const,
+      kinds: [
+        {
+          kind: "notes",
+          displayName: "Notes",
+          sourceType: "memo:notes",
+          contentMode: "document" as const,
+          defaultIntervalMinutes: 30,
+        },
+      ],
+    };
+    readonly oauth = fakeOAuth;
+    /** cursor → the delta to serve. `fetchDelta` advances through this script. */
+    deltas: Record<string, NormalizedDelta>;
+    calls: Array<{ kind: string; cursor: string | null; token: string }> = [];
+
+    constructor(deltas: Record<string, NormalizedDelta>) {
+      this.deltas = deltas;
+    }
+
+    async fetchDelta(
+      ctx: SyncContext,
+      kind: string,
+      cursor: string | null,
+    ): Promise<NormalizedDelta> {
+      this.calls.push({ kind, cursor, token: ctx.accessToken });
+      return this.deltas[cursor ?? "initial"] ?? { items: [], deletions: [], nextCursor: cursor };
+    }
+  }
+
+  function setupPipeline() {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-fake-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+    });
+    const cleanup = () => {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    };
+    return { store, pipeline, cleanup };
+  }
+
+  const note = (id: string, title: string, body: string): NormalizedDelta["items"][number] => ({
+    externalId: id,
+    title,
+    path: `https://memo.example/${id}`,
+    rawContent: JSON.stringify({ id, title, body }),
+    normalizedContent: `Note: ${title}\n${body}`,
+    extraction: {
+      entities: [{ name: title, type: "concept", aliases: [], summary: "", relevance: "high" }],
+      relationships: [],
+      observations: [],
+    },
+  });
+
+  it("registers + resolves a connector by provider id without touching the orchestrator", () => {
+    const memo = new FakeMemoConnector({});
+    const registry = new ConnectorRegistry([memo]);
+    expect(registry.get("memo")).toBe(memo);
+    expect(registry.require("memo").manifest.displayName).toBe("Memo");
+    expect(() => registry.require("nope")).toThrow();
+    expect(registry.list()).toHaveLength(1);
+  });
+
+  it("drives a fake connector through delta → normalize → materialize", async () => {
+    const { store, pipeline, cleanup } = setupPipeline();
+    const memo = new FakeMemoConnector({
+      initial: {
+        items: [note("n1", "Quantum notes", "spin and entanglement")],
+        deletions: [],
+        nextCursor: "cursor-1",
+      },
+    });
+    const registry = new ConnectorRegistry([memo]);
+    const account = store.upsertConnectorAccount({
+      provider: "memo",
+      clientId: "id",
+      clientSecret: "secret",
+      accessToken: "tok",
+      refreshToken: "refresh",
+    });
+
+    const result = await syncConnector(
+      { store, pipeline },
+      store.getConnectorAccount("memo")!,
+      "notes",
+      registry.require("memo"),
+    );
+
+    expect(result.ingested).toBe(1);
+    // The item was materialized as a memo:notes source.
+    const ledger = store.getConnectorItem(account, "notes", "n1")!;
+    expect(ledger.source_id).toBeTruthy();
+    const source = store.getSource(ledger.source_id!)!;
+    expect(source.type).toBe("memo:notes");
+    expect(store.getSourceContent(source.id)).toContain("Quantum notes");
+    // The connector's extraction reached the graph.
+    expect(store.findEntityByName("Quantum notes")).toBeTruthy();
+    // Cursor persisted for the next run.
+    expect(store.getSyncState(account, "notes")!.sync_token).toBe("cursor-1");
+    cleanup();
+  });
+
+  it("skips unchanged items and soft-deletes on a delta removal", async () => {
+    const { store, pipeline, cleanup } = setupPipeline();
+    const memo = new FakeMemoConnector({
+      initial: {
+        items: [note("n1", "Keep me", "v1"), note("n2", "Delete me", "v1")],
+        deletions: [],
+        nextCursor: "c1",
+      },
+      // Second run: n1 unchanged (same content hash), n2 removed.
+      c1: {
+        items: [note("n1", "Keep me", "v1")],
+        deletions: ["n2"],
+        nextCursor: "c2",
+      },
+    });
+    const registry = new ConnectorRegistry([memo]);
+    const accountId = store.upsertConnectorAccount({
+      provider: "memo",
+      clientId: "id",
+      clientSecret: "secret",
+      accessToken: "tok",
+      refreshToken: "refresh",
+    });
+
+    const first = await syncConnector(
+      { store, pipeline },
+      store.getConnectorAccount("memo")!,
+      "notes",
+      registry.require("memo"),
+    );
+    expect(first.ingested).toBe(2);
+
+    const second = await syncConnector(
+      { store, pipeline },
+      store.getConnectorAccount("memo")!,
+      "notes",
+      registry.require("memo"),
+    );
+    // n1 unchanged → skipped; n2 → soft-deleted.
+    expect(second.skipped).toBe(1);
+    expect(second.ingested).toBe(0);
+    expect(second.deleted).toBe(1);
+
+    const deletedLedger = store.getConnectorItem(accountId, "notes", "n2")!;
+    const rev = store.activeRevision(deletedLedger.source_id!);
+    // The source survives (audit history) but its revision is retired.
+    expect(store.getSource(deletedLedger.source_id!)).toBeTruthy();
+    expect(rev?.status === "deleted" || rev == null).toBe(true);
+    cleanup();
+  });
+
+  it("retries from scratch when the saved cursor is stale (fullResync)", async () => {
+    const { store, pipeline, cleanup } = setupPipeline();
+    const memo = new FakeMemoConnector({
+      // A run with the stale cursor signals fullResync; the re-pull from `initial`
+      // (cursor=null) returns the real data.
+      stale: { items: [], deletions: [], fullResync: true },
+      initial: {
+        items: [note("n1", "Recovered", "after resync")],
+        deletions: [],
+        nextCursor: "c-fresh",
+      },
+    });
+    const registry = new ConnectorRegistry([memo]);
+    const accountId = store.upsertConnectorAccount({
+      provider: "memo",
+      clientId: "id",
+      clientSecret: "secret",
+      accessToken: "tok",
+      refreshToken: "refresh",
+    });
+    store.setSyncState(accountId, "notes", { syncToken: "stale" });
+
+    const result = await syncConnector(
+      { store, pipeline },
+      store.getConnectorAccount("memo")!,
+      "notes",
+      registry.require("memo"),
+    );
+    expect(result.ingested).toBe(1);
+    // Two fetchDelta calls: the stale cursor, then a full re-pull (null).
+    expect(memo.calls.map((c) => c.cursor)).toEqual(["stale", null]);
+    expect(store.getSyncState(accountId, "notes")!.sync_token).toBe("c-fresh");
+    cleanup();
+  });
+});
+
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(24);
+    expect(migrations.length).toBe(25);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -444,6 +672,82 @@ describe("migration 23 (connector materialization)", () => {
       expect(
         upStore.getConnectorItem(accountId, "contacts", "people/legacy")!.source_revision_id,
       ).toBe(revisionId);
+      upgraded.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          fs.rmSync(file + suffix);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+});
+
+describe("migration 25 (provider-agnostic connector kinds)", () => {
+  it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
+    expect(migrations.length).toBe(25);
+
+    const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
+    try {
+      const db = openDatabase(file);
+      const store = new KnowledgeStore(db);
+      const accountId = store.upsertConnectorAccount({
+        provider: "google",
+        clientId: "id",
+        clientSecret: "secret",
+        accessToken: "tok",
+        refreshToken: "refresh",
+      });
+      // An existing Google sync-state row that must survive the table rebuild.
+      store.setSyncState(accountId, "contacts", {
+        enabled: true,
+        intervalMinutes: 45,
+        syncToken: "cursorA",
+        lastStatus: "ok",
+      });
+
+      // Rewind to v24: restore the old CHECK-constrained table shape and reset
+      // user_version, simulating a DB created before #5.
+      db.exec(`
+        CREATE TABLE connector_sync_state_old (
+          account_id INTEGER NOT NULL REFERENCES connector_accounts(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL CHECK (kind IN ('contacts','calendar','gmail')),
+          enabled INTEGER NOT NULL DEFAULT 0,
+          interval_minutes INTEGER NOT NULL DEFAULT 15,
+          sync_token TEXT,
+          last_synced_at TEXT,
+          last_status TEXT,
+          UNIQUE(account_id, kind)
+        );
+        INSERT INTO connector_sync_state_old
+          SELECT account_id, kind, enabled, interval_minutes, sync_token, last_synced_at, last_status
+          FROM connector_sync_state;
+        DROP TABLE connector_sync_state;
+        ALTER TABLE connector_sync_state_old RENAME TO connector_sync_state;
+      `);
+      db.pragma("user_version = 24");
+      // The old shape rejects a non-Google kind — the bug migration 25 fixes.
+      expect(() =>
+        db
+          .prepare(`INSERT INTO connector_sync_state (account_id, kind) VALUES (?, 'notes')`)
+          .run(accountId),
+      ).toThrow();
+      db.close();
+
+      // Re-open through the real migrator: migration 25 rebuilds the table.
+      const upgraded = openDatabase(file);
+      expect(upgraded.pragma("user_version", { simple: true })).toBe(migrations.length);
+      const upStore = new KnowledgeStore(upgraded);
+      // The Google row carried over verbatim — cursor + interval + status intact.
+      const state = upStore.getSyncState(accountId, "contacts")!;
+      expect(state.sync_token).toBe("cursorA");
+      expect(state.interval_minutes).toBe(45);
+      expect(state.enabled).toBe(1);
+      // And a non-Google kind is now accepted.
+      upStore.setSyncState(accountId, "notes", { enabled: true, intervalMinutes: 10 });
+      expect(upStore.getSyncState(accountId, "notes")!.enabled).toBe(1);
       upgraded.close();
     } finally {
       for (const suffix of ["", "-wal", "-shm"]) {

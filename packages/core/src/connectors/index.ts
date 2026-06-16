@@ -10,6 +10,21 @@ export type {
   Provider,
   SelfIdentity,
 } from "./types.js";
+// The connector framework (#5): interface, manifest, normalized item, registry.
+export type {
+  AuthManifest,
+  Connector,
+  ConnectorManifest,
+  ContentMode,
+  KindManifest,
+  NormalizedDelta,
+  NormalizedItem,
+  OAuthProvider,
+  SyncContext,
+} from "./framework.js";
+export { kindManifest } from "./framework.js";
+export { ConnectorRegistry, connectorRegistry } from "./registry.js";
+export { GoogleConnector, GOOGLE_MANIFEST, googleConnector } from "./google/connector.js";
 export {
   buildAuthUrl,
   createPkcePair,
