@@ -3,6 +3,9 @@ import { MEETING_SOURCE_TYPE, processMeetingNote } from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["meetings"];
 
 /** Action items map onto the existing "task" observation kind. */
 const ACTION_KIND = "task";
@@ -54,79 +57,140 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
   };
 
   // List every meeting note (newest meeting first).
-  app.get("/api/meetings", async () => ({
-    meetings: ctx.store.listMeetingNotes().map((m) => ({
-      sourceId: m.source_id,
-      title: m.title,
-      date: m.meeting_date,
-      attendees: m.attendees,
-    })),
-  }));
+  app.get(
+    "/api/meetings",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List meeting notes",
+        response: meetings.ListMeetingsResponse,
+      }),
+    },
+    async () =>
+      meetings.ListMeetingsResponse.parse({
+        meetings: ctx.store.listMeetingNotes().map((m) => ({
+          sourceId: m.source_id,
+          title: m.title,
+          date: m.meeting_date,
+          attendees: m.attendees,
+        })),
+      }),
+  );
 
   // Create a meeting note: ingest it as a trusted source, extract its structure,
   // and persist auto-suggested links. Returns the full detail view.
-  app.post("/api/meetings", async (request, reply) => {
-    const body = parseOrThrow(meetings.CreateMeetingBody, request.body, "body");
-    const { sourceId } = await processMeetingNote(
-      { store: ctx.store, pipeline: ctx.pipeline },
-      {
-        title: body.title,
-        date: body.date ?? null,
-        attendees: body.attendees,
-        content: body.content,
-      },
-    );
-    return reply.code(201).send(detail(sourceId));
-  });
+  app.post(
+    "/api/meetings",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Create a meeting note",
+        body: meetings.CreateMeetingBody,
+        response: { 201: meetings.MeetingDetailSchema },
+      }),
+    },
+    async (request, reply) => {
+      const body = parseOrThrow(meetings.CreateMeetingBody, request.body, "body");
+      const { sourceId } = await processMeetingNote(
+        { store: ctx.store, pipeline: ctx.pipeline },
+        {
+          title: body.title,
+          date: body.date ?? null,
+          attendees: body.attendees,
+          content: body.content,
+        },
+      );
+      return reply.code(201).send(meetings.MeetingDetailSchema.parse(detail(sourceId)));
+    },
+  );
 
   // The detail view: original note + extracted structure + suggested links.
-  app.get<{ Params: { id: string } }>("/api/meetings/:id", async (request) => {
-    const sourceId = parseId(request.params.id);
-    return detail(sourceId);
-  });
+  app.get<{ Params: { id: string } }>(
+    "/api/meetings/:id",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Get a meeting note detail",
+        response: meetings.MeetingDetailSchema,
+      }),
+    },
+    async (request) => {
+      const sourceId = parseId(request.params.id);
+      return meetings.MeetingDetailSchema.parse(detail(sourceId));
+    },
+  );
 
   // Edit a meeting note. Re-runs extraction over the edited body (a new
   // revision, #16) so its structure and links reflect the new content.
-  app.put<{ Params: { id: string } }>("/api/meetings/:id", async (request) => {
-    const sourceId = parseId(request.params.id);
-    requireMeeting(ctx, sourceId);
-    const body = parseOrThrow(meetings.UpdateMeetingBody, request.body, "body");
-    await processMeetingNote(
-      { store: ctx.store, pipeline: ctx.pipeline },
-      {
-        title: body.title,
-        date: body.date ?? null,
-        attendees: body.attendees,
-        content: body.content,
-      },
-      sourceId,
-    );
-    return detail(sourceId);
-  });
+  app.put<{ Params: { id: string } }>(
+    "/api/meetings/:id",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Edit a meeting note",
+        body: meetings.UpdateMeetingBody,
+        response: meetings.MeetingDetailSchema,
+      }),
+    },
+    async (request) => {
+      const sourceId = parseId(request.params.id);
+      requireMeeting(ctx, sourceId);
+      const body = parseOrThrow(meetings.UpdateMeetingBody, request.body, "body");
+      await processMeetingNote(
+        { store: ctx.store, pipeline: ctx.pipeline },
+        {
+          title: body.title,
+          date: body.date ?? null,
+          attendees: body.attendees,
+          content: body.content,
+        },
+        sourceId,
+      );
+      return meetings.MeetingDetailSchema.parse(detail(sourceId));
+    },
+  );
 
   // Reprocess: re-run extraction over the current note content, opening a new
   // revision and refreshing the structure + suggested links.
-  app.post<{ Params: { id: string } }>("/api/meetings/:id/reprocess", async (request) => {
-    const sourceId = parseId(request.params.id);
-    const note = requireMeeting(ctx, sourceId);
-    const source = ctx.store.getSource(sourceId);
-    const { outcome } = await processMeetingNote(
-      { store: ctx.store, pipeline: ctx.pipeline },
-      {
-        title: source?.title ?? "Untitled meeting",
-        date: note.meeting_date,
-        attendees: note.attendees,
-        content: bodyWithoutHeader(ctx.store.getSourceContent(sourceId) ?? ""),
-      },
-      sourceId,
-    );
-    return { sourceId, status: outcome.status };
-  });
+  app.post<{ Params: { id: string } }>(
+    "/api/meetings/:id/reprocess",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Reprocess a meeting note",
+        response: meetings.ReprocessMeetingResponse,
+      }),
+    },
+    async (request) => {
+      const sourceId = parseId(request.params.id);
+      const note = requireMeeting(ctx, sourceId);
+      const source = ctx.store.getSource(sourceId);
+      const { outcome } = await processMeetingNote(
+        { store: ctx.store, pipeline: ctx.pipeline },
+        {
+          title: source?.title ?? "Untitled meeting",
+          date: note.meeting_date,
+          attendees: note.attendees,
+          content: bodyWithoutHeader(ctx.store.getSourceContent(sourceId) ?? ""),
+        },
+        sourceId,
+      );
+      return meetings.ReprocessMeetingResponse.parse({ sourceId, status: outcome.status });
+    },
+  );
 
   // Review a suggested link (accept or reject). The decision is durable across
   // reprocesses (#26).
   app.patch<{ Params: { id: string; linkId: string } }>(
     "/api/meetings/:id/links/:linkId",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Review a suggested meeting link",
+        body: meetings.ReviewLinkBody,
+        response: meetings.ReviewLinkResponse,
+      }),
+    },
     async (request) => {
       const sourceId = parseId(request.params.id);
       requireMeeting(ctx, sourceId);
@@ -134,7 +198,7 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
       const { status } = parseOrThrow(meetings.ReviewLinkBody, request.body, "body");
       const updated = ctx.store.reviewMeetingLinkSuggestion(linkId, status);
       if (!updated) throw httpError.notFound("No such link suggestion");
-      return { updated };
+      return meetings.ReviewLinkResponse.parse({ updated });
     },
   );
 

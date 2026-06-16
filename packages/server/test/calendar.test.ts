@@ -1,4 +1,4 @@
-import { calendar } from "@meos/contracts";
+import { ErrorCode, ErrorEnvelopeSchema, calendar } from "@meos/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
@@ -58,5 +58,13 @@ describe("GET /api/calendar/events", () => {
       (await server.app.inject({ method: "GET", url: "/api/calendar/events" })).json(),
     );
     expect(all.events.some((e) => e.title === "Standup")).toBe(true);
+  });
+
+  it("returns the shared error envelope for an unknown calendar route", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/calendar/does-not-exist" });
+    expect(res.statusCode).toBe(404);
+    const envelope = ErrorEnvelopeSchema.parse(res.json());
+    expect(envelope.code).toBe(ErrorCode.NOT_FOUND);
+    expect(envelope.recoverable).toBe(false);
   });
 });

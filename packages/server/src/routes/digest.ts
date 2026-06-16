@@ -10,56 +10,110 @@ import {
 } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["digest"];
 
 export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): void {
-  app.get("/api/digest/latest", async () => {
-    const digest = ctx.store.latestDigest();
-    if (!digest) {
-      throw httpError.notFound("No digest generated yet");
-    }
-    return digest;
-  });
+  app.get(
+    "/api/digest/latest",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Latest digest",
+        response: digestSchema.DigestResponse,
+      }),
+    },
+    async () => {
+      const digest = ctx.store.latestDigest();
+      if (!digest) {
+        throw httpError.notFound("No digest generated yet");
+      }
+      return digestSchema.DigestResponse.parse(digest);
+    },
+  );
 
-  app.post("/api/jobs/consolidate", async (_request, reply) => {
-    ctx.queue.push(
-      async () => {
-        const report = await runConsolidation({
-          store: ctx.store,
-          llm: ctx.llm,
-          wiki: ctx.wiki,
-          embedder: ctx.embedder,
-          schema: loadSchema(ctx.config.dataDir),
-          profile: loadProfileContext(ctx.config.dataDir),
-          digestDir: path.join(ctx.config.dataDir, "digests"),
-        });
-        await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
-          `digests/${report.digestDate}.md`,
-        ]);
-        const { wikiChanges, ...summary } = report;
-        app.log.info({ report: summary }, "consolidation finished");
-      },
-      { exclusive: true },
-    );
-    return reply.code(202).send({ started: true });
-  });
+  app.post(
+    "/api/jobs/consolidate",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Run consolidation job",
+        response: { 202: digestSchema.ConsolidateResponse },
+      }),
+    },
+    async (_request, reply) => {
+      ctx.queue.push(
+        async () => {
+          const report = await runConsolidation({
+            store: ctx.store,
+            llm: ctx.llm,
+            wiki: ctx.wiki,
+            embedder: ctx.embedder,
+            schema: loadSchema(ctx.config.dataDir),
+            profile: loadProfileContext(ctx.config.dataDir),
+            digestDir: path.join(ctx.config.dataDir, "digests"),
+          });
+          await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
+            `digests/${report.digestDate}.md`,
+          ]);
+          const { wikiChanges, ...summary } = report;
+          app.log.info({ report: summary }, "consolidation finished");
+        },
+        { exclusive: true },
+      );
+      return reply.code(202).send(digestSchema.ConsolidateResponse.parse({ started: true }));
+    },
+  );
 
   // Each open contradiction carries a proposed resolution (recency / source
   // authority / confidence / corroboration) the user can accept or override.
-  app.get("/api/contradictions", async () => ({
-    contradictions: ctx.store.unresolvedContradictions().map((c) => ({
-      ...c,
-      proposal: proposeResolution(ctx.store, c.id),
-    })),
-  }));
+  app.get(
+    "/api/contradictions",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List unresolved contradictions",
+        response: digestSchema.ContradictionsResponse,
+      }),
+    },
+    async () =>
+      digestSchema.ContradictionsResponse.parse({
+        contradictions: ctx.store.unresolvedContradictions().map((c) => ({
+          ...c,
+          proposal: proposeResolution(ctx.store, c.id),
+        })),
+      }),
+  );
 
   // Governance: the append-only audit trail of automated memory operations.
-  app.get<{ Querystring: { limit?: string } }>("/api/audit", async (request) => {
-    const { limit } = parseOrThrow(digestSchema.AuditQuery, request.query, "query");
-    return { entries: ctx.store.recentAudit(limit ?? 100) };
-  });
+  app.get<{ Querystring: { limit?: string } }>(
+    "/api/audit",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Recent audit log",
+        querystring: digestSchema.AuditQuery,
+        response: digestSchema.AuditResponse,
+      }),
+    },
+    async (request) => {
+      const { limit } = parseOrThrow(digestSchema.AuditQuery, request.query, "query");
+      return digestSchema.AuditResponse.parse({ entries: ctx.store.recentAudit(limit ?? 100) });
+    },
+  );
 
   app.post<{ Params: { id: string }; Body: { action?: string } }>(
     "/api/contradictions/:id/resolve",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Resolve a contradiction",
+        params: digestSchema.ResolveContradictionParams,
+        body: digestSchema.ResolveContradictionBody,
+        response: digestSchema.ResolveContradictionResponse,
+      }),
+    },
     async (request, reply) => {
       const { id } = parseOrThrow(
         digestSchema.ResolveContradictionParams,
@@ -75,7 +129,7 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         const changes = await ctx.wiki.regenerateStale();
         await commitWikiChanges(ctx, changes, "Contradiction resolved");
       });
-      return reply.send({ resolved: true });
+      return reply.send(digestSchema.ResolveContradictionResponse.parse({ resolved: true }));
     },
   );
 }

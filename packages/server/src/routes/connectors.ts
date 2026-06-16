@@ -3,6 +3,9 @@ import type { FastifyInstance } from "fastify";
 import { connectorRegistry, createPkcePair, fetchSelf } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
+import { routeSchema } from "../route-schema.js";
+
+const tags = ["connectors"];
 
 // The Google connector drives this route's auth flow, kinds, and validation —
 // the framework owns "what Google is", the route owns the HTTP surface (#5).
@@ -45,11 +48,29 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     };
   };
 
-  app.get("/api/connectors", async () => statusView());
+  app.get(
+    "/api/connectors",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Connector status",
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
+    async () => connectorsSchema.ConnectorStatusSchema.parse(statusView()),
+  );
 
   // Save the user's OAuth client id/secret (no tokens yet).
   app.put<{ Body: { clientId?: string; clientSecret?: string } }>(
     "/api/connectors/google/credentials",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Save Google OAuth credentials",
+        body: connectorsSchema.GoogleCredentialsBody,
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
     async (request) => {
       const body = parseOrThrow(connectorsSchema.GoogleCredentialsBody, request.body, "body");
       const clientId = body.clientId.trim();
@@ -58,28 +79,38 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         throw httpError.validation("Both clientId and clientSecret are required");
       }
       ctx.store.upsertConnectorAccount({ provider: "google", clientId, clientSecret });
-      return statusView();
+      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
     },
   );
 
   // Begin the consent flow: build the PKCE auth URL the UI opens in a browser.
-  app.post("/api/connectors/google/auth/start", async () => {
-    const account = ctx.store.getConnectorAccount("google");
-    if (!account?.client_id) {
-      throw httpError.badRequest("Save your Google OAuth credentials first");
-    }
-    const { verifier, challenge, state } = createPkcePair();
-    pending.set(state, verifier);
-    // Don't leak verifiers forever if the user abandons the flow.
-    setTimeout(() => pending.delete(state), 10 * 60_000).unref();
-    const url = google.oauth.buildAuthUrl({
-      clientId: account.client_id,
-      redirectUri,
-      challenge,
-      state,
-    });
-    return { url };
-  });
+  app.post(
+    "/api/connectors/google/auth/start",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Start Google OAuth",
+        response: connectorsSchema.AuthStartResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (!account?.client_id) {
+        throw httpError.badRequest("Save your Google OAuth credentials first");
+      }
+      const { verifier, challenge, state } = createPkcePair();
+      pending.set(state, verifier);
+      // Don't leak verifiers forever if the user abandons the flow.
+      setTimeout(() => pending.delete(state), 10 * 60_000).unref();
+      const url = google.oauth.buildAuthUrl({
+        clientId: account.client_id,
+        redirectUri,
+        challenge,
+        state,
+      });
+      return connectorsSchema.AuthStartResponse.parse({ url });
+    },
+  );
 
   // Loopback callback: exchange the code, store tokens, record the account email.
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
@@ -138,6 +169,15 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   // Enable/disable a kind and set its sync interval, then rebuild the schedule.
   app.put<{ Params: { kind: string }; Body: { enabled?: boolean; intervalMinutes?: number } }>(
     "/api/connectors/google/:kind/config",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Configure a connector kind",
+        params: connectorsSchema.ConnectorKindParam,
+        body: connectorsSchema.ConfigureKindBody,
+        response: connectorsSchema.ConnectorStatusSchema,
+      }),
+    },
     async (request) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
       const kind = params.kind;
@@ -158,13 +198,21 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       ctx.connectors.reschedule();
       // Pull immediately on first enable so the user sees data without waiting.
       if (enabled) ctx.connectors.enqueueSync("google", kind);
-      return statusView();
+      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
     },
   );
 
   // Sync one kind now.
   app.post<{ Params: { kind: string } }>(
     "/api/connectors/google/:kind/sync",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Sync a connector kind now",
+        params: connectorsSchema.ConnectorKindParam,
+        response: { 202: connectorsSchema.SyncKindResponse },
+      }),
+    },
     async (request, reply) => {
       const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
       const kind = params.kind;
@@ -172,16 +220,26 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
       ctx.connectors.enqueueSync("google", kind);
-      return reply.code(202).send({ syncing: true });
+      return reply.code(202).send(connectorsSchema.SyncKindResponse.parse({ syncing: true }));
     },
   );
 
   // Disconnect: revoke the token, stop timers, forget the account.
-  app.delete("/api/connectors/google", async () => {
-    const account = ctx.store.getConnectorAccount("google");
-    if (account?.access_token) await google.oauth.revokeToken(account.access_token);
-    ctx.store.deleteConnectorAccount("google");
-    ctx.connectors.reschedule();
-    return { disconnected: true };
-  });
+  app.delete(
+    "/api/connectors/google",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Disconnect Google",
+        response: connectorsSchema.DisconnectResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (account?.access_token) await google.oauth.revokeToken(account.access_token);
+      ctx.store.deleteConnectorAccount("google");
+      ctx.connectors.reschedule();
+      return connectorsSchema.DisconnectResponse.parse({ disconnected: true });
+    },
+  );
 }
