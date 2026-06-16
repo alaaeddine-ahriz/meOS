@@ -7,6 +7,24 @@ import { createContext } from "../../src/context.js";
 import { buildServer } from "../../src/server.js";
 
 /**
+ * Remove a temp dir, retrying past the ENOTEMPTY/EBUSY race that durable ingest
+ * + wiki work can briefly cause by creating a file mid-walk as it settles after
+ * teardown. Kept at module scope so the throw isn't lexically inside a `finally`.
+ */
+async function removeTempDir(dir: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (attempt >= 20 || (code !== "ENOTEMPTY" && code !== "EBUSY")) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+/**
  * A built Fastify app wired against a throwaway SQLite DB and a stubbed LLM,
  * plus the underlying context and a `cleanup` that closes the app and removes
  * the temp data dir. Tests drive `app` with `app.inject(...)` — no socket bind,
@@ -75,12 +93,19 @@ export async function buildTestServer(): Promise<TestServer> {
       await app.close();
     } finally {
       restoreEnv();
+      // Stop any background workers (watcher/connectors/scheduler/ingest) so they
+      // stop writing into rootDir before we tear it down.
+      try {
+        await ctx.workers?.stopAll?.();
+      } catch {
+        // never started / already stopped
+      }
       try {
         ctx.db.close();
       } catch {
         // already closed by app teardown / never opened
       }
-      fs.rmSync(rootDir, { recursive: true, force: true });
+      await removeTempDir(rootDir);
     }
   };
 
