@@ -623,7 +623,7 @@ describe("connector framework (#5) — a second provider slots in", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(27);
+    expect(migrations.length).toBe(28);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -690,7 +690,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(27);
+    expect(migrations.length).toBe(28);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -766,5 +766,109 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
         }
       }
     }
+  });
+});
+
+describe("connectors complement the wiki as references, not pages", () => {
+  function setup() {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-refs-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+    });
+    const cleanup = () => {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    };
+    return { store, pipeline, wiki, cleanup };
+  }
+
+  const contact: ContactItem = {
+    externalId: "people/ref1",
+    displayName: "Grace Hopper",
+    nicknames: [],
+    emails: ["grace@example.com"],
+    phones: [],
+    deepLink: "https://contacts.google.com/person/ref1",
+  };
+
+  it("a contact-only person earns no page but stays searchable + linkable", async () => {
+    const { store, pipeline, wiki, cleanup } = setup();
+    await pipeline.ingestExtraction({
+      type: "google:contacts",
+      title: contact.displayName,
+      content: "contact",
+      path: contact.deepLink,
+      extraction: mapContact(contact),
+    });
+
+    const person = store.findEntityByName("Grace Hopper")!;
+    // Reference-only → excluded from the page set; the merge never marks it stale.
+    expect(store.isReferenceOnlyEntity(person.id)).toBe(true);
+    expect(store.wikiPageEntityIds().has(person.id)).toBe(false);
+    // New entities default to wiki_stale = 1; a regeneration pass clears it without
+    // writing a noise page (no LLM call — the reference-only guard short-circuits).
+    await wiki.regenerateStale();
+    expect(store.getEntity(person.id)!.wiki_stale).toBe(0);
+    expect(wiki.readPage(store.getEntity(person.id)!)).toBeNull();
+    // But the entity exists and the connector source is attached (chip data).
+    expect(store.sourcesForEntity(person.id).some((s) => s.type === "google:contacts")).toBe(true);
+
+    cleanup();
+  });
+
+  it("a person also mentioned by a document earns a page and keeps the connector chip", async () => {
+    const { store, pipeline, cleanup } = setup();
+    await pipeline.ingestExtraction({
+      type: "google:contacts",
+      title: contact.displayName,
+      content: "contact",
+      path: contact.deepLink,
+      extraction: mapContact(contact),
+    });
+
+    // A real (wiki-eligible) source now mentions the same person by name.
+    await pipeline.ingestExtraction({
+      type: "file",
+      title: "Project notes",
+      content: "Grace Hopper leads the compiler effort.",
+      extraction: {
+        entities: [{ name: "Grace Hopper", type: "person", aliases: [], summary: "Engineer." }],
+        relationships: [],
+        observations: [
+          {
+            entity: "Grace Hopper",
+            claim: "Grace Hopper leads the compiler effort.",
+            kind: "fact",
+            sourceQuote: "Grace Hopper leads the compiler effort.",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+        ],
+      },
+    });
+
+    const person = store.findEntityByName("Grace Hopper")!;
+    // The document gives the person page-worthy backing → no longer reference-only.
+    expect(store.isReferenceOnlyEntity(person.id)).toBe(false);
+    expect(store.wikiPageEntityIds().has(person.id)).toBe(true);
+    // The connector source is still attached as a reference (chip data).
+    expect(store.sourcesForEntity(person.id).some((s) => s.type === "google:contacts")).toBe(true);
+    // …but the connector's private contact fact never reaches page prose.
+    const visible = store.visibleObservations(person.id).map((o) => o.text);
+    expect(visible.some((t) => t.includes("compiler effort"))).toBe(true);
+    expect(visible.some((t) => t.toLowerCase().includes("email"))).toBe(false);
+
+    cleanup();
   });
 });

@@ -23,14 +23,16 @@ describe("source visibility — per-type defaults", () => {
     });
   });
 
-  it("keeps connector sources off sync/export by default", async () => {
+  it("keeps connector sources out of the wiki and off sync/export by default", async () => {
     const { store } = await setup();
     for (const type of ["google:contacts", "google:calendar", "google:gmail"]) {
       const id = store.createSource({ type, title: type, content: "..." });
       const v = store.sourceVisibility(id);
-      // Connector data is searchable/answerable but never leaves the device.
+      // Connector data is searchable/answerable but a reference only: never woven
+      // into page prose (wiki) and never leaves the device (sync/export).
       expect(v.searchable).toBe(true);
       expect(v.answerable).toBe(true);
+      expect(v.wikiEligible).toBe(false);
       expect(v.syncable).toBe(false);
       expect(v.exportable).toBe(false);
     }

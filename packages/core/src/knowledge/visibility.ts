@@ -65,13 +65,16 @@ export const MEETING_SOURCE_TYPE = "meeting";
  *   file / watch / upload / image / text    ✓      ✓     ✓    ✓     ✓      ✓
  *   conversation / session / vault          ✓      ✓     ✓    ✓     ✓      ✓
  *   meeting                                 ✓      ✓     ✓    ✓     ✓      ✓
- *   google:contacts|calendar|gmail          ✓      ✓     ✓    ✗     ✗      ✓
+ *   google:contacts|calendar|gmail          ✓      ✓     ✗    ✗     ✗      ✓
  *   profile_context                         ✓      ✓     ✗    ✗     ✗      ✓
  */
 export function defaultVisibilityForType(type: string): SourceVisibility {
   if ((CONNECTOR_SOURCE_TYPES as readonly string[]).includes(type)) {
-    // Connector data: searchable + answerable, but private — no sync/export.
-    return { ...ALL_TRUE, syncable: false, exportable: false };
+    // Connector data complements the wiki as a *reference*, not as content: it is
+    // searchable + answerable, but kept out of page prose (wiki) and off portable
+    // artifacts (sync/export). A person known only from a contact/email never
+    // earns a page — the link surfaces as a service chip on existing pages instead.
+    return { ...ALL_TRUE, wikiEligible: false, syncable: false, exportable: false };
   }
   if (type === PROFILE_SOURCE_TYPE) {
     // Profile docs: feed retrieval, but not the wiki and not sync/export.

@@ -821,6 +821,19 @@ export const migrations: readonly string[] = [
     WHERE id IN (SELECT job_id FROM _inbox_job_link);
   DROP TABLE _inbox_job_link;
   `,
+  // 28 — connectors complement the wiki as references, not entries.
+  //
+  // Connector sources (google:contacts|calendar|gmail) flip to wiki_eligible=0:
+  // their facts stay searchable/answerable and in memory, but are kept out of
+  // generated page prose. A person known only from a contact/email therefore has
+  // no wiki-eligible observation and earns no page (it would be noise); the link
+  // to the service is surfaced as a chip on existing pages instead. Mirrors the
+  // new defaultVisibilityForType default so existing rows match freshly created
+  // ones (cf. migration 18's connector backfill).
+  `
+  UPDATE sources SET wiki_eligible = 0
+    WHERE type IN ('google:contacts', 'google:calendar', 'google:gmail');
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

@@ -253,6 +253,20 @@ export class WikiWriter {
   }
 
   /**
+   * Names available for [[wiki-links]] — only entities that actually have a page
+   * (wiki-eligible backing), so prose never links out to a pageless, connector-only
+   * person. Capped to keep the prompt/linkifier bounded.
+   */
+  private linkableEntityNames(): string[] {
+    const withPages = this.store.wikiPageEntityIds();
+    return this.store
+      .listEntities()
+      .filter((e) => withPages.has(e.id))
+      .map((e) => e.name)
+      .slice(0, MAX_KNOWN_ENTITIES);
+  }
+
+  /**
    * Regenerate a single page by letting the model edit it in place over a
    * sandboxed copy of the wiki: it can grep sibling pages for exact link names
    * and context, and merge new facts into the existing prose instead of
@@ -268,16 +282,22 @@ export class WikiWriter {
     const existing = this.readPage(entity);
     const beforeBody = existing ? stripFrontmatter(existing) : null;
 
+    // Don't create a page for a reference-only entity (a person known only from a
+    // connector — contact/email/calendar). New entities default to wiki_stale = 1,
+    // so this is where that default is cleared without writing a noise page. An
+    // existing page is still allowed to regenerate (e.g. once a real source
+    // mentions the person), and empty / relationship-only entities are unaffected.
+    if (beforeBody === null && this.store.isReferenceOnlyEntity(entityId)) {
+      this.store.clearStaleSources(entity.id);
+      this.store.clearWikiStale(entity.id);
+      return null;
+    }
+
     // Wiki pages are portable and git-synced: private/secret claims stay in
     // memory but never reach the page (schema privacy rules).
     const observations = this.store.visibleObservations(entityId);
     const relationships = this.store.relationshipsFor(entityId);
-    const names =
-      knownEntities ??
-      this.store
-        .listEntities()
-        .map((e) => e.name)
-        .slice(0, MAX_KNOWN_ENTITIES);
+    const names = knownEntities ?? this.linkableEntityNames();
 
     const observationLines = observations.map(
       (o) => `- [confidence ${o.confidence.toFixed(2)}, recorded ${o.created_at}] ${o.text}`,
@@ -485,10 +505,7 @@ export class WikiWriter {
       if (stale.length === 0) return changes;
       // Computed once per pass and shared across workers: the roster barely
       // changes between pages.
-      const knownEntities = this.store
-        .listEntities()
-        .map((e) => e.name)
-        .slice(0, MAX_KNOWN_ENTITIES);
+      const knownEntities = this.linkableEntityNames();
       let next = 0;
       const workers = Array.from({ length: Math.min(concurrency, stale.length) }, async () => {
         while (next < stale.length) {
@@ -512,12 +529,12 @@ export class WikiWriter {
   async backfillPages(): Promise<number> {
     if (!this.embedder) return 0;
     const persisted = new Set(this.store.allWikiPageVectors().map((p) => p.entity_id));
-    const knownNames = this.store
-      .listEntities()
-      .map((e) => e.name)
-      .slice(0, MAX_KNOWN_ENTITIES);
+    const withPages = this.store.wikiPageEntityIds();
+    const knownNames = this.linkableEntityNames();
     const pending: Array<{ entity: EntityRow; body: string }> = [];
     for (const entity of this.store.listEntities()) {
+      // Never synthesise a page for a connector-only / private-only entity.
+      if (!withPages.has(entity.id)) continue;
       const file = this.readPage(entity);
       let diskBody = file ? stripFrontmatter(file) : "";
 
@@ -560,12 +577,12 @@ export class WikiWriter {
    */
   async refreshSyntheticPages(): Promise<number> {
     if (!this.embedder) return 0;
-    const knownNames = this.store
-      .listEntities()
-      .map((e) => e.name)
-      .slice(0, MAX_KNOWN_ENTITIES);
+    const withPages = this.store.wikiPageEntityIds();
+    const knownNames = this.linkableEntityNames();
     const updates: Array<{ entity: EntityRow; body: string; count: number; mean: number }> = [];
     for (const entity of this.store.listEntities()) {
+      // Skip connector-only / private-only entities: they don't warrant a page.
+      if (!withPages.has(entity.id)) continue;
       const file = this.readPage(entity);
       const current = file ? stripFrontmatter(file) : "";
       const isAuto = file ? /^auto_generated:\s*true/m.test(file) : false;
@@ -586,5 +603,30 @@ export class WikiWriter {
       this.store.upsertWikiPage(u.entity.id, u.body, vectors[i]);
     });
     return updates.length;
+  }
+
+  /**
+   * Remove pages for entities that no longer warrant one — connector-only people
+   * (contacts/calendar/gmail) or private-only entities. Deletes the on-disk
+   * Markdown and the persisted retrieval row, and clears any lingering stale
+   * flags. Idempotent; safe to run on every backfill to clean up pages created
+   * before connectors became reference-only. Returns how many pages were pruned.
+   */
+  pruneConnectorOnlyPages(): number {
+    const withPages = this.store.wikiPageEntityIds();
+    let pruned = 0;
+    for (const entity of this.store.listEntities()) {
+      if (withPages.has(entity.id)) continue;
+      const file = this.pagePath(entity);
+      const hadFile = fs.existsSync(file);
+      const hadRow = this.store.wikiPageBody(entity.id) !== undefined;
+      if (!hadFile && !hadRow) continue;
+      if (hadFile) fs.rmSync(file, { force: true });
+      this.store.deleteWikiPage(entity.id);
+      this.store.clearStaleSources(entity.id);
+      this.store.clearWikiStale(entity.id);
+      pruned++;
+    }
+    return pruned;
   }
 }
