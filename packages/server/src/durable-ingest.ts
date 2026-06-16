@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import { createHash } from "node:crypto";
-import type {
-  IngestInput,
-  IngestJobRow,
-  IngestionPipeline,
-  JobQueue,
-  KnowledgeStore,
+import {
+  IngestPriority,
+  type IngestInput,
+  type IngestJobRow,
+  type IngestionPipeline,
+  type JobQueue,
+  type KnowledgeStore,
 } from "@meos/core";
 
 /** The JSON shape persisted in `ingest_jobs.payload` (a pointer, never bytes). */
@@ -23,6 +24,15 @@ const SWEEP_INTERVAL_MS = 30_000;
 const STALE_GRACE_SECONDS = 120;
 /** Retention: completed jobs/runs older than this are pruned on each sweep. */
 const RETENTION_DAYS = 7;
+/**
+ * Backpressure (#18): the most jobs a single {@link DurableIngest.pump} admits
+ * onto the executor in one pass. A 1000-file bulk import therefore drips onto
+ * the queue a batch at a time — the next batch is admitted by the very `pump`
+ * that runs when a job finishes (see {@link execute}) plus the periodic sweep —
+ * so retries, manual actions, and other queues are never starved while a large
+ * import drains. Highest-priority pending work is always admitted first.
+ */
+const MAX_BATCHES_PER_PUMP = 20;
 
 /**
  * The durable, resumable ingestion layer (#13). Each ingestion unit is persisted
@@ -46,13 +56,25 @@ export class DurableIngest {
    */
   private readonly liveInputs = new Map<number, IngestInput>();
 
+  /** Per-pump admission cap for backpressure (#18); overridable for tests. */
+  private readonly maxBatchesPerPump: number;
+
   constructor(
     private readonly deps: {
       store: KnowledgeStore;
       pipeline: IngestionPipeline;
       queue: JobQueue;
+      /** Backpressure cap on jobs admitted per pump pass; defaults to 20. */
+      maxBatchesPerPump?: number;
     },
-  ) {}
+  ) {
+    this.maxBatchesPerPump = deps.maxBatchesPerPump ?? MAX_BATCHES_PER_PUMP;
+  }
+
+  /** The active per-pump batch admission cap (backpressure), for the metrics surface (#18). */
+  get batchCap(): number {
+    return this.maxBatchesPerPump;
+  }
 
   /**
    * Persist + enqueue a file/upload ingest. The buffer is held only for this
@@ -65,6 +87,8 @@ export class DurableIngest {
     origin?: string;
     path?: string;
     inboxItemId: number;
+    /** Priority class (#18); defaults by origin — watched files below uploads. */
+    priority?: number;
   }): number {
     const payload: JobPayload = {
       kind: "file",
@@ -79,6 +103,9 @@ export class DurableIngest {
       inboxItemId: input.inboxItemId,
       contentHash: createHash("sha256").update(input.buffer).digest("hex"),
       byteSize: input.buffer.byteLength,
+      // A watched file is background work; an upload is the user waiting on it.
+      priority:
+        input.priority ?? (input.origin === "watch" ? IngestPriority.WATCH : IngestPriority.USER),
     });
     this.liveInputs.set(jobId, {
       kind: "file",
@@ -91,12 +118,14 @@ export class DurableIngest {
     return jobId;
   }
 
-  /** Persist + enqueue a pasted-text ingest. */
+  /** Persist + enqueue a pasted-text ingest. A user note is high-priority (#18). */
   enqueueText(input: {
     title: string;
     text: string;
     origin?: string;
     inboxItemId: number;
+    /** Priority class (#18); defaults to the user class (a note being typed). */
+    priority?: number;
   }): number {
     const payload: JobPayload = { kind: "text", title: input.title };
     const jobId = this.deps.store.createIngestJob({
@@ -106,6 +135,7 @@ export class DurableIngest {
       inboxItemId: input.inboxItemId,
       contentHash: createHash("sha256").update(input.text).digest("hex"),
       byteSize: Buffer.byteLength(input.text),
+      priority: input.priority ?? IngestPriority.USER,
     });
     this.liveInputs.set(jobId, {
       kind: "text",
@@ -152,18 +182,25 @@ export class DurableIngest {
   }
 
   /**
-   * Drain every currently-runnable persisted extraction job onto the executor.
+   * Admit up to {@link maxBatchesPerPump} runnable persisted extraction jobs onto
+   * the executor, highest priority first (backpressure, #18). Capping the per-
+   * pass admission means a large bulk import cannot flood the in-memory queue and
+   * starve retries, manual actions, or other work: the next batch is admitted by
+   * the re-pump that runs when a job finishes (see {@link execute}) and by the
+   * periodic sweep, so the import still drains fully — just a batch at a time.
+   *
    * Best-effort: a deferred pump (retry/sweep) can fire after the DB has been
    * closed (e.g. on shutdown), so a closed connection is a no-op rather than a
    * crash — there is nothing to drain once the store is gone.
    */
   pump(): void {
     if (this.stopped || !this.deps.store.db.open) return;
-    let next = this.deps.store.claimIngestJob("extraction");
-    while (next) {
-      const job = next;
-      this.deps.queue.push(() => this.execute(job));
-      next = this.deps.store.claimIngestJob("extraction");
+    let admitted = 0;
+    while (admitted < this.maxBatchesPerPump) {
+      const job = this.deps.store.claimIngestJob("extraction");
+      if (!job) return;
+      admitted++;
+      this.deps.queue.push(() => this.execute(job), { priority: job.priority });
     }
   }
 
@@ -213,6 +250,11 @@ export class DurableIngest {
       throw new Error("cannot recover ingest input (no path and no source)");
     } catch (error) {
       this.fail(job, error);
+    } finally {
+      // Backpressure (#18): each finished job frees a per-pump admission slot, so
+      // re-pump to admit the next batch of a capped large import. Deferred to the
+      // next tick so this runs after the executor records this job as done.
+      setTimeout(() => this.pump(), 0).unref();
     }
   }
 

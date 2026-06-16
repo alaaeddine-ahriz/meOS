@@ -25,6 +25,7 @@ import type {
   GraphNode,
   InboxItem,
   IngestJob,
+  IngestMetrics,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
@@ -37,6 +38,7 @@ import type {
   ProfileSectionView,
   ProfileVersion,
   ResolutionAction,
+  RuntimeHealth,
   SourceDiff,
   SourceRef,
   WatchedFolder,
@@ -68,6 +70,7 @@ export type {
   GraphNode,
   InboxItem,
   IngestJob,
+  IngestMetrics,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
@@ -80,6 +83,7 @@ export type {
   ProfileSectionView,
   ProfileVersion,
   ResolutionAction,
+  RuntimeHealth,
   SourceDiff,
   SourceRef,
   WatchedFolder,
@@ -109,6 +113,10 @@ export const api = {
   getGraph: () => json<WikiGraph>("/api/wiki/graph"),
   getInbox: () => json<{ queuePending: number; items: InboxItem[] }>("/api/inbox"),
   listIngestJobs: () => json<{ jobs: IngestJob[] }>("/api/ingest/jobs"),
+  // Ingestion observability (#18): per-stage timings, queue throughput, recovery
+  // counters, cost telemetry, and the active backpressure cap.
+  getIngestMetrics: () => json<IngestMetrics>("/api/ingest/metrics"),
+  getRuntimeHealth: () => json<RuntimeHealth>("/api/runtime"),
   retryIngestJob: (id: number) =>
     json<{ retried: boolean }>(`/api/ingest/jobs/${id}/retry`, { method: "POST" }),
   listFolders: () => json<{ folders: WatchedFolder[] }>("/api/settings/folders"),

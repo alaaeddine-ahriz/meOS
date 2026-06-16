@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrations, openDatabase, type MeosDatabase } from "../src/db/database.js";
-import { KnowledgeStore } from "../src/knowledge/store.js";
+import { IngestPriority, KnowledgeStore } from "../src/knowledge/store.js";
 
 /**
  * The durable ingest-job ledger (#13) at the store tier: persistence, the
@@ -154,6 +154,139 @@ describe("durable ingest jobs (store)", () => {
     void a;
   });
 
+  it("claims the highest-priority job first, FIFO within a class (#18)", () => {
+    const store = makeStore();
+    // Enqueue out of priority order: a watched-file job, then a user upload, then
+    // another watched-file job. The user upload (higher class) must claim first,
+    // then the two watched-file jobs in creation order.
+    const watch1 = store.createIngestJob({ kind: "file", priority: IngestPriority.WATCH });
+    const user = store.createIngestJob({ kind: "file", priority: IngestPriority.USER });
+    const watch2 = store.createIngestJob({ kind: "file", priority: IngestPriority.WATCH });
+
+    expect(store.claimIngestJob("extraction")!.id).toBe(user);
+    expect(store.claimIngestJob("extraction")!.id).toBe(watch1);
+    expect(store.claimIngestJob("extraction")!.id).toBe(watch2);
+  });
+
+  it("defaults a job's priority to the watched-file class (#18)", () => {
+    const store = makeStore();
+    const id = store.createIngestJob({ kind: "file" });
+    expect(store.getIngestJob(id)!.priority).toBe(IngestPriority.WATCH);
+  });
+
+  it("aggregates per-stage timing and outcome counts from ingest_runs (#18)", () => {
+    const store = makeStore();
+    // A job that completes its indexing stage.
+    const ok = store.createIngestJob({ kind: "file" });
+    store.claimIngestJob("extraction");
+    store.setIngestJobStage(ok, "indexing");
+    // Re-claim is not needed; the run row carries the stage it was opened with
+    // ('queued'), so drive a second job through a named stage to exercise grouping.
+    store.completeIngestJob(ok, "done");
+
+    const bad = store.createIngestJob({ kind: "file", maxAttempts: 1 });
+    store.claimIngestJob("extraction");
+    store.failIngestJob(bad, "boom", 0); // exhausted → dead-letter run
+
+    const stages = store.ingestStageMetrics();
+    // Every run opens against the job's current stage ('queued' here); the
+    // outcomes are split across the terminal states.
+    const totalCompleted = stages.reduce((s, r) => s + r.completed, 0);
+    const totalDead = stages.reduce((s, r) => s + r.deadLetter, 0);
+    expect(totalCompleted).toBe(1);
+    expect(totalDead).toBe(1);
+    for (const s of stages) {
+      expect(s.avgDurationSeconds).toBeGreaterThanOrEqual(0);
+      expect(s.totalDurationSeconds).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("reports extended queue metrics: retrying + oldest-queued + completed (#18)", () => {
+    const store = makeStore();
+    // One completed, one mid-retry (failed once, back to pending), one fresh.
+    const done = store.createIngestJob({ kind: "file" });
+    store.claimIngestJob("extraction");
+    store.completeIngestJob(done);
+
+    const retry = store.createIngestJob({ kind: "file", maxAttempts: 3 });
+    store.claimIngestJob("extraction");
+    store.failIngestJob(retry, "transient", 0); // back to pending, attempts=1
+
+    store.createIngestJob({ kind: "file" }); // fresh pending, attempts=0
+
+    const ext = store.ingestQueueMetrics().find((q) => q.queue === "extraction")!;
+    expect(ext.completed).toBe(1);
+    expect(ext.retrying).toBe(1); // the one that failed once and is pending again
+    expect(ext.pending).toBe(2); // retry + fresh
+    expect(ext.oldestQueuedAt).not.toBeNull();
+  });
+
+  it("counts stale-job recoveries and dead-letters (#18)", () => {
+    const store = makeStore();
+    const first = store.createIngestJob({ kind: "file" });
+    store.claimIngestJob("extraction");
+    // Crash recovery closes the run with the recognizable recovery error, then
+    // returns the job to pending — drive it to completion so only `dead` remains
+    // dead-lettered below.
+    expect(store.recoverStaleIngestJobs(0)).toBe(1);
+    let claimed = store.claimIngestJob("extraction");
+    while (claimed && claimed.id !== first) claimed = store.claimIngestJob("extraction");
+    store.completeIngestJob(first);
+
+    const dead = store.createIngestJob({ kind: "file", maxAttempts: 1 });
+    claimed = store.claimIngestJob("extraction");
+    while (claimed && claimed.id !== dead) claimed = store.claimIngestJob("extraction");
+    store.failIngestJob(dead, "boom", 0);
+
+    const recovery = store.ingestRecoveryMetrics();
+    expect(recovery.recovered).toBe(1);
+    expect(recovery.deadLettered).toBe(1);
+  });
+
+  it("groups extraction cost telemetry by model/prompt/strategy (#18)", () => {
+    const store = makeStore();
+    const sourceId = store.createSource({ type: "file", title: "Doc", content: "hello" });
+    const revId = store.createSourceRevision({ sourceId });
+    store.putCachedExtraction(
+      {
+        sourceRevisionId: revId,
+        contentHash: "h1",
+        schemaVersion: "s1",
+        promptVersion: "p1",
+        modelId: "m1",
+        profileVersion: "pr1",
+      },
+      { entities: [], relationships: [] },
+      "single",
+      120,
+    );
+    store.putCachedExtraction(
+      {
+        sourceRevisionId: revId,
+        contentHash: "h2",
+        schemaVersion: "s1",
+        promptVersion: "p1",
+        modelId: "m1",
+        profileVersion: "pr1",
+      },
+      { entities: [], relationships: [] },
+      "single",
+      80,
+    );
+
+    // No rate table by default → cost is best-effort null, tokens summed.
+    const costs = store.ingestCostMetrics();
+    const group = costs.find((c) => c.modelId === "m1" && c.strategy === "single")!;
+    expect(group.extractions).toBe(2);
+    expect(group.tokenUsage).toBe(200);
+    expect(group.estimatedCostUsd).toBeNull();
+
+    // With a rate, cost is computed deterministically.
+    const priced = store.ingestCostMetrics((m) => (m === "m1" ? 0.5 : null));
+    const pricedGroup = priced.find((c) => c.modelId === "m1")!;
+    expect(pricedGroup.estimatedCostUsd).toBeCloseTo((200 / 1000) * 0.5, 6);
+  });
+
   it("prunes old completed jobs but keeps failed/dead-letter history", () => {
     const store = makeStore();
     const done = store.createIngestJob({ kind: "text" });
@@ -181,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(23);
+    expect(migrations.length).toBe(24);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -238,6 +371,50 @@ describe("migration 21 (durable ingest jobs)", () => {
       // ...and the inbox CHECK was relaxed to accept the new 'extract-failed' state.
       expect(() => upStore.updateInboxItem(inboxId, "extract-failed", "searchable")).not.toThrow();
       expect(upStore.listInbox().find((i) => i.id === inboxId)?.status).toBe("extract-failed");
+      upgraded.close();
+    } finally {
+      for (const suffix of ["", "-wal", "-shm"]) {
+        try {
+          fs.rmSync(file + suffix);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+});
+
+describe("migration 24 (ingest job priority, #18)", () => {
+  it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
+    expect(migrations.length).toBe(24);
+
+    const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
+    try {
+      // Build a current-shape DB, seed a durable job, then rewind to v23 by
+      // dropping the priority column + its index (the only migration-24 artifacts).
+      const db = openDatabase(file);
+      const store = new KnowledgeStore(db);
+      const legacyJob = store.createIngestJob({ kind: "file" });
+      expect(store.getIngestJob(legacyJob)!.priority).toBe(IngestPriority.WATCH);
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_ingest_jobs_claim;
+        ALTER TABLE ingest_jobs DROP COLUMN priority;
+      `);
+      db.pragma("user_version = 23");
+      db.close();
+
+      // Re-open through the real migrator: migration 24 must apply cleanly and
+      // backfill the pre-existing row to the watched-file default (30).
+      const upgraded = openDatabase(file);
+      expect(upgraded.pragma("user_version", { simple: true })).toBe(migrations.length);
+      const upStore = new KnowledgeStore(upgraded);
+      expect(upStore.getIngestJob(legacyJob)!.priority).toBe(IngestPriority.WATCH);
+
+      // A new job can still set an explicit higher class, and the priority-aware
+      // claim orders it ahead of the backfilled one.
+      const userJob = upStore.createIngestJob({ kind: "file", priority: IngestPriority.USER });
+      expect(upStore.claimIngestJob("extraction")!.id).toBe(userJob);
       upgraded.close();
     } finally {
       for (const suffix of ["", "-wal", "-shm"]) {

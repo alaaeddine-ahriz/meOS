@@ -1,6 +1,7 @@
 import {
   CONNECTOR_KINDS,
   ensureAccessToken,
+  IngestPriority,
   searchThreadsText,
   syncConnector,
   type ConnectorKind,
@@ -43,21 +44,26 @@ export class ConnectorManager {
 
   /** Queue a sync of one kind now (used by "Sync now" and the timers). */
   enqueueSync(kind: ConnectorKind): void {
-    this.deps.queue.push(async () => {
-      const account = this.deps.store.getConnectorAccount("google");
-      if (!account) return;
-      try {
-        const result = await syncConnector(this.deps, account, kind);
-        console.log(
-          `[connectors] ${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
-        );
-      } catch (error) {
-        console.error(
-          `[connectors] ${kind} sync failed:`,
-          error instanceof Error ? error.message : error,
-        );
-      }
-    });
+    // Background connector sync rides below user uploads and watched files (#18),
+    // so a large mailbox pull never delays the document the user just dropped in.
+    this.deps.queue.push(
+      async () => {
+        const account = this.deps.store.getConnectorAccount("google");
+        if (!account) return;
+        try {
+          const result = await syncConnector(this.deps, account, kind);
+          console.log(
+            `[connectors] ${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
+          );
+        } catch (error) {
+          console.error(
+            `[connectors] ${kind} sync failed:`,
+            error instanceof Error ? error.message : error,
+          );
+        }
+      },
+      { priority: IngestPriority.CONNECTOR },
+    );
   }
 
   /** A nightly delta pass over every enabled kind (wired to onSchedule). */

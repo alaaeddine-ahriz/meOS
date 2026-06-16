@@ -395,7 +395,7 @@ describe("connector materialization (#19)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(23);
+    expect(migrations.length).toBe(24);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -415,9 +415,11 @@ describe("migration 23 (connector materialization)", () => {
       });
       store.recordConnectorItem(accountId, "contacts", "people/legacy", "hash0", sourceId);
 
-      // Rewind to v22: drop the migration-23 column and reset user_version,
-      // simulating a DB created before #19 shipped.
+      // Rewind to v22: drop the migration-23 column + the migration-24 priority
+      // artifacts, and reset user_version, simulating a DB created before #19.
       db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
+      db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
+      db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);
       db.pragma("user_version = 22");
       db.close();
 

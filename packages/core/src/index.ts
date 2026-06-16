@@ -59,7 +59,7 @@ export {
 } from "./extract/map-reduce.js";
 export type { ExtractionRunResult, MapReduceOptions } from "./extract/map-reduce.js";
 export { readImage } from "./extract/image.js";
-export { effectiveDate, KnowledgeStore, slugify } from "./knowledge/store.js";
+export { effectiveDate, IngestPriority, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
   ChunkInput,
   ChunkMetadataRow,
@@ -71,11 +71,15 @@ export type {
   ExtractionCacheRow,
   ExtractionStrategy,
   InboxItemRow,
+  IngestCostMetric,
   IngestJobRow,
   IngestJobState,
   IngestQueueDepth,
   IngestQueueKind,
+  IngestQueueMetrics,
+  IngestRecoveryMetrics,
   IngestRunRow,
+  IngestStageMetric,
   ObservationRow,
   ObservationWithVector,
   RelationshipView,
@@ -156,7 +160,7 @@ export { lintPage } from "./wiki/wiki-lint.js";
 export type { IssueSeverity, LintIssue, PageLintResult } from "./wiki/wiki-lint.js";
 export { healWiki } from "./wiki/self-healing.js";
 export type { HealingReport } from "./wiki/self-healing.js";
-export { JobQueue, SerialQueue } from "./jobs/queue.js";
+export { JobQueue, SerialQueue, JobPriority, DEFAULT_PRIORITY } from "./jobs/queue.js";
 export { MeosEvents } from "./events.js";
 export type { MeosEvent, MeosEventHandler, MeosEventMap } from "./events.js";
 export { buildContextPack } from "./chat/retrieval.js";

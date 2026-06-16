@@ -6,9 +6,10 @@ import { api } from "../api.js";
 import { ActivityView } from "./ActivityView.js";
 import { ContradictionsView } from "./ContradictionsView.js";
 import { DigestView } from "./DigestView.js";
+import { IngestMetricsView } from "./IngestMetricsView.js";
 
-type HubTabId = "feed" | "review" | "digest";
-const TAB_IDS: HubTabId[] = ["feed", "review", "digest"];
+type HubTabId = "feed" | "review" | "digest" | "health";
+const TAB_IDS: HubTabId[] = ["feed", "review", "digest", "health"];
 
 // Older deep-links used per-section tabs (inbox/runs/conflicts); fold them into the new ones.
 const TAB_ALIASES: Record<string, HubTabId> = {
@@ -69,11 +70,15 @@ export function ActivityHub() {
         <HubTab active={tab === "digest"} onClick={() => setTab("digest")}>
           Digest
         </HubTab>
+        <HubTab active={tab === "health"} onClick={() => setTab("health")}>
+          Health
+        </HubTab>
       </HubTabs>
 
       {tab === "feed" && <ActivityView embedded />}
       {tab === "review" && <ContradictionsView embedded />}
       {tab === "digest" && <DigestView embedded />}
+      {tab === "health" && <IngestMetricsView />}
     </Page>
   );
 }

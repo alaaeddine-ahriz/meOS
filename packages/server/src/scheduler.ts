@@ -1,6 +1,6 @@
 import path from "node:path";
 import { Cron } from "croner";
-import { loadProfileContext, loadSchema, runConsolidation } from "@meos/core";
+import { IngestPriority, loadProfileContext, loadSchema, runConsolidation } from "@meos/core";
 import { commitWikiChanges, type AppContext } from "./context.js";
 
 /** Nightly consolidation (§4.5) — queued so it never races with ingestion. */
@@ -40,7 +40,9 @@ export function startScheduler(ctx: AppContext): Cron {
           }
         }
       },
-      { exclusive: true },
+      // Nightly maintenance is the lowest priority class (#18) and exclusive, so
+      // it never starves user/watch/connector work and runs alone when it does.
+      { exclusive: true, priority: IngestPriority.NIGHTLY },
     );
   });
 }

@@ -39,6 +39,11 @@ export type {
   DiffFile,
   IngestJob,
   IngestJobState,
+  IngestQueueMetrics,
+  IngestStageMetric,
+  IngestRecoveryMetrics,
+  IngestCostMetric,
+  IngestMetrics,
 } from "./schemas/ingest.js";
 export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
 export type { StaleFact, StaleFacts, RevisionStatus } from "./schemas/stale-facts.js";

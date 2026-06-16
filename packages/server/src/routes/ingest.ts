@@ -70,6 +70,24 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     }),
   );
 
+  // The ingestion observability surface (#18): per-stage timings + outcome
+  // counts, per-queue throughput/backlog metrics, stale-job recovery counters,
+  // best-effort per-extraction cost telemetry, and the active backpressure cap —
+  // aggregated read-only from `ingest_runs`/`ingest_jobs`/`extraction_cache`, so
+  // a slow or expensive ingest is diagnosable without reading terminal logs.
+  app.get("/api/ingest/metrics", async () =>
+    ingest.IngestMetricsResponse.parse({
+      queues: ctx.store.ingestQueueMetrics(),
+      stages: ctx.store.ingestStageMetrics(),
+      recovery: ctx.store.ingestRecoveryMetrics(),
+      // No per-model USD rate table ships yet, so cost is surfaced best-effort
+      // (null) with token usage; it lights up the moment a rate is wired in.
+      costs: ctx.store.ingestCostMetrics(),
+      backpressure: { maxBatchesPerPump: ctx.durableIngest.batchCap },
+      generatedAt: new Date().toISOString(),
+    }),
+  );
+
   // Manually retry a failed or dead-letter ingest: resets the retry budget and
   // re-pumps the queue. Idempotent stages make the re-run safe; a job that only
   // needs its extraction retried re-runs from the stored revision (no re-read).
