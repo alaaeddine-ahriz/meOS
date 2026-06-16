@@ -1,6 +1,7 @@
 import { connectors as connectorsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import { connectorRegistry, createPkcePair, fetchSelf } from "@meos/core";
+import type { ConnectorKindConfig } from "@meos/core";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { routeSchema } from "../route-schema.js";
@@ -36,6 +37,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         intervalMinutes: state?.interval_minutes ?? manifest.defaultIntervalMinutes,
         lastSyncedAt: state?.last_synced_at ?? null,
         lastStatus: state?.last_status ?? null,
+        coverage: account ? coverageFor(account.id, kind) : undefined,
       };
     });
     return {
@@ -46,6 +48,44 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         kinds,
       },
     };
+  };
+
+  /**
+   * Build the additive coverage block (#68) for a kind: indexed item count + oldest
+   * indexed date from the ledger, the chosen window/content mode, Gmail backfill
+   * progress, and per-calendar selection + progress. Makes partial coverage
+   * explicit in the status payload so the UI can surface it.
+   */
+  const coverageFor = (accountId: number, kind: string) => {
+    const config = ctx.store.getSyncConfig(accountId, kind);
+    const stats = ctx.store.connectorCoverageStats(accountId, kind);
+    const base = {
+      itemCount: stats.itemCount,
+      oldestIndexed: stats.oldestIndexed,
+      coverageWindow: config.coverageWindow ?? "recent",
+    } as Record<string, unknown>;
+    if (kind === "gmail") {
+      base.contentMode = config.contentMode ?? "metadata";
+      if (config.backfill) {
+        base.backfill = {
+          indexed: config.backfill.indexed,
+          oldestIndexed: config.backfill.oldestIndexed,
+          complete: config.backfill.complete,
+        };
+      }
+    }
+    if (kind === "calendar") {
+      base.enabledCalendars =
+        config.enabledCalendars && config.enabledCalendars.length > 0
+          ? config.enabledCalendars
+          : ["primary"];
+      base.calendars = Object.entries(config.calendars ?? {}).map(([id, c]) => ({
+        id,
+        indexed: c.indexed,
+        lastSyncedAt: c.lastSyncedAt,
+      }));
+    }
+    return base;
   };
 
   app.get(
@@ -166,8 +206,19 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     },
   );
 
-  // Enable/disable a kind and set its sync interval, then rebuild the schedule.
-  app.put<{ Params: { kind: string }; Body: { enabled?: boolean; intervalMinutes?: number } }>(
+  // Enable/disable a kind, set its interval, and (additively) its coverage window,
+  // content mode, and enabled calendars (#68). Rebuilds the schedule; a coverage
+  // change re-syncs so the new window/mode/calendars take effect immediately.
+  app.put<{
+    Params: { kind: string };
+    Body: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      coverageWindow?: string;
+      contentMode?: string;
+      enabledCalendars?: string[];
+    };
+  }>(
     "/api/connectors/google/:kind/config",
     {
       schema: routeSchema({
@@ -185,20 +236,51 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       const account = ctx.store.getConnectorAccount("google");
       if (!account) throw httpError.badRequest("Google is not connected");
 
-      const { enabled, intervalMinutes } = parseOrThrow(
-        connectorsSchema.ConfigureKindBody,
-        request.body,
-        "body",
-      );
+      const body = parseOrThrow(connectorsSchema.ConfigureKindBody, request.body, "body");
+      const { enabled, intervalMinutes, coverageWindow, contentMode, enabledCalendars } = body;
+
+      // Assemble any coverage-config changes into a single config patch (#68).
+      const configPatch: ConnectorKindConfig = {};
+      if (coverageWindow != null) configPatch.coverageWindow = coverageWindow;
+      if (kind === "gmail" && contentMode != null) configPatch.contentMode = contentMode;
+      if (kind === "calendar" && enabledCalendars != null)
+        configPatch.enabledCalendars = enabledCalendars;
+      const coverageChanged = Object.keys(configPatch).length > 0;
+      // Re-seeding coverage: clear the cursor so the new window/calendars re-pull from
+      // the bound (a wider window must not be limited to the old incremental cursor).
+      if (coverageChanged) configPatch.backfill = undefined;
+
       ctx.store.setSyncState(account.id, kind, {
         enabled,
         intervalMinutes:
           intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
+        ...(coverageChanged
+          ? { config: configPatch, ...(coverageWindow != null ? { syncToken: null } : {}) }
+          : {}),
       });
       ctx.connectors.reschedule();
-      // Pull immediately on first enable so the user sees data without waiting.
-      if (enabled) ctx.connectors.enqueueSync("google", kind);
+      // Pull immediately on first enable or a coverage change so the user sees the
+      // new coverage without waiting for the next scheduled tick.
+      if (enabled || coverageChanged) ctx.connectors.enqueueSync("google", kind);
       return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+    },
+  );
+
+  // List the user's Google calendars for the multi-calendar picker (#68).
+  app.get(
+    "/api/connectors/google/calendars",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List Google calendars",
+        response: connectorsSchema.ListCalendarsResponse,
+      }),
+    },
+    async () => {
+      const account = ctx.store.getConnectorAccount("google");
+      if (!account) throw httpError.badRequest("Google is not connected");
+      const calendars = await ctx.connectors.listCalendars("google");
+      return connectorsSchema.ListCalendarsResponse.parse({ calendars });
     },
   );
 

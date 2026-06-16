@@ -897,6 +897,15 @@ const KIND_META: Record<ConnectorKind, { label: string; icon: LucideIcon; blurb:
   gmail: { label: "Mail", icon: Mail, blurb: "Who you correspond with (metadata only)." },
 };
 
+/** The coverage windows offered in the UI, ordered narrowest → broadest (#68). */
+const COVERAGE_WINDOWS: Array<{ value: string; label: string }> = [
+  { value: "recent", label: "Recent" },
+  { value: "30d", label: "30 days" },
+  { value: "90d", label: "90 days" },
+  { value: "1y", label: "1 year" },
+  { value: "all", label: "Everything" },
+];
+
 function ConnectorsSection() {
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
   const [clientId, setClientId] = useState("");
@@ -904,6 +913,10 @@ function ConnectorsSection() {
   const [busy, setBusy] = useState<null | "creds" | "connect">(null);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  // The user's Google calendars, loaded lazily when Calendar is connected (#68).
+  const [calendars, setCalendars] = useState<
+    Array<{ id: string; summary: string; primary: boolean }>
+  >([]);
 
   const refresh = () =>
     api
@@ -916,6 +929,16 @@ function ConnectorsSection() {
   }, []);
 
   const google = status?.google;
+
+  // Load the calendar list once Google is connected so the multi-calendar picker
+  // has options (#68). Best-effort — a failure just leaves the picker empty.
+  useEffect(() => {
+    if (!google?.connected) return;
+    api
+      .listGoogleCalendars()
+      .then((r) => setCalendars(r.calendars))
+      .catch(() => {});
+  }, [google?.connected]);
 
   const saveCredentials = async () => {
     if (!clientId.trim() || !clientSecret.trim()) return;
@@ -965,7 +988,13 @@ function ConnectorsSection() {
 
   const configure = async (
     kind: ConnectorKind,
-    config: { enabled?: boolean; intervalMinutes?: number },
+    config: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      coverageWindow?: string;
+      contentMode?: string;
+      enabledCalendars?: string[];
+    },
   ) => {
     setError(null);
     try {
@@ -1091,33 +1120,140 @@ function ConnectorsSection() {
                   </Button>
                 </div>
                 {k.enabled && (
-                  <div className="flex flex-wrap items-center gap-3 pl-7">
-                    <label className="flex items-center gap-2 text-[12px] text-dim">
-                      every
-                      <Input
-                        type="number"
-                        min={1}
-                        defaultValue={k.intervalMinutes}
-                        onBlur={(e) => {
-                          const value = Number(e.target.value);
-                          if (Number.isFinite(value) && value >= 1 && value !== k.intervalMinutes) {
-                            void configure(k.kind, { intervalMinutes: value });
+                  <div className="flex flex-col gap-2.5 pl-7">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="flex items-center gap-2 text-[12px] text-dim">
+                        every
+                        <Input
+                          type="number"
+                          min={1}
+                          defaultValue={k.intervalMinutes}
+                          onBlur={(e) => {
+                            const value = Number(e.target.value);
+                            if (
+                              Number.isFinite(value) &&
+                              value >= 1 &&
+                              value !== k.intervalMinutes
+                            ) {
+                              void configure(k.kind, { intervalMinutes: value });
+                            }
+                          }}
+                          className={cn(inputClass, "h-7 w-16")}
+                        />
+                        min
+                      </label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void syncNow(k.kind)}
+                        className="text-dim hover:text-paper"
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Sync now
+                      </Button>
+                      {k.lastStatus && <span className="text-[11px] text-dim">{k.lastStatus}</span>}
+                    </div>
+
+                    {/* Coverage window — how far back we index (#68). Default "recent"
+                        keeps the privacy-preserving seed; broader windows are explicit. */}
+                    {(k.kind === "gmail" || k.kind === "calendar") && (
+                      <label className="flex items-center gap-2 text-[12px] text-dim">
+                        coverage
+                        <select
+                          value={k.coverage?.coverageWindow ?? "recent"}
+                          onChange={(e) =>
+                            void configure(k.kind, { coverageWindow: e.target.value })
                           }
-                        }}
-                        className={cn(inputClass, "h-7 w-16")}
-                      />
-                      min
-                    </label>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void syncNow(k.kind)}
-                      className="text-dim hover:text-paper"
-                    >
-                      <RefreshCw className="size-3.5" />
-                      Sync now
-                    </Button>
-                    {k.lastStatus && <span className="text-[11px] text-dim">{k.lastStatus}</span>}
+                          className={cn(inputClass, "h-7 w-auto px-2")}
+                        >
+                          {COVERAGE_WINDOWS.map((w) => (
+                            <option key={w.value} value={w.value}>
+                              {w.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    {/* Gmail content mode — metadata-only (default, private) vs richer
+                        body indexing (explicit opt-in, clearly labelled) (#68). */}
+                    {k.kind === "gmail" && (
+                      <label className="flex items-start gap-2 text-[12px] text-dim">
+                        <input
+                          type="checkbox"
+                          checked={k.coverage?.contentMode === "rich"}
+                          onChange={(e) =>
+                            void configure(k.kind, {
+                              contentMode: e.target.checked ? "rich" : "metadata",
+                            })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span>
+                          Index email bodies (not just metadata).{" "}
+                          <span className="text-ember">
+                            Broader: stores message text on this device.
+                          </span>
+                        </span>
+                      </label>
+                    )}
+
+                    {/* Gmail backfill progress — make partial coverage obvious (#68). */}
+                    {k.kind === "gmail" && k.coverage?.backfill && (
+                      <span className="text-[11px] text-dim">
+                        {k.coverage.backfill.complete
+                          ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
+                          : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
+                        {k.coverage.oldestIndexed
+                          ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
+                          : ""}
+                      </span>
+                    )}
+
+                    {/* Calendar multi-select — pick which calendars to sync (#68). */}
+                    {k.kind === "calendar" && calendars.length > 0 && (
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[11px] text-dim">Calendars</span>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {calendars.map((cal) => {
+                            const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
+                            const on = enabledCals.includes(cal.id);
+                            return (
+                              <label
+                                key={cal.id}
+                                className="flex items-center gap-1.5 text-[12px] text-faded"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? [...new Set([...enabledCals, cal.id])]
+                                      : enabledCals.filter((id) => id !== cal.id);
+                                    void configure(k.kind, {
+                                      enabledCalendars: next.length > 0 ? next : ["primary"],
+                                    });
+                                  }}
+                                />
+                                {cal.summary}
+                                {cal.primary ? " (primary)" : ""}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Calendar per-calendar coverage counts (#68). */}
+                    {k.kind === "calendar" &&
+                      k.coverage?.calendars &&
+                      k.coverage.calendars.length > 0 && (
+                        <span className="text-[11px] text-dim">
+                          {k.coverage.itemCount ?? 0} events indexed across{" "}
+                          {k.coverage.calendars.length} calendar
+                          {k.coverage.calendars.length === 1 ? "" : "s"}
+                        </span>
+                      )}
                   </div>
                 )}
               </li>

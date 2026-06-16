@@ -4,6 +4,7 @@ import {
   IngestPriority,
   searchThreadsText,
   syncConnector,
+  type CalendarListEntry,
   type Connector,
   type ConnectorRegistry,
   type IngestionPipeline,
@@ -82,6 +83,11 @@ export class ConnectorManager {
           console.log(
             `[connectors] ${provider}/${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
           );
+          // A resumable backfill (#68) that still has pages re-enqueues itself so a
+          // long historical pull drains in bounded steps without blocking the app or
+          // waiting for the next scheduled tick. Rides at CONNECTOR priority, so it
+          // never delays user uploads or watched files.
+          if (result.hasMore) this.enqueueSync(provider, kind);
         } catch (error) {
           console.error(
             `[connectors] ${provider}/${kind} sync failed:`,
@@ -112,6 +118,20 @@ export class ConnectorManager {
   /** How many per-kind sync timers are currently armed (runtime introspection). */
   activeTimerCount(): number {
     return this.timers.size;
+  }
+
+  /**
+   * List the user's available calendars for the multi-calendar picker (#68).
+   * Resolves the connector + a live token, then delegates to the connector's
+   * optional `listCalendars`. Returns [] when the provider/kind has no such list.
+   */
+  async listCalendars(provider: string): Promise<CalendarListEntry[]> {
+    const resolved = this.resolve(provider);
+    if (!resolved?.connector.listCalendars) return [];
+    const account = this.deps.store.getConnectorAccount(provider);
+    if (!account) return [];
+    const accessToken = await ensureAccessToken(this.deps.store, account, resolved.connector);
+    return resolved.connector.listCalendars({ accessToken });
   }
 
   /**

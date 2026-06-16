@@ -278,7 +278,7 @@ describe("reduceExtractions (#15) is pure and deterministic", () => {
 
 describe("migration 22 (extraction cache)", () => {
   it("migrates a v21-shape DB cleanly, preserving data", () => {
-    expect(migrations.length).toBe(28);
+    expect(migrations.length).toBe(29);
 
     const file = path.join(os.tmpdir(), `meos-mig22-${Date.now()}-${Math.random()}.db`);
     try {
@@ -297,6 +297,7 @@ describe("migration 22 (extraction cache)", () => {
       db.exec(`ALTER TABLE connector_items DROP COLUMN source_revision_id;`);
       db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
       db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);
+      db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.pragma("user_version = 21");
       db.close();
 

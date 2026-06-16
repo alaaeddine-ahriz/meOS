@@ -14,6 +14,8 @@ export interface SyncResult {
   ingested: number;
   skipped: number;
   deleted: number;
+  /** True when more work is immediately available (e.g. a Gmail backfill page). */
+  hasMore: boolean;
 }
 
 /**
@@ -74,15 +76,21 @@ export async function syncConnector(
   }
   const accessToken = await ensureAccessToken(store, account, connector);
   const state = store.getSyncState(account.id, kind);
+  const config = store.getSyncConfig(account.id, kind);
 
-  let delta = await connector.fetchDelta({ accessToken }, kind, state?.sync_token ?? null);
+  let delta = await connector.fetchDelta({ accessToken, config }, kind, state?.sync_token ?? null);
   if (delta.fullResync) {
-    // Saved cursor expired — clear it and re-pull from scratch.
+    // Saved cursor expired — clear it and re-pull from scratch (config preserved).
     store.setSyncState(account.id, kind, { syncToken: null });
-    delta = await connector.fetchDelta({ accessToken }, kind, null);
+    delta = await connector.fetchDelta({ accessToken, config }, kind, null);
   }
 
-  const result: SyncResult = { ingested: 0, skipped: 0, deleted: 0 };
+  const result: SyncResult = {
+    ingested: 0,
+    skipped: 0,
+    deleted: 0,
+    hasMore: Boolean(delta.hasMore),
+  };
   try {
     // Deletions first: a delta removal marks the item's latest revision inactive
     // (#16) so its facts surface as stale, but never hard-deletes — the audit
@@ -129,10 +137,14 @@ export async function syncConnector(
       );
     }
 
+    // A backfill that still has pages to walk reads as in-progress, so the UI can
+    // show coverage isn't yet complete even on an otherwise-clean run.
+    const progress = delta.hasMore ? " (backfilling…)" : "";
     store.setSyncState(account.id, kind, {
       syncToken: delta.nextCursor ?? null,
+      config: delta.nextConfig,
       lastSyncedAt: new Date().toISOString(),
-      lastStatus: `ok — ${result.ingested} updated, ${result.skipped} unchanged`,
+      lastStatus: `ok — ${result.ingested} updated, ${result.skipped} unchanged${progress}`,
     });
   } catch (error) {
     store.setSyncState(account.id, kind, {

@@ -12,11 +12,13 @@ import type {
   ActivityEvent,
   AuditEntry,
   CalendarEvent,
+  CalendarListEntry,
   ChatEvent,
   CloudProvider,
   Contradiction,
   ContradictionProposal,
   Conversation,
+  ConnectorCoverage,
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
@@ -116,11 +118,13 @@ export type {
   ActivityEvent,
   AuditEntry,
   CalendarEvent,
+  CalendarListEntry,
   ChatEvent,
   CloudProvider,
   Contradiction,
   ContradictionProposal,
   Conversation,
+  ConnectorCoverage,
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
@@ -409,7 +413,13 @@ export const api = {
     json<AuthStartResponse>("/api/connectors/google/auth/start", { method: "POST" }),
   configureConnectorKind: (
     kind: ConnectorKind,
-    config: { enabled?: boolean; intervalMinutes?: number },
+    config: {
+      enabled?: boolean;
+      intervalMinutes?: number;
+      coverageWindow?: string;
+      contentMode?: string;
+      enabledCalendars?: string[];
+    },
   ) =>
     json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {
       method: "PUT",
@@ -418,6 +428,9 @@ export const api = {
     }),
   syncConnectorKind: (kind: ConnectorKind) =>
     json<SyncKindResponse>(`/api/connectors/google/${kind}/sync`, { method: "POST" }),
+  // The user's Google calendars, for the multi-calendar picker (#68).
+  listGoogleCalendars: () =>
+    json<{ calendars: CalendarListEntry[] }>("/api/connectors/google/calendars"),
   disconnectGoogle: () => json<DisconnectResponse>("/api/connectors/google", { method: "DELETE" }),
   // Synced calendar events for the `@`-mention picker (empty if not connected).
   listCalendarEvents: (q = "", limit = 25) =>

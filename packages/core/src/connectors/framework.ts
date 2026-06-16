@@ -28,7 +28,7 @@
  */
 
 import type { Extraction } from "../extract/schema.js";
-import type { OAuthTokens } from "./types.js";
+import type { CalendarListEntry, ConnectorKindConfig, OAuthTokens } from "./types.js";
 
 /**
  * Whether a kind emits lightweight metadata items (contacts, calendar) or richer
@@ -142,11 +142,29 @@ export interface NormalizedDelta {
   nextCursor?: string | null;
   /** Set when the saved cursor was stale; the orchestrator retries from scratch. */
   fullResync?: boolean;
+  /**
+   * An updated per-kind config blob to persist (e.g. an advanced Gmail backfill
+   * cursor, refreshed per-calendar sync tokens). The fetcher computes it; the
+   * orchestrator persists it — the connector still never touches the DB.
+   */
+  nextConfig?: ConnectorKindConfig;
+  /**
+   * True when more work is immediately available for this kind (e.g. a Gmail
+   * backfill page remains). The orchestrator may re-enqueue another sync so a long
+   * backfill drains without waiting for the next scheduled tick.
+   */
+  hasMore?: boolean;
 }
 
-/** Per-sync context handed to a connector: the live access token for this account. */
+/**
+ * Per-sync context handed to a connector: the live access token for this account
+ * plus the persisted per-kind config (coverage window, backfill cursor, enabled
+ * calendars …). The config is read-merge-write: the connector returns an updated
+ * blob via {@link NormalizedDelta.nextConfig} and the orchestrator persists it.
+ */
 export interface SyncContext {
   accessToken: string;
+  config?: ConnectorKindConfig;
 }
 
 /**
@@ -165,6 +183,12 @@ export interface Connector {
    * unchanged items by content hash, and materializes the rest.
    */
   fetchDelta(ctx: SyncContext, kind: string, cursor: string | null): Promise<NormalizedDelta>;
+  /**
+   * Optional: list the available sub-resources for a kind that the user can pick
+   * from (today: Google calendars). Returns undefined for kinds/connectors that
+   * have no such selection. Stateless — purely a read against the provider.
+   */
+  listCalendars?(ctx: SyncContext): Promise<CalendarListEntry[]>;
 }
 
 /** Look up a kind's manifest, or undefined if the connector doesn't support it. */
