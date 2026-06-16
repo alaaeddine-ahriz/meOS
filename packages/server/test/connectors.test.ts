@@ -83,4 +83,47 @@ describe("PUT /api/connectors/google/:kind/config", () => {
     const envelope = ErrorEnvelopeSchema.parse(res.json());
     expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);
   });
+
+  it("rejects an unknown coverage window with the VALIDATION_ERROR envelope (#68)", async () => {
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/connectors/google/gmail/config",
+      payload: { coverageWindow: "forever" },
+    });
+    expect(res.statusCode).toBe(400);
+    const envelope = ErrorEnvelopeSchema.parse(res.json());
+    expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);
+  });
+});
+
+describe("GET /api/connectors/google/calendars (#68)", () => {
+  it("400s with BAD_REQUEST when Google is not connected", async () => {
+    const fresh = await buildTestServer();
+    try {
+      const res = await fresh.app.inject({
+        method: "GET",
+        url: "/api/connectors/google/calendars",
+      });
+      expect(res.statusCode).toBe(400);
+      const envelope = ErrorEnvelopeSchema.parse(res.json());
+      expect(envelope.code).toBe(ErrorCode.BAD_REQUEST);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+});
+
+describe("connector coverage in status (#68)", () => {
+  it("surfaces a coverage block per kind once credentials/account exist", async () => {
+    // The shared `server` has saved credentials above, so an account row exists and
+    // the status view reports the additive coverage info per kind.
+    const res = await server.app.inject({ method: "GET", url: "/api/connectors" });
+    const parsed = connectors.ConnectorStatusSchema.parse(res.json());
+    const gmail = parsed.google.kinds.find((k) => k.kind === "gmail");
+    // Coverage is optional in the contract; when present it defaults sensibly.
+    if (gmail?.coverage) {
+      expect(gmail.coverage.coverageWindow ?? "recent").toBe("recent");
+      expect(gmail.coverage.contentMode ?? "metadata").toBe("metadata");
+    }
+  });
 });

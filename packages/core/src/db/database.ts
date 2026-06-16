@@ -834,6 +834,22 @@ export const migrations: readonly string[] = [
   UPDATE sources SET wiki_eligible = 0
     WHERE type IN ('google:contacts', 'google:calendar', 'google:gmail');
   `,
+  // 29 — per-kind connector coverage config (#68).
+  //
+  // Gmail/Calendar coverage is now EXPLICIT and configurable: a coverage window,
+  // a content mode (metadata-only default vs richer opt-in), a resumable Gmail
+  // historical-backfill cursor + progress, and per-calendar sync state + the set
+  // of enabled calendars. Rather than spread these across many typed columns, they
+  // live in one JSON blob on `connector_sync_state.config`, read-merge-written by
+  // the orchestrator and surfaced (additively) in the connector status API.
+  //
+  // Self-contained and order-independent: a single ADD COLUMN with a JSON default
+  // of '{}', so existing rows behave exactly as before (empty config ⇒ prior
+  // defaults: Gmail "recent"/metadata, Calendar primary/last-365-days). No data is
+  // moved and no other table is touched.
+  `
+  ALTER TABLE connector_sync_state ADD COLUMN config TEXT NOT NULL DEFAULT '{}';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
