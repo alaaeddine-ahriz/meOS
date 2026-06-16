@@ -390,15 +390,15 @@ export function ChatView() {
       <PromptInputProvider>
         <div className="flex h-full flex-col items-center justify-center px-6">
           <div className="w-full max-w-2xl">
-            <div className="rise flex flex-col items-center text-center">
+            <div className="flex flex-col items-center text-center">
               <h1 className="mt-5 font-serif text-3xl text-paper">How can I help you today?</h1>
             </div>
 
-            <div className="rise rise-1 mt-7">
+            <div className="mt-7">
               <Composer status={status} busy={busy} onSend={send} entities={entities} />
             </div>
 
-            <div className="rise rise-2 mt-5">
+            <div className="mt-5">
               <Suggestions className="justify-center">
                 {SUGGESTIONS.map(({ label, prompt }) => (
                   <SuggestionPill key={label} label={label} prompt={prompt} />

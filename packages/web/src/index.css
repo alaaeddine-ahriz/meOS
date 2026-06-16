@@ -1,9 +1,6 @@
 @import "./styles/_variables.scss";
 @import "./styles/_keyframe-animations.scss";
 
-@import "@fontsource-variable/newsreader";
-@import "@fontsource-variable/ibm-plex-sans";
-@import "@fontsource/ibm-plex-mono";
 @import "tailwindcss";
 @import "tw-animate-css";
 @source "../node_modules/streamdown/dist/index.js";
@@ -12,232 +9,135 @@
 @custom-variant dark (&:is(.dark *));
 
 /*
- * The interface is a set of role variables (surfaces, text, accent) that are
- * driven by three orthogonal preferences on <html>:
- *   data-palette  warm | neutral | cool   (each with a light + dark variant)
- *   data-font     editorial | clean | literary | mono
- *   data-density  spaced | compact
- * plus the .dark class for light/dark mode. The shadcn token set aliases the
- * role variables, so ui/ and ai-elements/ components arrive in-theme for every
- * combination. Defaults below = warm · editorial · spaced.
+ * Stock shadcn/ui (neutral) theme. The only personalization is the color
+ * scheme — `normal` (canonical shadcn greyscale) or `warm` (the same scale
+ * shifted to warm tones) — set via data-scheme on <html>, with .dark for
+ * light/dark mode. Everything else is default shadcn: default font stack,
+ * default radii, no decorative texture, no entrance animation.
+ *
+ * The views also use a small set of role aliases (--ink, --paper, --faded …)
+ * that map directly onto the shadcn tokens, so legacy class names render as
+ * plain shadcn without per-element rewrites.
  */
-:root {
-  /* structural */
+
+:root,
+[data-scheme="normal"] {
   --radius: 0.625rem;
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --card-foreground: var(--paper);
-  --popover: var(--desk);
-  --popover-foreground: var(--paper);
-  --primary: var(--lamp);
-  --primary-foreground: var(--ink);
-  --secondary: var(--card);
-  --secondary-foreground: var(--paper);
-  --muted: var(--card);
-  --muted-foreground: var(--faded);
-  --accent: var(--line);
-  --accent-foreground: var(--paper);
-  --destructive: var(--ember);
-  --destructive-foreground: var(--ink);
-  --border: var(--line);
-  --input: var(--line);
-  --ring: var(--lamp-dim);
 
-  /* typography preset (editorial default) */
-  --font-display: "Newsreader Variable", Georgia, serif;
-  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
-  --font-mono-set: "IBM Plex Mono", monospace;
-
-  /* density preset (spaced default) */
-  --app-font-size: 15px;
-  --prose-leading: 1.7;
-
-  /* palette (warm light default) */
-  --ink: #f6f2e9;
-  --desk: #efe9db;
-  --card: #e8e1cf;
-  --line: #d9d0bb;
-  --paper: #2c271f;
-  --faded: #6e6553;
-  --dim: #9c9279;
-  --lamp: #9a6a16;
-  --lamp-dim: #c0a05c;
-  --ember: #b1472f;
-  --moss: #57763e;
-  --grain-opacity: 0.05;
-}
-
-/* ── palettes ─────────────────────────────────────────────── */
-/* warm — paper & candlelight (the original "two studies" identity) */
-[data-palette="warm"] {
-  --ink: #f6f2e9;
-  --desk: #efe9db;
-  --card: #e8e1cf;
-  --line: #d9d0bb;
-  --paper: #2c271f;
-  --faded: #6e6553;
-  --dim: #9c9279;
-  --lamp: #9a6a16;
-  --lamp-dim: #c0a05c;
-  --ember: #b1472f;
-  --moss: #57763e;
-  --grain-opacity: 0.05;
-}
-.dark,
-.dark[data-palette="warm"] {
-  --ink: #131210;
-  --desk: #1a1816;
-  --card: #201d1a;
-  --line: #2c2823;
-  --paper: #e8e2d3;
-  --faded: #8f8779;
-  --dim: #5f594e;
-  --lamp: #d4a24e;
-  --lamp-dim: #8a6c38;
-  --ember: #c25e4c;
-  --moss: #7a9461;
-  --grain-opacity: 0.04;
-}
-
-/* neutral — white & graphite (Notion-like, crisp) */
-[data-palette="neutral"] {
-  --ink: #ffffff;
-  --desk: #f7f7f5;
-  --card: #efeeec;
-  --line: #e4e3e0;
-  --paper: #1c1c1a;
-  --faded: #6b6a66;
-  --dim: #a0a09a;
-  --lamp: #2f80c2;
-  --lamp-dim: #a9cbe8;
-  --ember: #c0392b;
-  --moss: #3f8f5f;
-  --grain-opacity: 0;
-}
-.dark[data-palette="neutral"] {
-  --ink: #191919;
-  --desk: #1f1f1f;
-  --card: #262626;
-  --line: #313131;
-  --paper: #ededed;
-  --faded: #9a9a9a;
-  --dim: #6a6a6a;
-  --lamp: #4a9eea;
-  --lamp-dim: #2c5f8a;
-  --ember: #d4574a;
-  --moss: #5fa873;
-  --grain-opacity: 0;
-}
-
-/* cool — slate & blue (calm, software-like) */
-[data-palette="cool"] {
-  --ink: #f7f8fa;
-  --desk: #eef1f5;
-  --card: #e5eaf1;
-  --line: #d8dde5;
-  --paper: #1e2227;
-  --faded: #5b6470;
-  --dim: #939caa;
-  --lamp: #3a6ea5;
-  --lamp-dim: #9db6d2;
-  --ember: #b8493a;
-  --moss: #4d8a6a;
-  --grain-opacity: 0.025;
-}
-.dark[data-palette="cool"] {
-  --ink: #14171a;
-  --desk: #191d22;
-  --card: #1f242b;
-  --line: #2a3038;
-  --paper: #e4e8ee;
-  --faded: #8b95a3;
-  --dim: #5a6470;
-  --lamp: #6ba3d6;
-  --lamp-dim: #3d5f80;
-  --ember: #cc6354;
-  --moss: #6fa888;
-  --grain-opacity: 0.025;
-}
-
-/* shadcn — the stock shadcn/ui "neutral" theme, verbatim (no personalization).
-   Role variables are mapped onto shadcn's canonical greyscale so both ui/
-   components and the role-based views render as plain shadcn. */
-[data-palette="shadcn"] {
-  --ink: oklch(1 0 0);
-  --desk: oklch(1 0 0);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
   --card: oklch(0.97 0 0);
-  --line: oklch(0.922 0 0);
-  --paper: oklch(0.145 0 0);
-  --faded: oklch(0.556 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+
   --dim: oklch(0.708 0 0);
-  --lamp: oklch(0.205 0 0);
-  --lamp-dim: oklch(0.708 0 0);
-  --ember: oklch(0.577 0.245 27.325);
   --moss: oklch(0.627 0.194 149.214);
-  --grain-opacity: 0;
 }
-.dark[data-palette="shadcn"] {
-  --ink: oklch(0.145 0 0);
-  --desk: oklch(0.205 0 0);
+
+.dark,
+.dark[data-scheme="normal"] {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
-  --line: oklch(0.269 0 0);
-  --paper: oklch(0.985 0 0);
-  --faded: oklch(0.708 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+
   --dim: oklch(0.556 0 0);
-  --lamp: oklch(0.922 0 0);
-  --lamp-dim: oklch(0.556 0 0);
-  --ember: oklch(0.704 0.191 22.216);
   --moss: oklch(0.696 0.17 162.48);
-  --grain-opacity: 0;
 }
 
-/* ── typography presets ───────────────────────────────────── */
-[data-font="clean"] {
-  --font-display: "IBM Plex Sans Variable", system-ui, sans-serif;
-  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
-}
-[data-font="literary"] {
-  --font-display: "Newsreader Variable", Georgia, serif;
-  --font-body: "Newsreader Variable", Georgia, serif;
-}
-[data-font="mono"] {
-  --font-display: "IBM Plex Mono", monospace;
-  --font-body: "IBM Plex Sans Variable", system-ui, sans-serif;
+/* warm — the same neutral scale, nudged toward paper/candlelight tones */
+[data-scheme="warm"] {
+  --background: oklch(0.992 0.006 83);
+  --foreground: oklch(0.185 0.012 75);
+  --card: oklch(0.96 0.011 83);
+  --card-foreground: oklch(0.185 0.012 75);
+  --popover: oklch(0.992 0.006 83);
+  --popover-foreground: oklch(0.185 0.012 75);
+  --primary: oklch(0.245 0.016 70);
+  --primary-foreground: oklch(0.98 0.008 83);
+  --secondary: oklch(0.96 0.011 83);
+  --secondary-foreground: oklch(0.245 0.016 70);
+  --muted: oklch(0.96 0.011 83);
+  --muted-foreground: oklch(0.52 0.016 70);
+  --accent: oklch(0.95 0.015 83);
+  --accent-foreground: oklch(0.245 0.016 70);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.905 0.013 83);
+  --input: oklch(0.905 0.013 83);
+  --ring: oklch(0.705 0.012 75);
+
+  --dim: oklch(0.705 0.012 75);
+  --moss: oklch(0.6 0.12 130);
 }
 
-/* shadcn locks to the stock Tailwind/shadcn font stack regardless of the
-   typeface picker — selector is more specific than [data-font] so it wins. */
-:root[data-palette="shadcn"] {
-  --font-display:
-    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
-    "Noto Color Emoji";
-  --font-body:
-    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
-    "Noto Color Emoji";
-  --font-mono-set:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+.dark[data-scheme="warm"] {
+  --background: oklch(0.165 0.008 70);
+  --foreground: oklch(0.965 0.008 83);
+  --card: oklch(0.215 0.01 70);
+  --card-foreground: oklch(0.965 0.008 83);
+  --popover: oklch(0.215 0.01 70);
+  --popover-foreground: oklch(0.965 0.008 83);
+  --primary: oklch(0.92 0.012 83);
+  --primary-foreground: oklch(0.215 0.01 70);
+  --secondary: oklch(0.275 0.012 70);
+  --secondary-foreground: oklch(0.965 0.008 83);
+  --muted: oklch(0.275 0.012 70);
+  --muted-foreground: oklch(0.715 0.012 80);
+  --accent: oklch(0.275 0.012 70);
+  --accent-foreground: oklch(0.965 0.008 83);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.565 0.012 75);
+
+  --dim: oklch(0.565 0.012 75);
+  --moss: oklch(0.7 0.13 135);
 }
 
-/* ── density presets ──────────────────────────────────────── */
-[data-density="compact"] {
-  --app-font-size: 13.5px;
-  --prose-leading: 1.5;
-}
-
-/* ── reading width ────────────────────────────────────────────
-   Every page shell reads its content column from --page-max, so a
-   single switch widens the whole app coherently. */
+/* The single readable content column every page shell sits in. */
 :root {
   --page-max: 56rem;
 }
-[data-width="full"] {
-  --page-max: 100%;
-}
 
 @theme inline {
-  --font-serif: var(--font-display);
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-mono-set);
+  /* default shadcn / Tailwind font stacks — no custom typefaces */
+  --font-sans:
+    ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Noto Color Emoji";
+  --font-serif: var(--font-sans);
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -264,16 +164,16 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
-  /* role names used throughout the views */
-  --color-ink: var(--ink);
-  --color-desk: var(--desk);
-  --color-line: var(--line);
-  --color-paper: var(--paper);
-  --color-faded: var(--faded);
+  /* role aliases mapped onto the shadcn token scale (legacy class names) */
+  --color-ink: var(--background);
+  --color-desk: var(--muted);
+  --color-line: var(--border);
+  --color-paper: var(--foreground);
+  --color-faded: var(--muted-foreground);
   --color-dim: var(--dim);
-  --color-lamp: var(--lamp);
-  --color-lamp-dim: var(--lamp-dim);
-  --color-ember: var(--ember);
+  --color-lamp: var(--primary);
+  --color-lamp-dim: var(--ring);
+  --color-ember: var(--destructive);
   --color-moss: var(--moss);
 }
 
@@ -290,27 +190,11 @@
   }
 
   body {
-    background: var(--color-ink);
-    color: var(--color-paper);
+    background: var(--color-background);
+    color: var(--color-foreground);
     font-family: var(--font-sans);
-    font-size: var(--app-font-size);
     -webkit-font-smoothing: antialiased;
   }
-}
-
-/* faint paper grain so surfaces aren't dead-flat */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  pointer-events: none;
-  opacity: var(--grain-opacity);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-::selection {
-  background: color-mix(in srgb, var(--lamp) 30%, transparent);
 }
 
 *::-webkit-scrollbar {
@@ -318,80 +202,30 @@ body::after {
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--line);
+  background: var(--border);
   border-radius: 5px;
-  border: 2px solid var(--ink);
+  border: 2px solid var(--background);
 }
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
-@keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-.rise {
-  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
-}
-.rise-1 {
-  animation-delay: 0.05s;
-}
-.rise-2 {
-  animation-delay: 0.12s;
-}
-.rise-3 {
-  animation-delay: 0.19s;
-}
-
-/* ── reduced motion ───────────────────────────────────────────
-   When the user turns animation off, collapse entrance animations,
-   the pulsing queue dot, and transitions to effectively instant. */
-[data-motion="reduced"] *,
-[data-motion="reduced"] *::before,
-[data-motion="reduced"] *::after {
-  animation-duration: 0.001ms !important;
-  animation-delay: 0s !important;
-  animation-iteration-count: 1 !important;
-  transition-duration: 0.001ms !important;
-  scroll-behavior: auto !important;
-}
-
-@keyframes pulse-dot {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
-}
-.working-dot {
-  animation: pulse-dot 1.2s ease-in-out infinite;
-}
-
 /* rendered markdown (wiki pages, chat replies, digest) */
 .prose-meos {
-  line-height: var(--prose-leading);
-  color: var(--paper);
+  line-height: 1.7;
+  color: var(--foreground);
 }
 .prose-meos h1,
 .prose-meos h2,
 .prose-meos h3 {
-  font-family: var(--font-serif);
-  font-weight: 500;
-  color: var(--paper);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--foreground);
   margin: 1.4em 0 0.5em;
   line-height: 1.25;
 }
 .prose-meos h1 {
-  font-size: 1.7rem;
+  font-size: 1.5rem;
 }
 .prose-meos h2 {
   font-size: 1.25rem;
@@ -417,24 +251,20 @@ body::after {
   margin: 0.25em 0;
 }
 .prose-meos a {
-  color: var(--lamp);
-  text-decoration: none;
-  border-bottom: 1px solid var(--lamp-dim);
-  transition: border-color 0.15s;
-}
-.prose-meos a:hover {
-  border-color: var(--lamp);
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 .prose-meos code {
   font-family: var(--font-mono);
   font-size: 0.85em;
-  background: var(--card);
+  background: var(--muted);
   padding: 0.1em 0.35em;
   border-radius: 4px;
 }
 .prose-meos pre {
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--muted);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.9em 1.1em;
   overflow-x: auto;
@@ -445,19 +275,18 @@ body::after {
   padding: 0;
 }
 .prose-meos blockquote {
-  border-left: 2px solid var(--lamp-dim);
+  border-left: 2px solid var(--border);
   padding-left: 1em;
-  color: var(--faded);
-  font-style: italic;
+  color: var(--muted-foreground);
   margin: 0.9em 0;
 }
 .prose-meos strong {
-  color: var(--paper);
+  color: var(--foreground);
   font-weight: 600;
 }
 .prose-meos hr {
   border: none;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   margin: 1.5em 0;
 }
 
@@ -476,18 +305,17 @@ body::after {
   padding: 0.05em 0.4em;
   margin: 0 0.05em;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--lamp) 16%, transparent);
-  color: var(--lamp);
+  background: var(--accent);
+  color: var(--accent-foreground);
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 0.15s;
 }
 .tiptap.ProseMirror .mention-chip:hover {
-  background: color-mix(in srgb, var(--lamp) 28%, transparent);
+  background: var(--secondary);
 }
 .tiptap.ProseMirror .mention-chip.ProseMirror-selectednode {
-  outline: 2px solid var(--lamp-dim);
+  outline: 2px solid var(--ring);
 }
 
 /* The @ autocomplete popup. */
@@ -497,10 +325,10 @@ body::after {
   min-width: 12rem;
   max-width: 18rem;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--card);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  background: var(--popover);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
   padding: 0.25rem;
 }
 .mention-menu-item {
@@ -511,13 +339,13 @@ body::after {
   padding: 0.35rem 0.5rem;
   border-radius: 6px;
   font-size: 0.85rem;
-  color: var(--faded);
+  color: var(--muted-foreground);
   text-align: left;
 }
 .mention-menu-item:hover,
 .mention-menu-item.is-active {
-  background: var(--desk);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 .mention-menu-kind {
   flex-shrink: 0;
@@ -545,9 +373,9 @@ body::after {
   min-width: 15rem;
   max-height: 20rem;
   overflow-y: auto;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 10px;
-  background: var(--card);
+  background: var(--popover);
   box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
   padding: 0.3rem;
 }
@@ -559,12 +387,12 @@ body::after {
   padding: 0.4rem 0.5rem;
   border-radius: 7px;
   font-size: 0.9rem;
-  color: var(--faded);
+  color: var(--muted-foreground);
   text-align: left;
 }
 .slash-menu-item.is-active {
-  background: var(--desk);
-  color: var(--paper);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 .slash-menu-icon {
   display: flex;
@@ -577,7 +405,7 @@ body::after {
   color: var(--dim);
 }
 .slash-menu-item.is-active .slash-menu-icon {
-  color: var(--lamp);
+  color: var(--primary);
 }
 .slash-menu-label {
   overflow: hidden;
@@ -595,10 +423,10 @@ body::after {
   z-index: 60;
 }
 .bubble-menu .tiptap-toolbar {
-  --tt-toolbar-bg-color: var(--card);
-  --tt-toolbar-border-color: var(--line);
-  background-color: var(--card);
-  border-color: var(--line);
+  --tt-toolbar-bg-color: var(--popover);
+  --tt-toolbar-border-color: var(--border);
+  background-color: var(--popover);
+  border-color: var(--border);
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
 }
 
@@ -614,12 +442,12 @@ body::after {
 .tiptap.ProseMirror table th {
   position: relative;
   min-width: 4rem;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   padding: 0.35rem 0.55rem;
   vertical-align: top;
 }
 .tiptap.ProseMirror table th {
-  background: var(--card);
+  background: var(--muted);
   font-weight: 600;
   text-align: left;
 }
@@ -627,7 +455,8 @@ body::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--lamp) 12%, transparent);
+  background: var(--accent);
+  opacity: 0.5;
   pointer-events: none;
 }
 .tiptap.ProseMirror table .column-resize-handle {
@@ -636,6 +465,27 @@ body::after {
   top: 0;
   bottom: 0;
   width: 4px;
-  background: var(--lamp-dim);
+  background: var(--ring);
   cursor: col-resize;
+}
+
+/*
+ * Honor the OS "reduce motion" setting: collapse every transition/animation
+ * (dialog zoom-and-slide, spinners, hover transitions) to near-instant. Spinners
+ * keep one slow rotation so "working…" affordances still read as active.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
 }

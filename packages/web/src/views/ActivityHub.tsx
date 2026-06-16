@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Page, PageHeader } from "@/components/Page";
-import { HubTab, HubTabs } from "@/components/HubTabs";
+import { Page, PageBody, PageHeader } from "@/components/Page";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "../api.js";
 import { ActivityView } from "./ActivityView.js";
 import { ContradictionsView } from "./ContradictionsView.js";
@@ -19,9 +19,9 @@ const TAB_ALIASES: Record<string, HubTabId> = {
 };
 
 /**
- * The agent-oversight hub, in three slots: a live Feed of documents landing and
+ * The agent-oversight hub, in four slots: a live Feed of documents landing and
  * the pages the maintainer rewrites in response, a Review queue of duplicates
- * and conflicting claims for you to decide, and the daily Digest.
+ * and conflicting claims, the daily Digest, and ingest Health.
  */
 export function ActivityHub() {
   const [params, setParams] = useSearchParams();
@@ -47,38 +47,41 @@ export function ActivityHub() {
     ]).then(([c, d]) => setReviewCount(c + d));
   }, []);
 
-  const setTab = (next: HubTabId) => {
+  const setTab = (next: string) => {
     const params2 = new URLSearchParams(params);
     params2.set("tab", next);
     setParams(params2, { replace: true });
   };
+
+  const tabs = (
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList>
+        <TabsTrigger value="feed">Feed</TabsTrigger>
+        <TabsTrigger value="review">
+          Review
+          {reviewCount > 0 && (
+            <span className="tabular-nums text-muted-foreground">{reviewCount}</span>
+          )}
+        </TabsTrigger>
+        <TabsTrigger value="digest">Digest</TabsTrigger>
+        <TabsTrigger value="health">Health</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
 
   return (
     <Page>
       <PageHeader
         title="Activity"
         description="What's coming in, what the maintainer is doing, and what needs your call."
+        actions={tabs}
       />
-
-      <HubTabs className="rise mt-8">
-        <HubTab active={tab === "feed"} onClick={() => setTab("feed")}>
-          Feed
-        </HubTab>
-        <HubTab active={tab === "review"} count={reviewCount} onClick={() => setTab("review")}>
-          Review
-        </HubTab>
-        <HubTab active={tab === "digest"} onClick={() => setTab("digest")}>
-          Digest
-        </HubTab>
-        <HubTab active={tab === "health"} onClick={() => setTab("health")}>
-          Health
-        </HubTab>
-      </HubTabs>
-
-      {tab === "feed" && <ActivityView embedded />}
-      {tab === "review" && <ContradictionsView embedded />}
-      {tab === "digest" && <DigestView embedded />}
-      {tab === "health" && <IngestMetricsView />}
+      <PageBody>
+        {tab === "feed" && <ActivityView embedded />}
+        {tab === "review" && <ContradictionsView embedded />}
+        {tab === "digest" && <DigestView embedded />}
+        {tab === "health" && <IngestMetricsView />}
+      </PageBody>
     </Page>
   );
 }

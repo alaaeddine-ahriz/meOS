@@ -206,12 +206,16 @@ export function ForceGraph({
     // Theme tokens are constant between theme switches; reading them via
     // getComputedStyle forces a style recalc, so cache them and refresh only when
     // the <html> mode/palette actually changes rather than five reads per frame.
+    // Read the shadcn base tokens directly. The role aliases (--line, --lamp …)
+    // only exist as Tailwind utilities (--color-*), not as queryable custom
+    // properties, so getComputedStyle returns "" for them — which the canvas
+    // silently ignores, leaving edges black and labels tinted by the last node.
     const readTheme = () => ({
-      line: cssVar("--line"),
-      lamp: cssVar("--lamp"),
-      faded: cssVar("--faded"),
-      paper: cssVar("--paper"),
-      ink: cssVar("--ink"),
+      line: cssVar("--dim"), // edge stroke: an opaque neutral that stays light on dark
+      lamp: cssVar("--primary"), // hover highlight + active edge
+      faded: cssVar("--muted-foreground"), // node labels
+      paper: cssVar("--foreground"), // hovered label
+      ink: cssVar("--background"), // node ring
     });
     let theme = readTheme();
     const themeObserver = new MutationObserver(() => {

@@ -4,11 +4,16 @@ import { Link } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 /**
- * The single page shell every view sits in, so width, padding and rhythm stay
- * identical across the app. The content column width comes from --page-max
- * (set by the reading-width preference), so one switch widens every page at
- * once. `bleed` opts out of the centred column for full-bleed surfaces (e.g.
- * the graph canvas).
+ * The shared page chrome. Every full-screen view is composed the same way:
+ *
+ *   <Page>
+ *     <PageHeader title=… description=… actions=… />
+ *     <PageBody>…</PageBody>
+ *   </Page>
+ *
+ * so the title always sits at the same top/left inset, headers read identically,
+ * and there is no divider between the header and the content. `bleed` opts a body
+ * out of the scroll + padding for full-bleed surfaces (e.g. the graph canvas).
  */
 export function Page({
   children,
@@ -21,16 +26,11 @@ export function Page({
 }) {
   if (bleed)
     return <div className={cn("relative h-full overflow-hidden", className)}>{children}</div>;
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className={cn("mx-auto w-full max-w-[var(--page-max)] px-10 py-10", className)}>
-        {children}
-      </div>
-    </div>
-  );
+  return <div className={cn("flex h-full flex-col", className)}>{children}</div>;
 }
 
-/** A consistent page header: optional breadcrumb, a title, supporting line and actions. */
+/** The one header style used across the app: title, optional supporting line and
+ * right-aligned actions, at a consistent top/left inset, with no bottom border. */
 export function PageHeader({
   title,
   description,
@@ -45,16 +45,23 @@ export function PageHeader({
   className?: string;
 }) {
   return (
-    <header className={cn("rise", className)}>
+    <header className={cn("shrink-0 px-10 pb-6 pt-10", className)}>
       {breadcrumb}
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="font-serif text-2xl text-paper">{title}</h1>
-          {description && <p className="mt-1 text-sm text-dim">{description}</p>}
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
         </div>
         {actions && <div className="shrink-0">{actions}</div>}
       </div>
     </header>
+  );
+}
+
+/** The scrollable body beneath a PageHeader, with the matching left/right inset. */
+export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <div className={cn("min-h-0 flex-1 overflow-y-auto px-10 pb-10", className)}>{children}</div>
   );
 }
 
@@ -67,21 +74,23 @@ export interface Crumb {
 /** A breadcrumb trail. The last crumb reads as the current location. */
 export function Breadcrumbs({ items, className }: { items: Crumb[]; className?: string }) {
   return (
-    <nav className={cn("mb-3 flex items-center gap-1.5 text-[13px] text-faded", className)}>
+    <nav
+      className={cn("mb-3 flex items-center gap-1.5 text-[13px] text-muted-foreground", className)}
+    >
       {items.map((crumb, index) => {
         const last = index === items.length - 1;
         const Icon = crumb.icon;
         const inner = (
-          <span className={cn("flex items-center gap-1.5", last && "text-paper")}>
+          <span className={cn("flex items-center gap-1.5", last && "text-foreground")}>
             {Icon && <Icon className="size-3.5 shrink-0 opacity-70" />}
             <span className="truncate">{crumb.label}</span>
           </span>
         );
         return (
           <span key={index} className="flex min-w-0 items-center gap-1.5">
-            {index > 0 && <ChevronRight className="size-3.5 shrink-0 text-dim" />}
+            {index > 0 && <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />}
             {crumb.to && !last ? (
-              <Link to={crumb.to} className="truncate transition-colors hover:text-paper">
+              <Link to={crumb.to} className="truncate transition-colors hover:text-foreground">
                 {inner}
               </Link>
             ) : (

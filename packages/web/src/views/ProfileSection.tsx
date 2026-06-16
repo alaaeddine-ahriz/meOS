@@ -144,7 +144,7 @@ export function ProfileSection() {
 
   if (!data) {
     return (
-      <section className="rise">
+      <section>
         {error ? (
           <p className="text-sm text-ember">⚠ {error}</p>
         ) : (
@@ -155,7 +155,7 @@ export function ProfileSection() {
   }
 
   return (
-    <section className="rise flex flex-col gap-6">
+    <section className="flex flex-col gap-6">
       <p className="text-sm text-faded">
         Your profile is the <span className="text-paper">lens</span> MeOS reads through — guiding
         extraction, the wiki, chat, and digests so they centre on your world. Private to this

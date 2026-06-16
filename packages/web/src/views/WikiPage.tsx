@@ -91,8 +91,16 @@ export function WikiPageView({
         Back to the wiki.
       </Link>
     );
-    const message = <p className="text-sm text-faded">That page doesn't exist. {back}</p>;
-    return embedded ? <div className="p-4">{message}</div> : <Page>{message}</Page>;
+    const message = (
+      <p className="text-sm text-muted-foreground">That page doesn't exist. {back}</p>
+    );
+    return embedded ? (
+      <div className="p-4">{message}</div>
+    ) : (
+      <Page>
+        <div className="px-10 pt-10">{message}</div>
+      </Page>
+    );
   }
   if (!page) {
     // Keep the panel framed (with its close button) while the page loads.
@@ -127,10 +135,10 @@ export function WikiPageView({
   // The reading body — shared by the full page and the side panel.
   const body = (
     <>
-      {!embedded && <Breadcrumbs items={crumbs} className="rise" />}
+      {!embedded && <Breadcrumbs items={crumbs} />}
 
-      <header className={cn(!embedded && "rise rise-1")}>
-        {!embedded && <h2 className="font-serif text-3xl text-paper">{page.entity.name}</h2>}
+      <header>
+        {!embedded && <h2 className="text-2xl font-semibold tracking-tight">{page.entity.name}</h2>}
         {page.entity.summary && (
           <p className={cn("italic text-faded", embedded ? "text-sm" : "mt-2 text-[15px]")}>
             {stripWikiMarkup(page.entity.summary)}
@@ -144,7 +152,7 @@ export function WikiPageView({
         <ServiceChips sources={page.sources} />
       </header>
 
-      <article className={cn(embedded ? "mt-5" : "rise rise-2 mt-8")}>
+      <article className={cn(embedded ? "mt-5" : "mt-8")}>
         {page.markdown ? (
           <Markdown
             text={pageBody(page.markdown)}
@@ -161,7 +169,7 @@ export function WikiPageView({
       </article>
 
       {page.relationships.length > 0 && (
-        <section className={cn(embedded ? "mt-8" : "rise rise-3 mt-10")}>
+        <section className={cn(embedded ? "mt-8" : "mt-10")}>
           <Separator className="bg-line" />
           <div className="mt-6 flex items-center justify-between gap-4">
             <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
@@ -212,7 +220,7 @@ export function WikiPageView({
       )}
 
       {page.sources.length > 0 && (
-        <section className={cn(embedded ? "mt-8" : "rise rise-3 mt-10")}>
+        <section className={cn(embedded ? "mt-8" : "mt-10")}>
           <Separator className="bg-line" />
           <div className="mt-6">
             <SourceList sources={page.sources} defaultOpen />
@@ -282,7 +290,12 @@ export function WikiPageView({
     </>
   );
 
-  if (!embedded) return <Page>{body}</Page>;
+  if (!embedded)
+    return (
+      <Page>
+        <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 pt-10">{body}</div>
+      </Page>
+    );
 
   // Side-panel chrome: a sticky header with the entity name, a link out to the
   // full page, and a close button; the reading body scrolls beneath it.

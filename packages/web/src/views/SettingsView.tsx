@@ -40,24 +40,12 @@ import { isTauri, openExternal } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
 import {
-  type Density,
-  type FontPreset,
-  type Motion,
-  type Palette,
-  setDensity,
-  setFont,
-  setMotion,
-  setPalette,
+  type Scheme,
+  setScheme,
   setTheme,
-  setWidth,
-  storedDensity,
-  storedFont,
-  storedMotion,
-  storedPalette,
+  storedScheme,
   storedTheme,
-  storedWidth,
   type ThemePreference,
-  type Width,
 } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
@@ -77,33 +65,9 @@ const THEMES: Array<{ value: ThemePreference; label: string; icon: LucideIcon }>
   { value: "system", label: "System", icon: Laptop },
 ];
 
-const PALETTES: Array<{ value: Palette; label: string }> = [
+const SCHEMES: Array<{ value: Scheme; label: string }> = [
+  { value: "normal", label: "Normal" },
   { value: "warm", label: "Warm" },
-  { value: "neutral", label: "Neutral" },
-  { value: "cool", label: "Cool" },
-  { value: "shadcn", label: "shadcn" },
-];
-
-const FONTS: Array<{ value: FontPreset; label: string }> = [
-  { value: "editorial", label: "Editorial" },
-  { value: "clean", label: "Clean" },
-  { value: "literary", label: "Literary" },
-  { value: "mono", label: "Mono" },
-];
-
-const DENSITIES: Array<{ value: Density; label: string }> = [
-  { value: "spaced", label: "Spaced" },
-  { value: "compact", label: "Compact" },
-];
-
-const WIDTHS: Array<{ value: Width; label: string }> = [
-  { value: "readable", label: "Readable" },
-  { value: "full", label: "Full width" },
-];
-
-const MOTIONS: Array<{ value: Motion; label: string }> = [
-  { value: "full", label: "On" },
-  { value: "reduced", label: "Off" },
 ];
 
 /** One selectable Settings section. */
@@ -142,7 +106,7 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         id: "appearance",
         label: "Appearance",
         icon: PaletteIcon,
-        blurb: "Mode, palette, typeface, width and motion.",
+        blurb: "Light or dark mode, and the color scheme.",
       },
       {
         id: "intelligence",
@@ -262,9 +226,11 @@ export function SettingsView() {
         <div className="relative px-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
           <Input
+            type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search settings"
+            aria-label="Search settings"
             className={cn(inputClass, "h-9 rounded-lg bg-card/50 pl-9 font-sans text-sm")}
           />
         </div>
@@ -301,11 +267,11 @@ export function SettingsView() {
         </nav>
       </aside>
 
-      <div className="h-full flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl px-10 py-10">
-          <header className="rise">
-            <h1 className="font-serif text-2xl text-paper">{active.label}</h1>
-            <p className="mt-1 text-sm text-dim">{active.blurb}</p>
+      <div className="h-full flex-1 overflow-y-auto px-10 pb-10 pt-10">
+        <div className="w-full max-w-2xl">
+          <header>
+            <h1 className="text-2xl font-semibold tracking-tight">{active.label}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{active.blurb}</p>
           </header>
 
           <div className="mt-8">
@@ -325,45 +291,21 @@ export function SettingsView() {
 
 function AppearanceSection() {
   const [theme, setThemeState] = useState<ThemePreference>(storedTheme());
-  const [palette, setPaletteState] = useState<Palette>(storedPalette());
-  const [font, setFontState] = useState<FontPreset>(storedFont());
-  const [density, setDensityState] = useState<Density>(storedDensity());
-  const [width, setWidthState] = useState<Width>(storedWidth());
-  const [motion, setMotionState] = useState<Motion>(storedMotion());
+  const [scheme, setSchemeState] = useState<Scheme>(storedScheme());
 
   const chooseTheme = (preference: ThemePreference) => {
     setTheme(preference);
     setThemeState(preference);
   };
-  const choosePalette = (next: Palette) => {
-    setPalette(next);
-    setPaletteState(next);
-  };
-  const chooseFont = (next: FontPreset) => {
-    setFont(next);
-    setFontState(next);
-  };
-  const chooseDensity = (next: Density) => {
-    setDensity(next);
-    setDensityState(next);
-  };
-  const chooseWidth = (next: Width) => {
-    setWidth(next);
-    setWidthState(next);
-  };
-  const chooseMotion = (next: Motion) => {
-    setMotion(next);
-    setMotionState(next);
+  const chooseScheme = (next: Scheme) => {
+    setScheme(next);
+    setSchemeState(next);
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <Segmented label="Mode" value={theme} options={THEMES} onChange={chooseTheme} />
-      <Segmented label="Palette" value={palette} options={PALETTES} onChange={choosePalette} />
-      <Segmented label="Typeface" value={font} options={FONTS} onChange={chooseFont} />
-      <Segmented label="Density" value={density} options={DENSITIES} onChange={chooseDensity} />
-      <Segmented label="Width" value={width} options={WIDTHS} onChange={chooseWidth} />
-      <Segmented label="Animation" value={motion} options={MOTIONS} onChange={chooseMotion} />
+      <Segmented label="Color scheme" value={scheme} options={SCHEMES} onChange={chooseScheme} />
     </section>
   );
 }
@@ -532,7 +474,7 @@ function IntelligenceSection() {
     model && !cloudModels.includes(model) ? [model, ...cloudModels] : cloudModels;
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         The model that reads your documents, maintains the wiki, and answers your questions. API
         keys stay on this machine.
@@ -603,6 +545,7 @@ function IntelligenceSection() {
                     value={baseUrl}
                     onChange={(event) => setBaseUrl(event.target.value)}
                     placeholder="http://localhost:1234/v1"
+                    aria-label="Local server base URL"
                     className={inputClass}
                   />
                   <Button
@@ -633,6 +576,7 @@ function IntelligenceSection() {
                     value={model}
                     onChange={(event) => setModel(event.target.value)}
                     placeholder="model identifier (e.g. qwen2.5-7b-instruct)"
+                    aria-label="Model identifier"
                     className={inputClass}
                   />
                 )}
@@ -655,6 +599,7 @@ function IntelligenceSection() {
                 placeholder={
                   keySaved ? "API key saved — paste to replace" : KEY_PLACEHOLDERS[provider]
                 }
+                aria-label="API key"
                 autoComplete="off"
                 className={inputClass}
               />
@@ -690,7 +635,11 @@ function IntelligenceSection() {
           </div>
         </>
       )}
-      {llmError && <p className="text-sm text-ember">⚠ {llmError}</p>}
+      {llmError && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {llmError}
+        </p>
+      )}
     </section>
   );
 }
@@ -767,7 +716,11 @@ function MaintainerPicker({
           <Check className="size-3.5" /> Maintainer model saved.
         </span>
       )}
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -817,7 +770,7 @@ function FoldersSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-5">
+    <section className="flex flex-col gap-5">
       <PanelIntro>
         Everything readable in these folders is absorbed automatically — new files and edits alike.
         Your files are never moved or modified.
@@ -865,6 +818,7 @@ function FoldersSection() {
                 if (event.key === "Enter") void add(manualPath);
               }}
               placeholder="/Users/you/Documents/notes"
+              aria-label="Folder path to watch"
               className={inputClass}
             />
             <Button
@@ -878,7 +832,11 @@ function FoldersSection() {
           </>
         )}
       </div>
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
       <p className="font-mono text-[11px] text-dim">
         reads .md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp — everything else is left
         alone
@@ -987,7 +945,7 @@ function ConnectorsSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-5">
+    <section className="flex flex-col gap-5">
       <PanelIntro>
         Connect a Google account to turn the people you know into entities — enriched with their
         contact details, the events you shared, and who you email. Contact details and email
@@ -1024,6 +982,8 @@ function ConnectorsSection() {
           placeholder={
             google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
           }
+          aria-label="Google OAuth client ID"
+          autoComplete="off"
           className={inputClass}
         />
         <div className="flex items-center gap-3">
@@ -1036,6 +996,8 @@ function ConnectorsSection() {
                 ? "•••• client secret saved — paste to replace"
                 : "Client secret"
             }
+            aria-label="Google OAuth client secret"
+            autoComplete="off"
             className={inputClass}
           />
           <Button
@@ -1146,7 +1108,11 @@ function ConnectorsSection() {
         </ul>
       </div>
 
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
 
       <Dialog open={showHelp} onOpenChange={setShowHelp}>
         <DialogContent className="max-w-lg">
@@ -1234,7 +1200,7 @@ function GitSyncSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         Version your wiki and digests as a Git repository — a portable, human-readable backup you
         can push to GitHub. The database itself stays local; only the markdown is synced.
@@ -1277,6 +1243,7 @@ function GitSyncSection() {
               value={remote}
               onChange={(event) => setRemote(event.target.value)}
               placeholder="git@github.com:you/second-brain.git"
+              aria-label="Git remote URL"
               className={inputClass}
             />
             <Button
@@ -1323,7 +1290,11 @@ function GitSyncSection() {
         </div>
       )}
 
-      {error && <p className="text-sm text-ember">⚠ {error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
     </section>
   );
 }
@@ -1426,7 +1397,7 @@ function ResetSection() {
   };
 
   return (
-    <section className="rise flex flex-col gap-4">
+    <section className="flex flex-col gap-4">
       <PanelIntro>
         Start over. This erases everything MeOS has learned — entities, observations, conversations,
         digests, the generated wiki, and its entire Git history — and re-initializes the repository.
@@ -1474,11 +1445,16 @@ function ResetSection() {
               if (event.key === "Enter" && phrase.trim() === "reset" && !busy) void reset();
             }}
             placeholder="reset"
+            aria-label='Type "reset" to confirm'
             autoFocus
             autoComplete="off"
             className={inputClass}
           />
-          {error && <p className="text-sm text-ember">⚠ {error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-ember">
+              ⚠ {error}
+            </p>
+          )}
 
           <DialogFooter>
             <Button variant="outline" onClick={close} disabled={busy} className={actionButtonClass}>
