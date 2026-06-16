@@ -1,7 +1,19 @@
 const STEPS = [
-  { n: "01", title: "Feed it", body: "Send meOS anything — a note, a doc, a link, a half-formed idea." },
-  { n: "02", title: "It understands", body: "meOS reads it, updates your knowledge base, and rewrites the wiki." },
-  { n: "03", title: "You ask", body: "Chat with your second brain and get answers from your own context." },
+  {
+    n: "01",
+    title: "Feed it",
+    body: "Send meOS anything — a note, a doc, a link, a half-formed idea.",
+  },
+  {
+    n: "02",
+    title: "It understands",
+    body: "meOS reads it, updates your knowledge base, and rewrites the wiki.",
+  },
+  {
+    n: "03",
+    title: "You ask",
+    body: "Chat with your second brain and get answers from your own context.",
+  },
 ];
 
 export function Steps() {
