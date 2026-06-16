@@ -11,6 +11,7 @@ import { pushWikiTrail, readWikiTrail, type TrailEntry } from "@/lib/wiki-trail"
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { utcDate } from "../lib/datetime.js";
 import { Markdown } from "../components/Markdown.js";
+import { ServiceChips } from "../components/ServiceChips.js";
 import { SourceList } from "../components/SourceList.js";
 import { GraphView } from "./GraphView.js";
 
@@ -139,6 +140,8 @@ export function WikiPageView({
           updated {utcDate(page.entity.updatedAt).toLocaleString()}
           {page.entity.stale && " · refresh pending"}
         </p>
+        {/* Linked external services (Gmail/Calendar/Contacts) shown as reference chips. */}
+        <ServiceChips sources={page.sources} />
       </header>
 
       <article className={cn(embedded ? "mt-5" : "rise rise-2 mt-8")}>

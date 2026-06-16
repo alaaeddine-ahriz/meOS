@@ -314,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(27);
+    expect(migrations.length).toBe(28);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -389,7 +389,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(27);
+    expect(migrations.length).toBe(28);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -436,7 +436,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
 
 describe("migration 27 (repair inbox_items CHECK)", () => {
   it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
-    expect(migrations.length).toBe(27);
+    expect(migrations.length).toBe(28);
 
     const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
     try {

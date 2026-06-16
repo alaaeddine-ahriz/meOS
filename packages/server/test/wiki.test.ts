@@ -79,3 +79,37 @@ describe("POST /api/entities/merge", () => {
     expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);
   });
 });
+
+// Defined last: it seeds entities into the shared server, so it must run after the
+// "empty on a fresh DB" assertions above.
+describe("GET /api/wiki — connector references stay out of the index", () => {
+  it("lists entities with page-worthy backing but hides connector-only people", async () => {
+    const { store } = server.ctx;
+    // A person mentioned by a real document → warrants a page, must be listed.
+    const documented = store.createEntity({ type: "person", name: "Listed Person" });
+    const fileSrc = store.createSource({ type: "file", title: "Notes", content: "..." });
+    store.insertObservation({
+      entityId: documented.id,
+      text: "Listed Person leads the project.",
+      sourceId: fileSrc,
+    });
+    // A person known only from a contact → reference only, must be hidden.
+    const contactOnly = store.createEntity({ type: "person", name: "Contact Only Person" });
+    const contactSrc = store.createSource({
+      type: "google:contacts",
+      title: "Contact",
+      content: "...",
+    });
+    store.insertObservation({
+      entityId: contactOnly.id,
+      text: "Contact Only Person — email c@example.com.",
+      sourceId: contactSrc,
+    });
+
+    const res = await server.app.inject({ method: "GET", url: "/api/wiki" });
+    const parsed = wiki.ListEntitiesResponse.parse(res.json());
+    const names = parsed.entities.map((e) => e.name);
+    expect(names).toContain("Listed Person");
+    expect(names).not.toContain("Contact Only Person");
+  });
+});

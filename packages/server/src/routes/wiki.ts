@@ -33,39 +33,60 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     return reply.send({ dismissed: true });
   });
 
-  // Rebuild the compiled-prose retrieval index from pages on disk (no LLM).
+  // Rebuild the compiled-prose retrieval index from pages on disk (no LLM), and
+  // prune pages that no longer warrant one (connector-only / private-only people).
   app.post("/api/jobs/backfill-wiki", async (_request, reply) => {
     ctx.queue.push(async () => {
+      const pruned = ctx.wiki.pruneConnectorOnlyPages();
       const filled = await ctx.wiki.backfillPages();
-      app.log.info({ filled }, "wiki backfill finished");
+      app.log.info({ filled, pruned }, "wiki backfill finished");
     });
     return reply.code(202).send({ started: true });
   });
 
-  app.get("/api/wiki", async () => ({
-    entities: ctx.store.listEntities().map((entity) => ({
-      id: entity.id,
-      type: entity.type,
-      name: entity.name,
-      slug: entity.slug,
-      summary: entity.summary,
-      updatedAt: entity.updated_at,
-    })),
-  }));
+  // The wiki index/graph only lists entities that actually have a page: people
+  // known only from a connector (contact/email/calendar) stay searchable but are
+  // kept out of the wiki so they don't add noise (they'd 404 anyway).
+  app.get("/api/wiki", async () => {
+    const withPages = ctx.store.wikiPageEntityIds();
+    return {
+      entities: ctx.store
+        .listEntities()
+        .filter((entity) => withPages.has(entity.id))
+        .map((entity) => ({
+          id: entity.id,
+          type: entity.type,
+          name: entity.name,
+          slug: entity.slug,
+          summary: entity.summary,
+          updatedAt: entity.updated_at,
+        })),
+    };
+  });
 
-  app.get("/api/wiki/graph", async () => ({
-    nodes: ctx.store.listEntities().map((entity) => ({
-      id: entity.id,
-      type: entity.type,
-      name: entity.name,
-      slug: entity.slug,
-    })),
-    links: ctx.store.allRelationships().map((r) => ({
-      from: r.from_entity,
-      to: r.to_entity,
-      label: r.label,
-    })),
-  }));
+  app.get("/api/wiki/graph", async () => {
+    const withPages = ctx.store.wikiPageEntityIds();
+    return {
+      nodes: ctx.store
+        .listEntities()
+        .filter((entity) => withPages.has(entity.id))
+        .map((entity) => ({
+          id: entity.id,
+          type: entity.type,
+          name: entity.name,
+          slug: entity.slug,
+        })),
+      // Drop edges to a hidden (pageless) endpoint so the graph has no dangling links.
+      links: ctx.store
+        .allRelationships()
+        .filter((r) => withPages.has(r.from_entity) && withPages.has(r.to_entity))
+        .map((r) => ({
+          from: r.from_entity,
+          to: r.to_entity,
+          label: r.label,
+        })),
+    };
+  });
 
   app.get<{ Params: { slug: string } }>("/api/wiki/:slug", async (request) => {
     const { slug } = parseOrThrow(wiki.WikiPageParams, request.params, "params");

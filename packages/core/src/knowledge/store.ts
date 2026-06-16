@@ -1993,8 +1993,74 @@ export class KnowledgeStore {
       .run(summary, id);
   }
 
-  markWikiStale(id: number): void {
+  /**
+   * Flag an entity's page for regeneration. Returns whether the flag was actually
+   * set: a reference-only entity (one whose every fact/edge comes from a
+   * non-wiki-eligible connector source — see {@link isReferenceOnlyEntity}) never
+   * earns a page, so it is never marked. This is the single backstop covering
+   * every caller (ingest, connector sync, contradictions, source-gone), regardless
+   * of which path triggered it.
+   */
+  markWikiStale(id: number): boolean {
+    if (this.isReferenceOnlyEntity(id)) return false;
     this.db.prepare("UPDATE entities SET wiki_stale = 1 WHERE id = ?").run(id);
+    return true;
+  }
+
+  // SQL fragments shared by the reference-only test and the page-set query. An
+  // entity "has knowledge" if it has any active observation or relationship; that
+  // knowledge is "page-worthy" if at least one observation is visible to the wiki
+  // (active, non-private, and from a wiki-eligible or sourceless origin) or at
+  // least one edge is backed by a wiki-eligible-or-sourceless origin. A connector
+  // source (contacts/calendar/gmail) is wiki_eligible = 0, so a person known only
+  // through one has knowledge but nothing page-worthy: reference-only.
+  private static readonly HAS_KNOWLEDGE_SQL = `(
+    EXISTS (SELECT 1 FROM observations o WHERE o.entity_id = e.id AND o.status = 'active')
+    OR EXISTS (SELECT 1 FROM relationships r
+                WHERE (r.from_entity = e.id OR r.to_entity = e.id) AND r.status = 'active')
+  )`;
+  private static readonly HAS_PAGE_WORTHY_SQL = `(
+    EXISTS (SELECT 1 FROM observations o LEFT JOIN sources s ON s.id = o.source_id
+             WHERE o.entity_id = e.id AND o.status = 'active' AND o.sensitivity = 'normal'
+               AND (o.source_id IS NULL OR s.wiki_eligible = 1))
+    OR EXISTS (SELECT 1 FROM relationships r LEFT JOIN sources s ON s.id = r.source_id
+                WHERE (r.from_entity = e.id OR r.to_entity = e.id) AND r.status = 'active'
+                  AND (r.source_id IS NULL OR s.wiki_eligible = 1))
+  )`;
+
+  /**
+   * Is this entity backed *only* by reference material — i.e. it has knowledge,
+   * but every observation/edge comes from a non-wiki-eligible connector source
+   * (Google contacts/calendar/gmail)? Such a "person known only from a contact"
+   * is noise as a standalone page: it earns no page and is hidden from the wiki
+   * index, while staying fully searchable and able to merge into a real page once
+   * a document mentions it. An entity with no knowledge at all is NOT
+   * reference-only (it keeps the legacy empty/relationship-only page behaviour).
+   */
+  isReferenceOnlyEntity(id: number): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT (${KnowledgeStore.HAS_KNOWLEDGE_SQL} AND NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL})
+           AS refOnly
+         FROM entities e WHERE e.id = ?`,
+      )
+      .get(id) as { refOnly: number } | undefined;
+    return row?.refOnly === 1;
+  }
+
+  /**
+   * The set of entity ids that warrant a wiki page — everything except
+   * reference-only entities (see {@link isReferenceOnlyEntity}). Used to keep
+   * connector-only people out of the wiki index/graph and out of page synthesis.
+   */
+  wikiPageEntityIds(): Set<number> {
+    const rows = this.db
+      .prepare(
+        `SELECT e.id AS id FROM entities e
+         WHERE NOT (${KnowledgeStore.HAS_KNOWLEDGE_SQL} AND NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL})`,
+      )
+      .all() as Array<{ id: number }>;
+    return new Set(rows.map((r) => r.id));
   }
 
   clearWikiStale(id: number): void {
@@ -2861,6 +2927,12 @@ export class KnowledgeStore {
            embedding = excluded.embedding, updated_at = datetime('now')`,
       )
       .run(entityId, body, embedding ? serializeVector(embedding) : null);
+  }
+
+  /** Drop an entity's compiled page from the retrieval table (e.g. it no longer
+   *  warrants a page). The on-disk Markdown is removed separately by the writer. */
+  deleteWikiPage(entityId: number): void {
+    this.db.prepare("DELETE FROM wiki_pages WHERE entity_id = ?").run(entityId);
   }
 
   /** Every entity's [[wiki-link]] mentions, for broken-reference detection. */

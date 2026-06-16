@@ -202,11 +202,22 @@ export async function mergeExtraction(
     affected.add(entityId);
   }
 
-  for (const id of changed) store.markWikiStale(id);
+  // A wiki page is only ever generated from wiki-eligible sources. Connector data
+  // (contacts/calendar/gmail) complements existing pages as a reference — it never
+  // triggers a regeneration, and never gives a connector-only person a page. The
+  // entities/observations/relationships above are still merged (searchable); only
+  // the page is suppressed. Chips are read live from sourcesForEntity, so they
+  // need no stale flag. `staleEntityIds` reflects what was *actually* marked
+  // (markWikiStale self-skips entities without wiki-eligible backing), so callers
+  // don't record stale-source credit for pages that will never regenerate.
+  const staleEntityIds: number[] = [];
+  if (store.sourceVisibility(sourceId).wikiEligible) {
+    for (const id of changed) if (store.markWikiStale(id)) staleEntityIds.push(id);
+  }
 
   return {
     affectedEntityIds: [...affected],
-    staleEntityIds: [...changed],
+    staleEntityIds,
     newObservationIds,
     reinforcedObservationIds,
   };
