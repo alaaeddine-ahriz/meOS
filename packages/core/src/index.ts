@@ -6,6 +6,7 @@ export {
   overlayStoredLlmConfig,
 } from "./config.js";
 export type { LlmConfig, LlmProvider, MeosConfig } from "./config.js";
+export { createLogger, logger } from "./logger.js";
 export { openDatabase, resetDatabase } from "./db/database.js";
 export type { MeosDatabase } from "./db/database.js";
 export { createEmbedder, HashEmbedder, LocalEmbedder } from "./embedding/embedder.js";

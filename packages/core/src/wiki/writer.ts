@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createBashTool } from "bash-tool";
+import { createLogger } from "../logger.js";
 import type { Embedder } from "../embedding/embedder.js";
 import { loadSchema, withSchema } from "../knowledge/schema-doc.js";
 import { loadProfileContext, withProfile } from "../profile/profile-doc.js";
@@ -25,6 +26,8 @@ import {
 
 export type { WikiSandboxLimits } from "./sandbox-guard.js";
 export { DEFAULT_WIKI_SANDBOX_LIMITS } from "./sandbox-guard.js";
+
+const log = createLogger("wiki");
 
 /** Identifies the page regeneration a transcript belongs to. */
 export interface WikiRunStart {
@@ -394,19 +397,16 @@ export class WikiWriter {
           "wiki.tool",
           JSON.stringify({ slug: entity.slug, aborted: true, reason: error.violation }),
         );
-        console.warn(
-          `wiki: agentic write for ${entity.slug} aborted (sandbox guard):`,
-          error.message,
+        log.warn(
+          { slug: entity.slug, violation: error.violation, err: error },
+          "agentic write aborted (sandbox guard)",
         );
       } else {
         // An LLM failure here (no credits, rate limit, outage) must not abort the
         // ingest: the knowledge is already merged. The agentic write is best-effort
         // anyway, so fall through to the deterministic synthesis below — the page
         // still gets a real body, just without the LLM's prose polish.
-        console.warn(
-          `wiki: agentic write failed for ${entity.slug}, using synthesized body:`,
-          error instanceof Error ? error.message : error,
-        );
+        log.warn({ slug: entity.slug, err: error }, "agentic write failed, using synthesized body");
       }
       sink?.finish("failed");
     } finally {
@@ -444,8 +444,9 @@ export class WikiWriter {
           success: false,
           violation: diffViolation,
         });
-        console.warn(
-          `wiki: agentic page diff for ${entity.slug} exceeds limit, using synthesized body`,
+        log.warn(
+          { slug: entity.slug, violation: diffViolation },
+          "agentic page diff exceeds limit, using synthesized body",
         );
         body = synthesizeBody(entity, observations, relationships, names);
       }

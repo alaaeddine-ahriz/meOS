@@ -1,7 +1,15 @@
 import path from "node:path";
 import { Cron } from "croner";
-import { IngestPriority, loadProfileContext, loadSchema, runConsolidation } from "@meos/core";
+import {
+  createLogger,
+  IngestPriority,
+  loadProfileContext,
+  loadSchema,
+  runConsolidation,
+} from "@meos/core";
 import { commitWikiChanges, type AppContext } from "./context.js";
+
+const log = createLogger("scheduler");
 
 /** Nightly consolidation (§4.5) — queued so it never races with ingestion. */
 export function startScheduler(ctx: AppContext): Cron {
@@ -19,7 +27,7 @@ export function startScheduler(ctx: AppContext): Cron {
           digestDir: path.join(ctx.config.dataDir, "digests"),
         });
         const { wikiChanges, ...summary } = report;
-        console.log("[scheduler] nightly consolidation:", summary);
+        log.info(summary, "nightly consolidation");
 
         // Commit the night's regenerated pages + digest locally with a message.
         await commitWikiChanges(ctx, wikiChanges, "Nightly consolidation", [
@@ -31,12 +39,9 @@ export function startScheduler(ctx: AppContext): Cron {
         if (ctx.store.getSetting<{ autoSync?: boolean }>("git")?.autoSync) {
           try {
             const status = await ctx.git.sync();
-            console.log("[scheduler] git auto-sync:", status.lastCommit ?? "no changes");
+            log.info({ lastCommit: status.lastCommit ?? null }, "git auto-sync");
           } catch (error) {
-            console.error(
-              "[scheduler] git auto-sync failed:",
-              error instanceof Error ? error.message : error,
-            );
+            log.error({ err: error }, "git auto-sync failed");
           }
         }
       },

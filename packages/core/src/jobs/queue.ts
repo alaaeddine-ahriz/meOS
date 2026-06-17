@@ -1,3 +1,7 @@
+import { createLogger } from "../logger.js";
+
+const log = createLogger("queue");
+
 /**
  * Work-type priority classes for ingest scheduling (#18). A higher number drains
  * first; within a class the queue stays strictly FIFO, so ordering is
@@ -89,7 +93,7 @@ export class JobQueue {
       next
         .job()
         .catch((error) => {
-          console.error("[queue] job failed:", error);
+          log.error({ err: error }, "job failed");
         })
         .finally(() => {
           this.running--;

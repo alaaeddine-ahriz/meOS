@@ -1,4 +1,7 @@
+import { createLogger } from "./logger.js";
 import type { MergeResult } from "./knowledge/merge.js";
+
+const log = createLogger("events");
 
 /**
  * Event bus (gist item 9): the seam that turns MeOS from a set of hand-wired
@@ -35,7 +38,7 @@ export class MeosEvents {
   // keep each event's payload type sound; the variance across the union is only
   // an internal-storage concern).
   private readonly handlers = new Map<MeosEvent, Array<(payload: never) => void | Promise<void>>>();
-  /** Reports a handler that threw; defaults to console.error, overridable for tests. */
+  /** Reports a handler that threw; defaults to the structured logger, overridable for tests. */
   constructor(
     private readonly onError: (event: MeosEvent, error: unknown) => void = defaultOnError,
   ) {}
@@ -71,8 +74,5 @@ export class MeosEvents {
 }
 
 function defaultOnError(event: MeosEvent, error: unknown): void {
-  console.error(
-    `[events] handler for "${event}" failed:`,
-    error instanceof Error ? error.message : error,
-  );
+  log.error({ err: error, event }, `handler for "${event}" failed`);
 }
