@@ -92,6 +92,8 @@ type SettingsItem = {
   icon: LucideIcon;
   /** Shown under the title at the top of the panel. */
   blurb: string;
+  /** Clear, direct explanation shown in an info tooltip beside the panel title. */
+  hint: string;
 };
 
 type TabId =
@@ -117,18 +119,21 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         label: "Profile",
         icon: UserCircle,
         blurb: "Who you are, in MeOS's own words.",
+        hint: "A short description of you that MeOS adds to every prompt. It steers what gets extracted, written, and answered toward your work.",
       },
       {
         id: "appearance",
         label: "Appearance",
         icon: PaletteIcon,
         blurb: "Light or dark mode, and the color scheme.",
+        hint: "How MeOS looks — light or dark mode and the accent color scheme.",
       },
       {
         id: "intelligence",
         label: "Intelligence",
         icon: Sparkles,
         blurb: "The model that reads, writes and answers.",
+        hint: "The language model MeOS uses to read sources, write the wiki, and answer in chat. Choose a provider and model, or point at a local server.",
       },
     ],
   },
@@ -140,31 +145,41 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         label: "Folders",
         icon: FolderOpen,
         blurb: "The folders MeOS reads and keeps watching.",
+        hint: "Local folders MeOS reads and keeps watching. New or edited files inside them are indexed automatically; your files are never modified.",
       },
       {
         id: "connectors",
         label: "Connectors",
         icon: Plug,
         blurb: "Sync people from Google Contacts, Calendar and Mail.",
+        hint: "Connect Google so MeOS can sync your contacts, calendar, mail, and tasks. Each connector's coverage and last sync are shown below.",
       },
       {
         id: "knowledge",
         label: "Entity types",
         icon: Shapes,
         blurb: "Tailor which kinds of knowledge MeOS tracks and surfaces.",
+        hint: "Choose which kinds of knowledge MeOS tracks and surfaces across the wiki, graph, digest, and chat. Turning one off hides it everywhere but never deletes it.",
       },
       {
         id: "sync",
         label: "Sync",
         icon: GitBranch,
         blurb: "Version your wiki and digests with Git.",
+        hint: "Back up and version your wiki and digests with Git. Connect a remote to sync them across machines.",
       },
     ],
   },
   {
     heading: "Advanced",
     items: [
-      { id: "reset", label: "Reset", icon: Trash2, blurb: "Erase everything MeOS has learned." },
+      {
+        id: "reset",
+        label: "Reset",
+        icon: Trash2,
+        blurb: "Erase everything MeOS has learned.",
+        hint: "Permanently erase everything MeOS has learned — entities, observations, the wiki, and indexed content. Your files on disk, watched folders, and settings are kept.",
+      },
     ],
   },
 ];
@@ -290,23 +305,28 @@ export function SettingsView() {
       </aside>
 
       <div className="h-full flex-1 overflow-y-auto px-10 pb-10 pt-10">
-        <div className="w-full max-w-2xl">
-          <header>
-            <h1 className="text-2xl font-semibold tracking-tight">{active.label}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{active.blurb}</p>
-          </header>
+        <TooltipProvider>
+          <div className="w-full max-w-2xl">
+            <header>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight">{active.label}</h1>
+                <InfoHint label={`About ${active.label}`}>{active.hint}</InfoHint>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">{active.blurb}</p>
+            </header>
 
-          <div className="mt-8">
-            {tab === "profile" && <ProfileSection />}
-            {tab === "appearance" && <AppearanceSection />}
-            {tab === "intelligence" && <IntelligenceSection />}
-            {tab === "folders" && <FoldersSection />}
-            {tab === "connectors" && <ConnectorsSection />}
-            {tab === "knowledge" && <KnowledgeSection />}
-            {tab === "sync" && <GitSyncSection />}
-            {tab === "reset" && <ResetSection />}
+            <div className="mt-8">
+              {tab === "profile" && <ProfileSection />}
+              {tab === "appearance" && <AppearanceSection />}
+              {tab === "intelligence" && <IntelligenceSection />}
+              {tab === "folders" && <FoldersSection />}
+              {tab === "connectors" && <ConnectorsSection />}
+              {tab === "knowledge" && <KnowledgeSection />}
+              {tab === "sync" && <GitSyncSection />}
+              {tab === "reset" && <ResetSection />}
+            </div>
           </div>
-        </div>
+        </TooltipProvider>
       </div>
     </div>
   );
@@ -331,9 +351,9 @@ const OBSERVATION_KIND_META: Array<{ id: ObservationKindName; label: string }> =
 ];
 // What each section means and how MeOS uses it — shown in the header info hints.
 const ENTITY_TYPES_HINT =
-  "The kinds of things MeOS recognises as first-class entities — people, projects, organisations, and so on. Enabled types get their own wiki pages and graph nodes and are surfaced in chat and the digest. Disabling a type stops promoting it but never deletes anything — existing knowledge reappears the moment you re-enable it.";
+  "The kinds of things MeOS tracks as entities, like people, projects, and organisations. Enabled types get wiki pages and graph nodes and appear in chat and the digest.";
 const FOCUS_AREAS_HINT =
-  "The kinds of facts MeOS extracts from your sources — decisions, tasks, risks, open questions, and so on. Enabled areas are prioritised during extraction and in the digest and chat retrieval. Disabling an area narrows what's surfaced without removing anything you've already captured.";
+  "The kinds of facts MeOS pulls from your sources, like decisions, tasks, and risks. Enabled areas are prioritised in extraction, the digest, and chat retrieval.";
 
 /** An info icon with an explanatory tooltip, shown beside a section label. */
 function InfoHint({ label, children }: { label: string; children: ReactNode }) {
@@ -440,51 +460,49 @@ function KnowledgeSection() {
   }
 
   return (
-    <TooltipProvider>
-      <section className="flex flex-col gap-8">
-        <div className="flex flex-col gap-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
-            Entity types
-            <InfoHint label="About entity types">{ENTITY_TYPES_HINT}</InfoHint>
-          </span>
-          <div className="flex flex-col divide-y divide-line/40">
-            {ENTITY_TYPE_NAMES.map((type) => {
-              const meta = ENTITY_TYPES[type];
-              return (
-                <ToggleRow
-                  key={type}
-                  label={meta ? meta.plural[0]!.toUpperCase() + meta.plural.slice(1) : type}
-                  icon={meta?.icon}
-                  iconColor={meta?.color}
-                  checked={prefs.entityTypes[type] ?? true}
-                  onChange={(on) => toggleType(type, on)}
-                />
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
-            Focus areas
-            <InfoHint label="About focus areas">{FOCUS_AREAS_HINT}</InfoHint>
-          </span>
-          <div className="flex flex-col divide-y divide-line/40">
-            {OBSERVATION_KIND_META.map(({ id, label }) => (
+    <section className="flex flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+          Entity types
+          <InfoHint label="About entity types">{ENTITY_TYPES_HINT}</InfoHint>
+        </span>
+        <div className="flex flex-col divide-y divide-line/40">
+          {ENTITY_TYPE_NAMES.map((type) => {
+            const meta = ENTITY_TYPES[type];
+            return (
               <ToggleRow
-                key={id}
-                label={label}
-                checked={prefs.observationKinds[id] ?? true}
-                onChange={(on) => toggleKind(id, on)}
+                key={type}
+                label={meta ? meta.plural[0]!.toUpperCase() + meta.plural.slice(1) : type}
+                icon={meta?.icon}
+                iconColor={meta?.color}
+                checked={prefs.entityTypes[type] ?? true}
+                onChange={(on) => toggleType(type, on)}
               />
-            ))}
-          </div>
+            );
+          })}
         </div>
+      </div>
 
-        {error && <p className="text-sm text-rose-400">{error}</p>}
-        {saving && <p className="text-xs text-dim">Saving…</p>}
-      </section>
-    </TooltipProvider>
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+          Focus areas
+          <InfoHint label="About focus areas">{FOCUS_AREAS_HINT}</InfoHint>
+        </span>
+        <div className="flex flex-col divide-y divide-line/40">
+          {OBSERVATION_KIND_META.map(({ id, label }) => (
+            <ToggleRow
+              key={id}
+              label={label}
+              checked={prefs.observationKinds[id] ?? true}
+              onChange={(on) => toggleKind(id, on)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-rose-400">{error}</p>}
+      {saving && <p className="text-xs text-dim">Saving…</p>}
+    </section>
   );
 }
 
