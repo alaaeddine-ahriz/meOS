@@ -7,6 +7,7 @@ import {
   FolderPlus,
   GitBranch,
   History,
+  Info,
   Laptop,
   type LucideIcon,
   Moon,
@@ -45,6 +46,7 @@ import {
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ENTITY_TYPE_ORDER, ENTITY_TYPES } from "@/lib/entity-meta";
 import { isTauri, openExternal, openFolder } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
@@ -66,7 +68,6 @@ import {
   type GitCommit,
   type GitStatus,
   type KnowledgePreferences,
-  type KnowledgePreset,
   type LlmProvider,
   type LlmSettings,
   type ObservationKindName,
@@ -328,54 +329,30 @@ const OBSERVATION_KIND_META: Array<{ id: ObservationKindName; label: string }> =
   { id: "open_question", label: "Open questions" },
   { id: "procedure", label: "Procedures" },
 ];
-const OBSERVATION_KIND_NAMES = OBSERVATION_KIND_META.map((k) => k.id);
+// What each section means and how MeOS uses it — shown in the header info hints.
+const ENTITY_TYPES_HINT =
+  "The kinds of things MeOS recognises as first-class entities — people, projects, organisations, and so on. Enabled types get their own wiki pages and graph nodes and are surfaced in chat and the digest. Disabling a type stops promoting it but never deletes anything — existing knowledge reappears the moment you re-enable it.";
+const FOCUS_AREAS_HINT =
+  "The kinds of facts MeOS extracts from your sources — decisions, tasks, risks, open questions, and so on. Enabled areas are prioritised during extraction and in the digest and chat retrieval. Disabling an area narrows what's surfaced without removing anything you've already captured.";
 
-const KNOWLEDGE_PRESET_OPTIONS: Array<{ value: KnowledgePreset; label: string }> = [
-  { value: "default", label: "Everything" },
-  { value: "consultant", label: "Consultant" },
-  { value: "executive", label: "Executive" },
-  { value: "personal", label: "Personal" },
-  { value: "research", label: "Research" },
-  { value: "custom", label: "Custom" },
-];
-
-// Preset → enabled (entityTypes, observationKinds). Mirrors core's PRESET_DEFS
-// so picking a preset sets the toggles client-side; the full resolved toggle set
-// is then sent to the server (the source of truth still resolves/normalises it).
-const PRESET_TYPE_SETS: Record<Exclude<KnowledgePreset, "default" | "custom">, EntityTypeName[]> = {
-  consultant: ["person", "organisation", "project", "decision", "concept"],
-  executive: ["person", "organisation", "project", "decision"],
-  personal: ["person", "place", "organisation", "project", "decision"],
-  research: ["concept", "person", "organisation", "project"],
-};
-const PRESET_KIND_SETS: Record<
-  Exclude<KnowledgePreset, "default" | "custom">,
-  ObservationKindName[]
-> = {
-  consultant: ["fact", "decision", "requirement", "task", "risk", "open_question"],
-  executive: ["fact", "decision", "requirement", "risk", "event"],
-  personal: ["fact", "decision", "preference", "task", "event"],
-  research: ["fact", "decision", "requirement", "open_question", "procedure"],
-};
-
-function togglesFor<K extends string>(all: readonly K[], on: readonly K[]): Record<K, boolean> {
-  const set = new Set<string>(on);
-  return Object.fromEntries(all.map((k) => [k, set.has(k)])) as Record<K, boolean>;
-}
-
-function preferencesForPreset(preset: KnowledgePreset): KnowledgePreferences {
-  if (preset === "default" || preset === "custom") {
-    return {
-      preset,
-      entityTypes: togglesFor(ENTITY_TYPE_NAMES, ENTITY_TYPE_NAMES),
-      observationKinds: togglesFor(OBSERVATION_KIND_NAMES, OBSERVATION_KIND_NAMES),
-    };
-  }
-  return {
-    preset,
-    entityTypes: togglesFor(ENTITY_TYPE_NAMES, PRESET_TYPE_SETS[preset]),
-    observationKinds: togglesFor(OBSERVATION_KIND_NAMES, PRESET_KIND_SETS[preset]),
-  };
+/** An info icon with an explanatory tooltip, shown beside a section label. */
+function InfoHint({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          className="text-dim transition-colors hover:text-paper"
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs font-normal normal-case tracking-normal text-pretty">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /** A labelled toggle row, styled like the rest of Settings. */
@@ -436,8 +413,6 @@ function KnowledgeSection() {
     }
   };
 
-  const choosePreset = (preset: KnowledgePreset) => void save(preferencesForPreset(preset));
-
   const toggleType = (type: EntityTypeName, on: boolean) => {
     if (!prefs) return;
     void save({
@@ -465,60 +440,51 @@ function KnowledgeSection() {
   }
 
   return (
-    <section className="flex flex-col gap-8">
-      <PanelIntro>
-        Tailor which kinds of knowledge MeOS tracks and surfaces across the wiki, graph, digest and
-        chat. Disabling a type only narrows what is surfaced — your existing knowledge is preserved
-        and reappears the moment you re-enable it.
-      </PanelIntro>
+    <TooltipProvider>
+      <section className="flex flex-col gap-8">
+        <div className="flex flex-col gap-2">
+          <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+            Entity types
+            <InfoHint label="About entity types">{ENTITY_TYPES_HINT}</InfoHint>
+          </span>
+          <div className="flex flex-col divide-y divide-line/40">
+            {ENTITY_TYPE_NAMES.map((type) => {
+              const meta = ENTITY_TYPES[type];
+              return (
+                <ToggleRow
+                  key={type}
+                  label={meta ? meta.plural[0]!.toUpperCase() + meta.plural.slice(1) : type}
+                  icon={meta?.icon}
+                  iconColor={meta?.color}
+                  checked={prefs.entityTypes[type] ?? true}
+                  onChange={(on) => toggleType(type, on)}
+                />
+              );
+            })}
+          </div>
+        </div>
 
-      <Segmented<KnowledgePreset>
-        label="Preset"
-        value={prefs.preset}
-        options={KNOWLEDGE_PRESET_OPTIONS}
-        onChange={choosePreset}
-      />
-
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
-          Entity types
-        </span>
-        <div className="flex flex-col divide-y divide-line/40">
-          {ENTITY_TYPE_NAMES.map((type) => {
-            const meta = ENTITY_TYPES[type];
-            return (
+        <div className="flex flex-col gap-2">
+          <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+            Focus areas
+            <InfoHint label="About focus areas">{FOCUS_AREAS_HINT}</InfoHint>
+          </span>
+          <div className="flex flex-col divide-y divide-line/40">
+            {OBSERVATION_KIND_META.map(({ id, label }) => (
               <ToggleRow
-                key={type}
-                label={meta ? meta.plural[0]!.toUpperCase() + meta.plural.slice(1) : type}
-                icon={meta?.icon}
-                iconColor={meta?.color}
-                checked={prefs.entityTypes[type] ?? true}
-                onChange={(on) => toggleType(type, on)}
+                key={id}
+                label={label}
+                checked={prefs.observationKinds[id] ?? true}
+                onChange={(on) => toggleKind(id, on)}
               />
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
 
-      <div className="flex flex-col gap-2">
-        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
-          Focus areas (observation kinds)
-        </span>
-        <div className="flex flex-col divide-y divide-line/40">
-          {OBSERVATION_KIND_META.map(({ id, label }) => (
-            <ToggleRow
-              key={id}
-              label={label}
-              checked={prefs.observationKinds[id] ?? true}
-              onChange={(on) => toggleKind(id, on)}
-            />
-          ))}
-        </div>
-      </div>
-
-      {error && <p className="text-sm text-rose-400">{error}</p>}
-      {saving && <p className="text-xs text-dim">Saving…</p>}
-    </section>
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        {saving && <p className="text-xs text-dim">Saving…</p>}
+      </section>
+    </TooltipProvider>
   );
 }
 
