@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import chokidar, { type FSWatcher } from "chokidar";
 import {
+  createLogger,
   SUPPORTED_EXTENSIONS,
   type IngestionPipeline,
   type JobQueue,
@@ -13,6 +14,7 @@ import {
 import type { DurableIngest } from "./durable-ingest.js";
 
 const execFileAsync = promisify(execFile);
+const log = createLogger("watcher");
 
 /**
  * macOS cloud placeholders ("online-only" iCloud/Dropbox/OneDrive files):
@@ -64,7 +66,7 @@ export class FolderWatcher {
     this.watcher.on("add", (filePath) => this.consider(filePath));
     this.watcher.on("change", (filePath) => this.consider(filePath));
     this.watcher.on("unlink", (filePath) => this.forget(filePath));
-    this.watcher.on("error", (error) => console.error("watcher:", error));
+    this.watcher.on("error", (error) => log.error({ err: error }, "watch error"));
   }
 
   /** Begin watching every folder currently registered. */

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { KnowledgeStore } from "@meos/core";
+import { createLogger, type KnowledgeStore } from "@meos/core";
+
+const log = createLogger("repair");
 
 /**
  * Early watch ingests recorded only the file's basename, so reveal-in-Finder
@@ -26,7 +28,10 @@ export function repairSourcePaths(store: KnowledgeStore): void {
     }
   }
   if (repaired > 0) {
-    console.log(`repair: restored absolute paths for ${repaired}/${broken.length} source(s)`);
+    log.info(
+      { repaired, total: broken.length },
+      `restored absolute paths for ${repaired}/${broken.length} source(s)`,
+    );
   }
 }
 

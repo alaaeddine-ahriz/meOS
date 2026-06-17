@@ -1,5 +1,6 @@
 import {
   connectorRegistry,
+  createLogger,
   ensureAccessToken,
   IngestPriority,
   searchThreadsText,
@@ -11,6 +12,8 @@ import {
   type JobQueue,
   type KnowledgeStore,
 } from "@meos/core";
+
+const log = createLogger("connectors");
 
 /**
  * Owns the background sync schedule for connected external accounts. One timer
@@ -80,8 +83,9 @@ export class ConnectorManager {
         if (!account) return;
         try {
           const result = await syncConnector(this.deps, account, kind, resolved.connector);
-          console.log(
-            `[connectors] ${provider}/${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
+          log.info(
+            { provider, kind, ingested: result.ingested, skipped: result.skipped },
+            `${provider}/${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
           );
           // A resumable backfill (#68) that still has pages re-enqueues itself so a
           // long historical pull drains in bounded steps without blocking the app or
@@ -89,10 +93,7 @@ export class ConnectorManager {
           // never delays user uploads or watched files.
           if (result.hasMore) this.enqueueSync(provider, kind);
         } catch (error) {
-          console.error(
-            `[connectors] ${provider}/${kind} sync failed:`,
-            error instanceof Error ? error.message : error,
-          );
+          log.error({ err: error, provider, kind }, `${provider}/${kind} sync failed`);
         }
       },
       { priority: IngestPriority.CONNECTOR },

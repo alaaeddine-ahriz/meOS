@@ -1,5 +1,8 @@
 import { EventEmitter } from "node:events";
+import { createLogger } from "@meos/core";
 import type { KnowledgeStore, WikiRunHook, WikiRunSink, WikiRunStart } from "@meos/core";
+
+const log = createLogger("activity");
 
 /**
  * A live wiki-maintainer event, fanned out to any connected Activity clients.
@@ -117,10 +120,7 @@ export class ActivityBus {
           });
         } catch (error) {
           // A persistence/broadcast hiccup must never break the agent run.
-          console.error(
-            "[activity] failed to record run event:",
-            error instanceof Error ? error.message : error,
-          );
+          log.error({ err: error, runId }, "failed to record run event");
         }
       },
       finish: (status) => {
@@ -128,10 +128,7 @@ export class ActivityBus {
           flush();
           this.store.finishWikiRun(runId, status);
         } catch (error) {
-          console.error(
-            "[activity] failed to finish run:",
-            error instanceof Error ? error.message : error,
-          );
+          log.error({ err: error, runId }, "failed to finish run");
         }
         this.publish({ type: "run-finish", runId, status });
       },

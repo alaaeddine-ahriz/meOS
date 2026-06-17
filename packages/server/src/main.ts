@@ -1,8 +1,11 @@
+import { createLogger } from "@meos/core";
 import { createContext } from "./context.js";
 import { repairSourcePaths } from "./repair.js";
 import { SchedulerWorker } from "./runtime/workers.js";
 import { startScheduler } from "./scheduler.js";
 import { buildServer } from "./server.js";
+
+const log = createLogger("git");
 
 const ctx = createContext();
 const app = await buildServer(ctx);
@@ -13,7 +16,7 @@ if (!ctx.git.isInitialized()) {
   try {
     await ctx.git.init();
   } catch (error) {
-    console.error("[git] auto-init failed:", error instanceof Error ? error.message : error);
+    log.error({ err: error }, "auto-init failed");
   }
 }
 // Start the background workers through the registry, preserving the historical
