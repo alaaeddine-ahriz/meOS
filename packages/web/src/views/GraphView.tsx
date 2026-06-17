@@ -1,26 +1,16 @@
-import { ExternalLink, FileText, Search, X } from "lucide-react";
+import { ExternalLink, FileText, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Input } from "@/components/ui/input";
+import { Combobox } from "@/components/ui/combobox";
 import { Switch } from "@/components/ui/switch";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER, typeColor } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
 import { ForceGraph, type EdgeSelection } from "../components/ForceGraph.js";
 import { api, type GraphLink, type GraphNode } from "../api.js";
 
-/** Confidence floor below which edges/nodes are hidden by default — calm by default. */
-const DEFAULT_THRESHOLD = 0.4;
-
-/** Bucketed confidence thresholds, sharing WikiPage's tier breakpoints. */
-const THRESHOLDS: { value: number; label: string; tone: string }[] = [
-  { value: 0, label: "All", tone: "text-faded" },
-  { value: 0.4, label: "Medium+", tone: "text-lamp" },
-  { value: 0.7, label: "High", tone: "text-moss" },
-];
-
 /**
  * The knowledge graph. With no props it maps the whole wiki under an inline
- * toolbar (search, confidence, hide-weak, and a clickable legend that shows /
+ * toolbar (an entity search, hide-weak, and a clickable legend that shows /
  * hides entity types). Pass `focusSlug` to render a single page and its
  * neighbours as a clean ego graph (the WikiPage side panel) with no toolbar.
  *
@@ -40,9 +30,7 @@ export function GraphView({
   // --- Controls (client-side filters, layered on top of the endpoint) ---------
   // null = no explicit type filter yet → all present types shown.
   const [enabledTypes, setEnabledTypes] = useState<Set<string> | null>(null);
-  const [threshold, setThreshold] = useState(DEFAULT_THRESHOLD);
   const [hideWeak, setHideWeak] = useState(true);
-  const [query, setQuery] = useState("");
   // The entity the graph centres on. Seeded from focusSlug; the user can re-focus
   // by picking from search. null = whole graph (no ego focus).
   const [focusId, setFocusId] = useState<number | null>(null);
@@ -84,10 +72,8 @@ export function GraphView({
     let nodes = graph.nodes.filter((n) => typeOk(n.type));
     let nodeIds = new Set(nodes.map((n) => n.id));
 
-    // 2. Edge filter: both endpoints visible AND confidence ≥ threshold.
-    let links = graph.links.filter(
-      (l) => nodeIds.has(l.from) && nodeIds.has(l.to) && (l.confidence ?? 1) >= threshold,
-    );
+    // 2. Edge filter: keep edges whose endpoints are both visible.
+    let links = graph.links.filter((l) => nodeIds.has(l.from) && nodeIds.has(l.to));
 
     // 3. Focus: keep the focus node and its direct neighbours (ego graph).
     if (focusId != null && nodeIds.has(focusId)) {
@@ -115,14 +101,15 @@ export function GraphView({
     }
 
     return { nodes, links };
-  }, [graph, enabledTypes, threshold, focusId, hideWeak]);
+  }, [graph, enabledTypes, focusId, hideWeak]);
 
-  // Search matches by name; the matched ids drive a "focus" affordance.
-  const searchMatches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
-    return graph.nodes.filter((n) => n.name.toLowerCase().includes(q)).slice(0, 8);
-  }, [query, graph.nodes]);
+  // Search options for the combobox: entity names → the first node that has it.
+  const nodeByName = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of graph.nodes) if (!m.has(n.name)) m.set(n.name, n.id);
+    return m;
+  }, [graph.nodes]);
+  const nodeNames = useMemo(() => [...nodeByName.keys()], [nodeByName]);
 
   const presentTypes = useMemo(
     () => ENTITY_TYPE_ORDER.filter((type) => graph.nodes.some((n) => n.type === type)),
@@ -174,80 +161,27 @@ export function GraphView({
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col gap-3 px-10 pb-4">
-        {/* Row 1: search · confidence · hide weak · count */}
+        {/* Row 1: search · hide weak · count */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          <div className="relative w-56">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find an entity…"
-              className="h-8 pl-8 text-sm"
-            />
-            {searchMatches.length > 0 && (
-              <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-line bg-popover shadow-md">
-                {searchMatches.map((n) => (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFocusId(n.id);
-                        setQuery("");
-                      }}
-                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-faded hover:bg-line/50"
-                    >
-                      <span
-                        className="inline-block size-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: typeColor(n.type) }}
-                      />
-                      <span className="truncate">{n.name}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-dim">Confidence</span>
-            <div className="flex gap-1">
-              {THRESHOLDS.map((t) => (
-                <button
-                  key={t.value}
-                  type="button"
-                  onClick={() => setThreshold(t.value)}
-                  className={cn(
-                    "rounded border px-2 py-1 text-xs transition-colors",
-                    threshold === t.value
-                      ? cn("border-current", t.tone)
-                      : "border-line text-dim hover:text-faded",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
+          <Combobox
+            value={focusNode?.name ?? ""}
+            onChange={(name) => {
+              const id = nodeByName.get(name);
+              if (id == null) return;
+              // Re-picking the focused entity clears the focus (back to the whole graph).
+              setFocusId((cur) => (cur === id ? null : id));
+            }}
+            options={nodeNames}
+            placeholder="Find an entity…"
+            searchPlaceholder="Search entities…"
+            emptyText="No entities."
+            className="h-8 w-56 text-sm"
+          />
 
           <label className="flex cursor-pointer items-center gap-2 text-xs text-faded">
             <Switch checked={hideWeak} onCheckedChange={setHideWeak} />
             Hide weak / isolated
           </label>
-
-          {focusNode && !focusSlug && (
-            <span className="flex min-w-0 items-center gap-1.5 text-xs text-faded">
-              Focused:
-              <span className="truncate font-medium text-paper">{focusNode.name}</span>
-              <button
-                type="button"
-                onClick={() => setFocusId(null)}
-                className="text-dim hover:text-paper"
-                aria-label="Clear focus"
-              >
-                <X className="size-3" />
-              </button>
-            </span>
-          )}
 
           <span className="ml-auto text-xs text-dim">
             {data.nodes.length} pages · {data.links.length} connections
@@ -268,7 +202,7 @@ export function GraphView({
                   title={on ? "Hide" : "Show"}
                   className={cn(
                     "flex items-center gap-2 text-xs transition-opacity",
-                    on ? "text-faded" : "text-dim line-through opacity-50",
+                    on ? "text-faded" : "text-dim opacity-50",
                   )}
                 >
                   <span
