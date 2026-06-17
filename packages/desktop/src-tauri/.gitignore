@@ -1,4 +1,6 @@
 target/
 gen/schemas/
 # Generated per-platform on CI by scripts/bundle-runtime.mjs — too large to track.
-payload/
+# Keep the dir itself (via .gitkeep) so dev builds find the Tauri resource path.
+payload/*
+!payload/.gitkeep

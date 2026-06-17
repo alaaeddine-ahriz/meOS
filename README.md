@@ -33,7 +33,18 @@ desktop build, Rust toolchain, and Linux WebKit deps stay host-native. See
 
 ### Desktop app (Tauri)
 
-Prerequisites: the [Rust toolchain](https://rustup.rs).
+Prerequisites:
+
+- The [Rust toolchain](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`, then `source "$HOME/.cargo/env"`.
+- **Linux only:** Tauri's native webview needs WebKitGTK and related system libraries. On Debian/Ubuntu (incl. WSL2):
+
+  ```sh
+  sudo apt update && sudo apt install -y build-essential curl wget file pkg-config \
+    libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev \
+    libwebkit2gtk-4.1-dev libsoup-3.0-dev
+  ```
+
+  (On WSL2 the window renders through WSLg, which ships with Windows 11.) macOS and Windows need no extra system packages beyond Rust.
 
 **Develop** against a live window with hot reload:
 
@@ -44,7 +55,9 @@ pnpm desktop     # native window + server + UI
 ```
 
 In dev the shell runs the server straight from the repo, so no packaging is
-needed.
+needed — the empty `src-tauri/payload/` dir (kept via `.gitkeep`) only has to
+exist for Tauri's resource step; it's populated for real by `bundle-runtime.mjs`
+in the distributable build below.
 
 **Build a distributable, self-contained app.** This bundles a private Node
 runtime, the server, the web UI, and a pre-seeded embedding model into the app,
