@@ -1,0 +1,241 @@
+import { CalendarDays, CheckSquare, ExternalLink, Mail, User } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { SERVICE_BRANDS, type ServiceBrand } from "@/components/brand-logos";
+import { ListSection } from "@/components/list";
+import { Breadcrumbs, Page, PageBody, PageHeader, type Crumb } from "@/components/Page";
+import { ENTITY_TYPES } from "@/lib/entity-meta";
+import { openExternal } from "@/lib/platform";
+import { api, type IndexedSource, type SourceDetail } from "../api.js";
+
+/**
+ * The Sources tab: every locally-indexed connector item — a contact, calendar
+ * event, task, or email — as its own first-class entry, grouped by kind, each
+ * with a link to open the original and links to the wiki entities (and sibling
+ * items) it connects to. The browse companion to the Wiki tab; where the Wiki
+ * shows the synthesised pages, this shows the raw indexed sources behind them.
+ */
+
+/** Per-kind display metadata, keyed by the connector kind ("gmail", …). */
+const KIND_META: Record<string, { singular: string; plural: string; icon: typeof Mail }> = {
+  contacts: { singular: "contact", plural: "Contacts", icon: User },
+  calendar: { singular: "event", plural: "Calendar events", icon: CalendarDays },
+  gmail: { singular: "email", plural: "Emails", icon: Mail },
+  tasks: { singular: "task", plural: "Tasks", icon: CheckSquare },
+};
+const KIND_ORDER = ["contacts", "calendar", "gmail", "tasks"];
+
+function brandFor(type: string): ServiceBrand | undefined {
+  return SERVICE_BRANDS[type];
+}
+
+/** Group indexed sources by kind, in the canonical kind order. */
+function groupByKind(items: IndexedSource[]) {
+  const byKind = new Map<string, IndexedSource[]>();
+  for (const item of items) byKind.set(item.kind, [...(byKind.get(item.kind) ?? []), item]);
+  const ordered = [
+    ...KIND_ORDER.filter((k) => byKind.has(k)),
+    ...[...byKind.keys()].filter((k) => !KIND_ORDER.includes(k)),
+  ];
+  return ordered.map((kind) => ({
+    kind,
+    meta: KIND_META[kind],
+    items: byKind.get(kind)!,
+  }));
+}
+
+export function SourcesView() {
+  const [sources, setSources] = useState<IndexedSource[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api
+      .listSources()
+      .then((r) => setSources(r.sources))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const groups = useMemo(() => groupByKind(sources), [sources]);
+
+  return (
+    <Page>
+      <PageHeader
+        title="Sources"
+        description={`${sources.length} indexed item${sources.length === 1 ? "" : "s"} from your connected services — each usable as a source for the wiki.`}
+      />
+      <PageBody>
+        {loaded && sources.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing indexed yet. Connect Google in{" "}
+            <Link className="text-primary underline underline-offset-2" to="/settings">
+              Settings
+            </Link>{" "}
+            and your contacts, events, tasks and emails will appear here.
+          </p>
+        ) : (
+          groups.map((group) => {
+            const Icon = group.meta?.icon;
+            return (
+              <ListSection
+                key={group.kind}
+                label={group.meta?.plural ?? group.kind}
+                count={group.items.length}
+              >
+                {group.items.map((item) => (
+                  <SourceRow key={item.id} item={item} icon={Icon && <Icon className="size-4" />} />
+                ))}
+              </ListSection>
+            );
+          })
+        )}
+      </PageBody>
+    </Page>
+  );
+}
+
+/** One indexed-item row: kind icon, title, a chip of linked entities, and a
+ * button to open the original in its provider. The row links to the detail page. */
+function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode }) {
+  const brand = brandFor(item.type);
+  const gone = item.status === "deleted" || item.status === "missing";
+  return (
+    <div className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
+      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+        {icon}
+      </span>
+      <Link to={`/sources/${item.id}`} className="min-w-0 flex-1 truncate hover:underline">
+        <span className={gone ? "text-muted-foreground line-through" : undefined}>
+          {item.title || "(untitled)"}
+        </span>
+      </Link>
+      {item.linkedEntities.length > 0 && (
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {item.linkedEntities.length} linked
+        </span>
+      )}
+      {item.link && brand && (
+        <button
+          type="button"
+          title={`Open in ${brand.label}`}
+          onClick={() => void openExternal(item.link!)}
+          className="shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ExternalLink className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The detail page for one indexed item: its content, the entities it links to,
+ * and the sibling items it connects to through a shared entity. */
+export function SourcePageView() {
+  const { id } = useParams();
+  const [detail, setDetail] = useState<SourceDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    setDetail(null);
+    setError(null);
+    api
+      .getSource(Number(id))
+      .then(setDetail)
+      .catch((e) => setError(String(e)));
+  }, [id]);
+
+  const brand = detail ? brandFor(detail.type) : undefined;
+  const meta = detail ? KIND_META[detail.kind] : undefined;
+  const crumbs: Crumb[] = [{ label: "Sources", to: "/sources" }, { label: detail?.title ?? "…" }];
+
+  return (
+    <Page>
+      <PageHeader
+        title={detail?.title ?? "Source"}
+        breadcrumb={<Breadcrumbs items={crumbs} />}
+        description={meta ? meta.singular : undefined}
+        actions={
+          detail?.link && brand ? (
+            <button
+              type="button"
+              onClick={() => void openExternal(detail.link!)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1.5 text-sm text-faded transition-colors hover:text-paper"
+            >
+              <brand.Logo className="size-4" /> Open in {brand.label}
+            </button>
+          ) : undefined
+        }
+      />
+      <PageBody>
+        {error ? (
+          <p className="text-sm text-destructive">{error}</p>
+        ) : !detail ? (
+          <p className="text-sm text-muted-foreground">Loading…</p>
+        ) : (
+          <div className="flex max-w-2xl flex-col gap-6">
+            {detail.content && (
+              <pre className="whitespace-pre-wrap rounded-md border border-line bg-card/40 p-3 text-sm text-foreground">
+                {detail.content}
+              </pre>
+            )}
+
+            {detail.linkedEntities.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Linked entities
+                </h2>
+                <ul className="flex flex-col gap-1">
+                  {detail.linkedEntities.map((e) => {
+                    const EntityIcon = ENTITY_TYPES[e.type]?.icon;
+                    const label = (
+                      <span className="flex items-center gap-2">
+                        {EntityIcon && (
+                          <EntityIcon className="size-4 shrink-0 text-muted-foreground" />
+                        )}
+                        {e.name}
+                      </span>
+                    );
+                    return (
+                      <li key={e.id} className="text-sm">
+                        {e.hasPage ? (
+                          <Link
+                            to={`/wiki/${e.slug}`}
+                            className="text-primary hover:underline underline-offset-2"
+                          >
+                            {label}
+                          </Link>
+                        ) : (
+                          <span className="text-muted-foreground">{label}</span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+
+            {detail.relatedSources.length > 0 && (
+              <section>
+                <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Related items
+                </h2>
+                <ul className="flex flex-col gap-1">
+                  {detail.relatedSources.map((r) => (
+                    <li key={r.id} className="flex items-center gap-2 text-sm">
+                      <Link to={`/sources/${r.id}`} className="truncate hover:underline">
+                        {r.title || "(untitled)"}
+                      </Link>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        via {r.via.join(", ")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </div>
+        )}
+      </PageBody>
+    </Page>
+  );
+}

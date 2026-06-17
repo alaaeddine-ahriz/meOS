@@ -29,6 +29,7 @@ export * as outputs from "./schemas/outputs.js";
 export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
 export * as connectors from "./schemas/connectors.js";
+export * as sources from "./schemas/sources.js";
 export * as calendar from "./schemas/calendar.js";
 export * as git from "./schemas/git.js";
 export * as runtime from "./schemas/runtime.js";
@@ -86,9 +87,16 @@ export type {
   ConnectorStatus,
   CoverageWindow,
   GmailContentMode,
+  IndexMode,
   Task,
   TaskList,
 } from "./schemas/connectors.js";
+export type {
+  IndexedSource,
+  IndexedEntityLink,
+  RelatedSource,
+  SourceDetail,
+} from "./schemas/sources.js";
 export type { CalendarEvent } from "./schemas/calendar.js";
 export type { GitStatus, GitCommit, GitCommitDetail } from "./schemas/git.js";
 export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./schemas/runtime.js";
@@ -110,6 +118,7 @@ import type * as meetingsSchemas from "./schemas/meetings.js";
 import type * as outputsSchemas from "./schemas/outputs.js";
 import type * as profileSchemas from "./schemas/profile.js";
 import type * as settingsSchemas from "./schemas/settings.js";
+import type * as sourcesSchemas from "./schemas/sources.js";
 import type * as vaultSchemas from "./schemas/vault.js";
 import type * as wikiSchemas from "./schemas/wiki.js";
 
@@ -168,6 +177,9 @@ export type ResetResponse = z.infer<typeof settingsSchemas.ResetResponse>;
 export type AuthStartResponse = z.infer<typeof connectorsSchemas.AuthStartResponse>;
 export type SyncKindResponse = z.infer<typeof connectorsSchemas.SyncKindResponse>;
 export type DisconnectResponse = z.infer<typeof connectorsSchemas.DisconnectResponse>;
+
+export type ListSourcesResponse = z.infer<typeof sourcesSchemas.ListSourcesResponse>;
+export type SourceDetailResponse = z.infer<typeof sourcesSchemas.SourceDetailResponse>;
 
 export type ListCalendarEventsResponse = z.infer<typeof calendarSchemas.ListCalendarEventsResponse>;
 

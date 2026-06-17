@@ -95,6 +95,7 @@ import type {
   ListFoldersResponse,
   ListMeetingsResponse,
   ListNotesResponse,
+  ListSourcesResponse,
   LocalModelsResponse,
   MergeEntitiesResponse,
   MessagesResponse,
@@ -112,6 +113,7 @@ import type {
   ReviewLinkResponse,
   RunEventsResponse,
   SearchResponse,
+  SourceDetailResponse,
   SyncKindResponse,
   WikiGraphResponse,
 } from "@meos/contracts";
@@ -119,6 +121,10 @@ import type {
 export type {
   ActivityEvent,
   AuditEntry,
+  IndexedSource,
+  IndexedEntityLink,
+  RelatedSource,
+  SourceDetail,
   CalendarEvent,
   CalendarListEntry,
   ChatEvent,
@@ -258,6 +264,8 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 export const api = {
   listEntities: () => json<ListEntitiesResponse>("/api/wiki"),
   listLinkedEntities: () => json<LinkedEntitiesResponse>("/api/entities/linked"),
+  listSources: () => json<ListSourcesResponse>("/api/sources"),
+  getSource: (id: number) => json<SourceDetailResponse>(`/api/sources/${id}`),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getGraph: () => json<WikiGraphResponse>("/api/wiki/graph"),
   getInbox: () => json<InboxResponse>("/api/inbox"),
@@ -423,6 +431,7 @@ export const api = {
       coverageWindow?: string;
       contentMode?: string;
       enabledCalendars?: string[];
+      mode?: "index" | "wiki";
     },
   ) =>
     json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {

@@ -8,6 +8,17 @@ export const CoverageWindowSchema = z.enum(["recent", "30d", "90d", "1y", "all"]
 /** Gmail content depth (#68): metadata-only (default, private) vs richer opt-in. */
 export const GmailContentModeSchema = z.enum(["metadata", "rich"]);
 
+/**
+ * What happens to a kind's synced items — the "enable one of two" choice made
+ * when connecting a service:
+ *  - "index": items are indexed locally as linked entities/sources (the Sources
+ *    tab) and read by the wiki-maintainer as source material, but a connector
+ *    sync does not itself author/rewrite wiki pages.
+ *  - "wiki": additionally drive wiki regeneration so the synced facts are woven
+ *    into wiki prose proactively (the heavier path).
+ */
+export const IndexModeSchema = z.enum(["index", "wiki"]);
+
 /** Resumable Gmail backfill progress, surfaced so partial coverage is obvious (#68). */
 export const GmailBackfillProgressSchema = z.object({
   /** Items indexed by the historical backfill so far. */
@@ -60,6 +71,8 @@ export const ConnectorKindStatusSchema = z.object({
   kind: ConnectorKindSchema,
   enabled: z.boolean(),
   intervalMinutes: z.number(),
+  /** The index/wiki mode for this kind. Defaults to "index" when unset. */
+  mode: IndexModeSchema.optional(),
   lastSyncedAt: z.string().nullable(),
   lastStatus: z.string().nullable(),
   /** Coverage/progress info (#68); additive, may be absent on older servers. */
@@ -103,6 +116,8 @@ export const ConfigureKindBody = z.object({
   contentMode: GmailContentModeSchema.optional(),
   /** Calendar: the calendar ids to sync (#68). */
   enabledCalendars: z.array(z.string()).optional(),
+  /** Index-only vs index+wiki for this kind (the "one of two" enable choice). */
+  mode: IndexModeSchema.optional(),
 });
 
 /** POST /api/connectors/google/:kind/sync */
@@ -152,6 +167,7 @@ export const CreateTaskBody = z.object({
 
 export const CreateTaskResponse = z.object({ task: TaskSchema });
 
+export type IndexMode = z.infer<typeof IndexModeSchema>;
 export type ConnectorKind = z.infer<typeof ConnectorKindSchema>;
 export type ConnectorKindStatus = z.infer<typeof ConnectorKindStatusSchema>;
 export type ConnectorStatus = z.infer<typeof ConnectorStatusSchema>;

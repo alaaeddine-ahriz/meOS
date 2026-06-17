@@ -50,11 +50,14 @@ You maintain wiki pages that summarise everything the system knows about an enti
 
 You work inside a sandbox holding a copy of the entire wiki, one Markdown file per
 entity under <type>/<slug>.md. Use the bash tool to explore it (cat, grep, ls) and
-the readFile/writeFile tools to read and update pages.
+the readFile/writeFile tools to read and update pages. The entity's own indexed
+source material — contacts, calendar events, tasks and emails synced from connected
+services — is seeded under "sources/" so you can read it the same way (cat, grep).
 
 Rules:
 - Write in clear, factual prose, as a thoughtful summary by someone who has read every relevant source.
-- Use ONLY the observations and relationships provided. Never add outside knowledge or speculation.
+- Use the observations and relationships provided — and the indexed files under "sources/" — as your material. Read the sources to ground the page in what actually happened (who was met, what was discussed, what is due). Never add outside knowledge or speculation beyond this material.
+- The "sources/" files may contain private contact details (email addresses, phone numbers, postal addresses). Use them only to understand context, relationships and events; never transcribe those private details into the page — it is git-synced and meant to be shareable.
 - Observations are listed with a confidence score. State high-confidence facts plainly. Hedge low-confidence ones explicitly ("a single note suggests...", "as of <date>...").
 - Link other known entities inline using [[Entity Name]] wiki-link syntax, using their exact names from the known-entities list (grep the wiki to confirm a name before linking). Link each entity at most a few times; never link a page to itself.
 - Structure: a short opening paragraph, then "## " sections only if there is enough material to justify them. No top-level title and no frontmatter (those are added by the system — write body prose only).
@@ -63,6 +66,10 @@ Rules:
 
 const MAX_KNOWN_ENTITIES = 300;
 const SUMMARY_FILE = "SUMMARY.txt";
+/** Cap how many indexed sources are seeded into the sandbox per page (bounded prompt). */
+const MAX_SOURCE_FILES = 60;
+/** Truncate each seeded source's content so one large item can't blow the budget. */
+const MAX_SOURCE_BYTES = 4000;
 
 /** Drop a leading YAML frontmatter block and a top-level "# Title" if present. */
 function stripFrontmatter(markdown: string): string {
@@ -310,8 +317,30 @@ export class WikiWriter {
 
     const relPath = `${entity.type}/${entity.slug}.md`;
     fs.mkdirSync(this.wikiDir, { recursive: true });
+
+    // Seed the entity's own indexed connector items (contacts/events/tasks/emails)
+    // into the sandbox under "sources/" so the maintainer reads them as files —
+    // by default, every page is written with its source material at hand. Each is
+    // truncated and capped in number so the sandbox stays bounded.
+    const indexedSources = this.store.indexedSourcesForEntity(entityId).slice(0, MAX_SOURCE_FILES);
+    const sourceFiles: Record<string, string> = {};
+    for (const src of indexedSources) {
+      const fileName = `sources/${src.type.replace(/[^a-z0-9]+/gi, "-")}-${src.id}.md`;
+      const header = [
+        `# ${src.title}`,
+        `Kind: ${src.type}`,
+        src.link ? `Link: ${src.link}` : null,
+        "",
+      ]
+        .filter((l) => l !== null)
+        .join("\n");
+      sourceFiles[fileName] = `${header}${(src.content ?? "").slice(0, MAX_SOURCE_BYTES)}\n`;
+    }
+
     const { tools, sandbox } = await createBashTool({
       uploadDirectory: { source: this.wikiDir, include: "**/*.md" },
+      // The entity's indexed source material, readable like any other file.
+      files: sourceFiles,
       // First line of defence: bash-tool's own output cap mirrors our limit.
       maxOutputLength: this.limits.maxOutputBytes,
     });
@@ -355,6 +384,9 @@ export class WikiWriter {
         prompt: [
           `Update the wiki page for this entity. The target file is "${relPath}".`,
           "Read it first if it exists, then edit it in place (or create it) per the rules.",
+          indexedSources.length > 0
+            ? `This entity has ${indexedSources.length} indexed source item${indexedSources.length === 1 ? "" : "s"} under "sources/" (contacts, events, tasks, emails). Read them (ls sources/, then cat/grep) to ground the page in what they record, honouring the privacy rule.`
+            : "",
           "When done, write a single-sentence directory summary of the entity to",
           `"${SUMMARY_FILE}".`,
           "",

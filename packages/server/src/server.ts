@@ -20,6 +20,7 @@ import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerProfileRoutes } from "./routes/profile.js";
 import { registerRuntimeRoutes } from "./routes/runtime.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { registerSourceRoutes } from "./routes/sources.js";
 import { registerVaultRoutes } from "./routes/vault.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
@@ -72,6 +73,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerProfileRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
   registerConnectorRoutes(app, ctx);
+  registerSourceRoutes(app, ctx);
   registerCalendarRoutes(app, ctx);
   registerGitRoutes(app, ctx);
   registerRuntimeRoutes(app, ctx);

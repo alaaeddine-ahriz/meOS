@@ -142,7 +142,13 @@ export const SERVICE_BRANDS: Record<string, ServiceBrand> = {
   "google:gmail": { label: "Gmail", Logo: GmailLogo },
   "google:calendar": { label: "Google Calendar", Logo: GoogleCalendarLogo },
   "google:contacts": { label: "Google Contacts", Logo: GoogleContactsLogo },
+  "google:tasks": { label: "Google Tasks", Logo: GoogleTasksLogo },
 };
 
-/** Stable display order for chips: Gmail, Calendar, Contacts. */
-export const SERVICE_ORDER = ["google:gmail", "google:calendar", "google:contacts"] as const;
+/** Stable display order for chips: Gmail, Calendar, Contacts, Tasks. */
+export const SERVICE_ORDER = [
+  "google:gmail",
+  "google:calendar",
+  "google:contacts",
+  "google:tasks",
+] as const;

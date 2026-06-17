@@ -39,10 +39,12 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     const kinds = google.manifest.kinds.map((manifest) => {
       const kind = manifest.kind;
       const state = account ? ctx.store.getSyncState(account.id, kind) : undefined;
+      const cfg = account ? ctx.store.getSyncConfig(account.id, kind) : undefined;
       return {
         kind,
         enabled: state?.enabled === 1,
         intervalMinutes: state?.interval_minutes ?? manifest.defaultIntervalMinutes,
+        mode: cfg?.mode ?? "index",
         lastSyncedAt: state?.last_synced_at ?? null,
         lastStatus: state?.last_status ?? null,
         coverage: account ? coverageFor(account.id, kind) : undefined,
@@ -225,6 +227,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       coverageWindow?: string;
       contentMode?: string;
       enabledCalendars?: string[];
+      mode?: "index" | "wiki";
     };
   }>(
     "/api/connectors/google/:kind/config",
@@ -245,7 +248,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       if (!account) throw httpError.badRequest("Google is not connected");
 
       const body = parseOrThrow(connectorsSchema.ConfigureKindBody, request.body, "body");
-      const { enabled, intervalMinutes, coverageWindow, contentMode, enabledCalendars } = body;
+      const { enabled, intervalMinutes, coverageWindow, contentMode, enabledCalendars, mode } =
+        body;
 
       // Assemble any coverage-config changes into a single config patch (#68).
       const configPatch: ConnectorKindConfig = {};
@@ -257,12 +261,16 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       // Re-seeding coverage: clear the cursor so the new window/calendars re-pull from
       // the bound (a wider window must not be limited to the old incremental cursor).
       if (coverageChanged) configPatch.backfill = undefined;
+      // The index/wiki mode (the "one of two" choice) is a plain config flag — it
+      // never resets the cursor, so toggling it doesn't re-pull the mailbox.
+      if (mode != null) configPatch.mode = mode;
+      const configChanged = Object.keys(configPatch).length > 0;
 
       ctx.store.setSyncState(account.id, kind, {
         enabled,
         intervalMinutes:
           intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
-        ...(coverageChanged
+        ...(configChanged
           ? { config: configPatch, ...(coverageWindow != null ? { syncToken: null } : {}) }
           : {}),
       });

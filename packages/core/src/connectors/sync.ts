@@ -125,6 +125,9 @@ export async function syncConnector(
         normalizedContent: item.normalizedContent,
         extraction: item.extraction,
         existingSourceId: existing?.source_id ?? undefined,
+        // The kind's "one of two" choice. Default "index" keeps connector syncs
+        // from spinning up wiki runs; "wiki" authors pages proactively.
+        skipWikiRefresh: (config?.mode ?? "index") === "index",
       });
       result.ingested++;
       store.recordConnectorItem(

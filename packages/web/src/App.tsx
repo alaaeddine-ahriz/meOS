@@ -1,5 +1,6 @@
 import {
   Activity,
+  Database,
   Library,
   type LucideIcon,
   MessageSquare,
@@ -18,6 +19,7 @@ import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
 import { SettingsView } from "./views/SettingsView.js";
+import { SourcePageView, SourcesView } from "./views/SourcesView.js";
 import { VaultView } from "./views/VaultView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
@@ -26,7 +28,8 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/notes", label: "Notes", key: "2", icon: NotebookPen },
   { to: "/wiki", label: "Wiki", key: "3", icon: Library },
-  { to: "/activity", label: "Activity", key: "4", icon: Activity },
+  { to: "/sources", label: "Sources", key: "4", icon: Database },
+  { to: "/activity", label: "Activity", key: "5", icon: Activity },
 ];
 
 /** Legacy `/meetings/:id` links now open inside the unified Notes surface. */
@@ -135,6 +138,8 @@ export function App() {
           <Route path="/meetings/:id" element={<MeetingRedirect />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
+          <Route path="/sources" element={<SourcesView />} />
+          <Route path="/sources/:id" element={<SourcePageView />} />
           <Route path="/activity" element={<ActivityHub />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/settings" element={<SettingsView />} />

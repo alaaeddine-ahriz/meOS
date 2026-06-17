@@ -1029,6 +1029,7 @@ function ConnectorsSection() {
       coverageWindow?: string;
       contentMode?: string;
       enabledCalendars?: string[];
+      mode?: "index" | "wiki";
     },
   ) => {
     setError(null);
@@ -1187,6 +1188,27 @@ function ConnectorsSection() {
                     </Button>
                     {k.lastStatus && <span className="text-[11px]">{k.lastStatus}</span>}
                   </div>
+
+                  {/* The "one of two" enable choice: index items as linked
+                      entities/sources only, or also weave them into wiki pages. */}
+                  <label className="flex flex-wrap items-center gap-2">
+                    use as
+                    <select
+                      value={k.mode ?? "index"}
+                      onChange={(e) =>
+                        void configure(kind, { mode: e.target.value as "index" | "wiki" })
+                      }
+                      className={cn(inputClass, "h-7 w-auto px-2")}
+                    >
+                      <option value="index">Index — entities &amp; sources only</option>
+                      <option value="wiki">Wiki — also write into pages</option>
+                    </select>
+                    <span className="text-[11px] text-faded">
+                      {(k.mode ?? "index") === "index"
+                        ? "Browsable in Sources; the wiki reads them as sources when it regenerates."
+                        : "Also woven into wiki pages proactively as they regenerate."}
+                    </span>
+                  </label>
 
                   {/* Coverage window — how far back we index (#68). Default "recent"
                       keeps the privacy-preserving seed; broader windows are explicit. */}
