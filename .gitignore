@@ -11,3 +11,6 @@ data/
 
 # Local benchmark output (JSON/CSV); regenerate with `pnpm bench`.
 benchmarks/results/
+
+# Generated knowledge graph (graphify) — local artifact, not versioned
+graphify-out/
