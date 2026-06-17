@@ -156,12 +156,6 @@ export function ProfileSection() {
 
   return (
     <section className="flex flex-col gap-6">
-      <p className="text-sm text-faded">
-        Your profile is the <span className="text-paper">lens</span> MeOS reads through — guiding
-        extraction, the wiki, chat, and digests so they centre on your world. Private to this
-        machine by default.
-      </p>
-
       {/* Drafting actions */}
       <div className="flex flex-wrap items-center gap-2">
         <input

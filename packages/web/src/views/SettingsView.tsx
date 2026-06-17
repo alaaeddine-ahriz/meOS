@@ -692,11 +692,6 @@ function IntelligenceSection() {
 
   return (
     <section className="flex flex-col gap-4">
-      <PanelIntro>
-        The model that reads your documents, maintains the wiki, and answers your questions. API
-        keys stay on this machine.
-      </PanelIntro>
-
       {!llm && !llmError && <p className="text-sm text-dim">Loading…</p>}
 
       {llm && (
@@ -989,11 +984,6 @@ function FoldersSection() {
 
   return (
     <section className="flex flex-col gap-5">
-      <PanelIntro>
-        Everything readable in these folders is absorbed automatically — new files and edits alike.
-        Your files are never moved or modified.
-      </PanelIntro>
-
       <ul className="flex flex-col">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
@@ -1822,11 +1812,6 @@ function GitSyncSection() {
 
   return (
     <section className="flex flex-col gap-4">
-      <PanelIntro>
-        Version your wiki and digests as a Git repository — a portable, human-readable backup you
-        can push to GitHub. The database itself stays local; only the markdown is synced.
-      </PanelIntro>
-
       {!status && !error && <p className="text-sm text-dim">Loading…</p>}
 
       {status && !status.initialized && (
@@ -2019,12 +2004,6 @@ function ResetSection() {
 
   return (
     <section className="flex flex-col gap-4">
-      <PanelIntro>
-        Start over. This erases everything MeOS has learned — entities, observations, conversations,
-        digests, the generated wiki, and its entire Git history — and re-initializes the repository.
-        Your watched folders and model settings are kept, so MeOS re-reads them from scratch.
-      </PanelIntro>
-
       <div className="flex flex-col gap-3 rounded-md border border-ember/40 bg-ember/[0.04] p-4">
         <div className="flex items-start gap-2.5">
           <AlertTriangle className="mt-0.5 size-4 shrink-0 text-ember" />
@@ -2036,11 +2015,7 @@ function ResetSection() {
             </span>
           </div>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setConfirming(true)}
-          className="self-start border-ember/50 bg-transparent text-ember hover:border-ember hover:bg-ember/10 hover:text-ember"
-        >
+        <Button onClick={() => setConfirming(true)} className="self-start">
           <Trash2 className="size-4" />
           Reset everything…
         </Button>
