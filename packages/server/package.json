@@ -10,8 +10,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
+    "dev": "sh -c 'ulimit -n unlimited 2>/dev/null || true; exec tsx watch src/main.ts'",
+    "start": "sh -c 'ulimit -n unlimited 2>/dev/null || true; exec node dist/main.js'",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit"
@@ -24,7 +24,6 @@
     "@fastify/swagger-ui": "^5.2.0",
     "@meos/contracts": "workspace:*",
     "@meos/core": "workspace:*",
-    "chokidar": "^4.0.0",
     "croner": "^9.0.0",
     "fastify": "^5.3.0",
     "zod": "^4.4.3"
