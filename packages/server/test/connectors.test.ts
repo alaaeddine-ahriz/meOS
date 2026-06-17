@@ -114,7 +114,7 @@ describe("GET /api/connectors/google/calendars (#68)", () => {
   });
 });
 
-describe("connector coverage in status (#68)", () => {
+describe("connector coverage in status (#68/#88)", () => {
   it("surfaces a coverage block per kind once credentials/account exist", async () => {
     // The shared `server` has saved credentials above, so an account row exists and
     // the status view reports the additive coverage info per kind.
@@ -125,7 +125,46 @@ describe("connector coverage in status (#68)", () => {
     if (gmail?.coverage) {
       expect(gmail.coverage.coverageWindow ?? "recent").toBe("recent");
       expect(gmail.coverage.contentMode ?? "metadata").toBe("metadata");
+      // The unambiguous coverage state is surfaced (#88) — "idle" before any sync.
+      expect(gmail.coverage.state ?? "idle").toBe("idle");
     }
+  });
+
+  it("stores Gmail label filters via the config PUT (#88)", async () => {
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/connectors/google/gmail/config",
+      payload: { includeLabels: ["Work"], excludeLabels: ["Promotions"] },
+    });
+    expect(res.statusCode).toBe(200);
+    const parsed = connectors.ConnectorStatusSchema.parse(res.json());
+    const gmail = parsed.google.kinds.find((k) => k.kind === "gmail");
+    expect(gmail?.coverage?.includeLabels).toEqual(["Work"]);
+    expect(gmail?.coverage?.excludeLabels).toEqual(["Promotions"]);
+  });
+
+  it("stores a task-list selection via the config PUT (#88)", async () => {
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/connectors/google/tasks/config",
+      payload: { enabledTaskLists: ["list-a"] },
+    });
+    expect(res.statusCode).toBe(200);
+    const parsed = connectors.ConnectorStatusSchema.parse(res.json());
+    const tasks = parsed.google.kinds.find((k) => k.kind === "tasks");
+    expect(tasks?.coverage?.enabledTaskLists).toEqual(["list-a"]);
+  });
+
+  it("accepts the reset flag and clears the cursor (#88)", async () => {
+    const account = server.ctx.store.getConnectorAccount("google")!;
+    server.ctx.store.setSyncState(account.id, "gmail", { syncToken: "stale-cursor" });
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/connectors/google/gmail/config",
+      payload: { reset: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(server.ctx.store.getSyncState(account.id, "gmail")!.sync_token).toBeNull();
   });
 });
 

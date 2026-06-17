@@ -37,12 +37,37 @@ export const GraphNodeSchema = z.object({
   type: z.string(),
   name: z.string(),
   slug: z.string(),
+  /**
+   * One-line entity summary, surfaced in the graph's focus/inspect panel (#89).
+   * Optional/nullable so the chat subgraph (which doesn't load summaries) and
+   * any older consumer keep validating.
+   */
+  summary: z.string().nullable().optional(),
 });
 
 export const GraphLinkSchema = z.object({
   from: z.number(),
   to: z.number(),
   label: z.string(),
+  /**
+   * Edge trust (#89): the backing relationship's confidence (0–1). The client
+   * scales edge opacity/width by it and hides edges below a threshold by
+   * default. Optional/back-compatible — the chat subgraph omits it.
+   */
+  confidence: z.number().optional(),
+  /** A representative source id for the edge, so the user can open the evidence (#89). */
+  sourceId: z.number().nullable().optional(),
+  /** How many distinct sources back this edge — drives the "confirmed" idiom. */
+  sourceCount: z.number().optional(),
+  /**
+   * Whether the link is corroborated enough to treat as user-trustworthy rather
+   * than a single-shot LLM guess (#89). NOTE: there is no user-confirmation
+   * column on relationships, so this is a documented PROXY: an edge backed by
+   * more than one distinct source (or pinned at the confidence cap by repeated
+   * reinforcement) is rendered "confirmed" (solid); everything else is treated
+   * as generated (dashed).
+   */
+  confirmed: z.boolean().optional(),
 });
 
 export const OkSchema = z.object({ ok: z.boolean() });

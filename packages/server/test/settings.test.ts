@@ -1,4 +1,4 @@
-import { ErrorCode, ErrorEnvelopeSchema, settings } from "@meos/contracts";
+import { ErrorCode, ErrorEnvelopeSchema, preferences, settings } from "@meos/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
@@ -95,6 +95,49 @@ describe("DELETE /api/settings/folders/:id", () => {
     const res = await server.app.inject({
       method: "DELETE",
       url: "/api/settings/folders/not-a-number",
+    });
+    expect(res.statusCode).toBe(400);
+    const envelope = ErrorEnvelopeSchema.parse(res.json());
+    expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);
+  });
+});
+
+describe("GET /api/settings/knowledge", () => {
+  it("returns well-formed JSON matching the contract (regression: enum-keyed record serialized as malformed `{,...}`)", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/settings/knowledge" });
+    expect(res.statusCode).toBe(200);
+    // The raw body must be valid JSON — fast-json-stringify previously emitted a
+    // stray leading comma for the z.record(enum, boolean) response schema, which
+    // broke JSON.parse on the client. Parse the raw text explicitly.
+    expect(() => JSON.parse(res.body)).not.toThrow();
+    const parsed = preferences.KnowledgePreferencesSchema.safeParse(res.json());
+    expect(parsed.success).toBe(true);
+    // A fresh DB resolves to the all-enabled default.
+    if (parsed.success) {
+      expect(parsed.data.preset).toBe("default");
+      expect(parsed.data.entityTypes.person).toBe(true);
+    }
+  });
+});
+
+describe("PUT /api/settings/knowledge", () => {
+  it("persists a preset and returns the resolved preferences as valid JSON", async () => {
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/settings/knowledge",
+      payload: { preset: "consultant" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(() => JSON.parse(res.body)).not.toThrow();
+    const parsed = preferences.KnowledgePreferencesSchema.parse(res.json());
+    expect(parsed.preset).toBe("consultant");
+  });
+
+  it("rejects an unknown preset with the VALIDATION_ERROR envelope", async () => {
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/settings/knowledge",
+      payload: { preset: "not-a-preset" },
     });
     expect(res.statusCode).toBe(400);
     const envelope = ErrorEnvelopeSchema.parse(res.json());

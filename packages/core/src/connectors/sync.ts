@@ -151,16 +151,51 @@ export async function syncConnector(
     // A backfill that still has pages to walk reads as in-progress, so the UI can
     // show coverage isn't yet complete even on an otherwise-clean run.
     const progress = delta.hasMore ? " (backfilling…)" : "";
+    const at = new Date().toISOString();
+    // Persist structured counts alongside the free-text status (#88), so the
+    // coverage UI + health dashboard read machine-readable metrics rather than
+    // parsing a string. `okAt` records this success as the last-successful time.
+    // Merged into nextConfig so a single config write carries both.
+    const lastSync = {
+      at,
+      ok: true,
+      indexed: result.ingested,
+      skipped: result.skipped,
+      deleted: result.deleted,
+      okAt: at,
+      error: null,
+      // Preserve the prior failure timestamp; a success doesn't erase the history.
+      errorAt: config?.lastSync?.errorAt ?? null,
+    };
     store.setSyncState(account.id, kind, {
       syncToken: delta.nextCursor ?? null,
-      config: delta.nextConfig,
-      lastSyncedAt: new Date().toISOString(),
+      config: { ...(delta.nextConfig ?? {}), lastSync },
+      lastSyncedAt: at,
       lastStatus: `ok — ${result.ingested} updated, ${result.skipped} unchanged${progress}`,
     });
   } catch (error) {
+    const at = new Date().toISOString();
+    const message = error instanceof Error ? error.message : String(error);
+    // Record the failure as structured metrics too, but PRESERVE the last
+    // successful sync timestamp (`okAt`) so the UI can show "last success" vs
+    // "last failure" independently (#88). Re-read config in case the try block
+    // mutated it before throwing.
+    const prior = store.getSyncConfig(account.id, kind).lastSync;
     store.setSyncState(account.id, kind, {
-      lastSyncedAt: new Date().toISOString(),
-      lastStatus: `error — ${error instanceof Error ? error.message : String(error)}`,
+      lastSyncedAt: at,
+      lastStatus: `error — ${message}`,
+      config: {
+        lastSync: {
+          at,
+          ok: false,
+          indexed: result.ingested,
+          skipped: result.skipped,
+          deleted: result.deleted,
+          okAt: prior?.okAt ?? null,
+          error: message,
+          errorAt: at,
+        },
+      },
     });
     throw error;
   }

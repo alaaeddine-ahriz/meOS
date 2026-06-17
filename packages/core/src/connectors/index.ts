@@ -1,11 +1,13 @@
-export { CONNECTOR_KINDS } from "./types.js";
+export { CONNECTOR_KINDS, deriveCoverageState } from "./types.js";
 export type {
   CalendarEventItem,
   CalendarListEntry,
   CalendarState,
   ConnectorKind,
   ConnectorKindConfig,
+  ConnectorSyncMetrics,
   ContactItem,
+  CoverageState,
   CoverageWindow,
   DeltaResult,
   EventAttendee,

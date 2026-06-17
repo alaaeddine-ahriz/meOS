@@ -3,7 +3,23 @@ import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
 import type { EntityType, Extraction } from "../extract/schema.js";
 import { CONFIDENCE_CAP, REINFORCE_STEP } from "../memory/confidence.js";
+import { OBSERVATION_KINDS } from "./schema-doc.js";
+import {
+  enabledEntityTypes,
+  enabledObservationKinds,
+  ENTITY_TYPES,
+  type KnowledgePreferences,
+  resolvePreferences,
+} from "./preferences.js";
 import { defaultVisibilityForType, type SourceVisibility } from "./visibility.js";
+
+/** Settings-table key for the user's knowledge preferences (#86). */
+const KNOWLEDGE_PREFERENCES_KEY = "knowledge_preferences";
+const ENTITY_TYPE_COUNT = ENTITY_TYPES.length;
+const OBSERVATION_KIND_COUNT = OBSERVATION_KINDS.length;
+const ENABLED_ENTITY_TYPES = (prefs: KnowledgePreferences): EntityType[] => [
+  ...enabledEntityTypes(prefs),
+];
 
 export interface EntityRow {
   id: number;
@@ -161,6 +177,12 @@ export interface MeetingNoteRow {
   meeting_date: string | null;
   /** The attendee names. */
   attendees: string[];
+  /** Classifier confidence in [0,1] for an auto-detected meeting; null for manual (#85). */
+  detection_confidence: number | null;
+  /** How the note became a meeting: 'auto' (detected at ingest) or 'manual' (#85). */
+  detection_method: "auto" | "manual";
+  /** A matched google:calendar event source, when one was linked; null otherwise (#85). */
+  linked_calendar_source_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -618,6 +640,31 @@ function safeParseAttendees(raw: string | null): string[] {
   }
 }
 
+/** Shift a YYYY-MM-DD date by `days` (UTC), used for the calendar-match window (#85). */
+function shiftIsoDay(day: string, days: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Lowercase word tokens (≥3 chars) for fuzzy title comparison (#85). */
+function tokenize(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/u)
+      .filter((t) => t.length >= 3),
+  );
+}
+
+/** Jaccard similarity of two token sets in [0,1] (#85). */
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersection = 0;
+  for (const t of a) if (b.has(t)) intersection++;
+  return intersection / (a.size + b.size - intersection);
+}
+
 export class KnowledgeStore {
   constructor(readonly db: MeosDatabase) {}
 
@@ -827,6 +874,106 @@ export class KnowledgeStore {
     return events.slice(0, limit);
   }
 
+  /**
+   * Resolve a single `google:calendar` event source to its normalized ref (#85),
+   * for surfacing an auto-linked event in a meeting detail. Returns undefined when
+   * the source is missing or isn't a calendar event.
+   */
+  getCalendarEventRef(sourceId: number): CalendarEventRef | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.id AS id, s.title AS title, s.path AS path, s.raw_content AS raw_content,
+                ci.external_id AS external_id
+         FROM sources s
+         LEFT JOIN connector_items ci ON ci.source_id = s.id AND ci.kind = 'calendar'
+         WHERE s.id = ? AND s.type = 'google:calendar'`,
+      )
+      .get(sourceId) as
+      | {
+          id: number;
+          title: string;
+          path: string | null;
+          raw_content: string | null;
+          external_id: string | null;
+        }
+      | undefined;
+    if (!row) return undefined;
+    let start: string | null = null;
+    let attendees: string[] = [];
+    let htmlLink = row.path ?? "https://calendar.google.com/";
+    if (row.raw_content) {
+      try {
+        const e = JSON.parse(row.raw_content) as CalendarEventItem;
+        start = e.start ?? null;
+        attendees = (e.attendees ?? [])
+          .map((a) => a.name?.trim() || a.email)
+          .filter((name): name is string => Boolean(name));
+        if (e.htmlLink) htmlLink = e.htmlLink;
+      } catch {
+        /* keep title + link only */
+      }
+    }
+    return {
+      sourceId: row.id,
+      externalId: row.external_id,
+      title: row.title,
+      start,
+      attendees,
+      htmlLink,
+    };
+  }
+
+  /**
+   * Best-effort match of a detected meeting to a synced calendar event (#85).
+   * Scores every `google:calendar` event source within ±1 day of `date` by title
+   * similarity (token overlap) and attendee overlap, returning the strongest match
+   * above a small floor — or undefined when no calendar is connected / nothing is
+   * close enough. Read-only and side-effect-free; the caller persists the link.
+   */
+  findCalendarEventForMeeting(args: {
+    date: string;
+    title: string;
+    attendees: string[];
+  }): { sourceId: number; score: number } | undefined {
+    const day = args.date.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(day)) return undefined;
+    // ±1 day window around the meeting date (string compare on the YYYY-MM-DD prefix).
+    const lower = shiftIsoDay(day, -1);
+    const upper = shiftIsoDay(day, 1);
+
+    // Pull a candidate set; titles are not used for SQL filtering (calendar
+    // titles rarely match the note's title verbatim), so scan recent events.
+    const candidates = this.listCalendarEvents("", 200);
+    const noteTitleTokens = tokenize(args.title);
+    const noteAttendees = new Set(
+      args.attendees.map((a) => a.trim().toLowerCase()).filter(Boolean),
+    );
+
+    let best: { sourceId: number; score: number } | undefined;
+    for (const ev of candidates) {
+      const evDay = (ev.start ?? "").slice(0, 10);
+      if (!evDay || evDay < lower || evDay > upper) continue;
+
+      const evTitleTokens = tokenize(ev.title);
+      const titleScore = jaccard(noteTitleTokens, evTitleTokens);
+
+      const evAttendees = new Set(ev.attendees.map((a) => a.trim().toLowerCase()).filter(Boolean));
+      let attendeeOverlap = 0;
+      if (noteAttendees.size > 0 && evAttendees.size > 0) {
+        let hits = 0;
+        for (const a of noteAttendees) if (evAttendees.has(a)) hits++;
+        attendeeOverlap = hits / Math.min(noteAttendees.size, evAttendees.size);
+      }
+      // Same-day events get a small prior even with weak title/attendee signal.
+      const dayScore = evDay === day ? 0.2 : 0.05;
+      const score = 0.45 * titleScore + 0.45 * attendeeOverlap + dayScore;
+
+      if (score > (best?.score ?? 0)) best = { sourceId: ev.sourceId, score };
+    }
+    // Require some real signal beyond the day prior alone.
+    return best && best.score >= 0.35 ? best : undefined;
+  }
+
   // --- meeting notes (#26) ---
 
   /**
@@ -838,17 +985,35 @@ export class KnowledgeStore {
     sourceId: number;
     meetingDate?: string | null;
     attendees?: string[];
+    /** Classifier confidence for an auto-detected meeting; null/omitted for manual (#85). */
+    detectionConfidence?: number | null;
+    /** 'auto' when detected at ingest, 'manual' for the explicit create path. Defaults 'manual'. */
+    detectionMethod?: "auto" | "manual";
+    /** A matched google:calendar event source to link, or null to clear (#85). */
+    linkedCalendarSourceId?: number | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO meeting_notes (source_id, meeting_date, attendees)
-         VALUES (?, ?, ?)
+        `INSERT INTO meeting_notes
+           (source_id, meeting_date, attendees, detection_confidence, detection_method,
+            linked_calendar_source_id)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(source_id) DO UPDATE SET
            meeting_date = excluded.meeting_date,
            attendees = excluded.attendees,
+           detection_confidence = excluded.detection_confidence,
+           detection_method = excluded.detection_method,
+           linked_calendar_source_id = excluded.linked_calendar_source_id,
            updated_at = datetime('now')`,
       )
-      .run(input.sourceId, input.meetingDate ?? null, JSON.stringify(input.attendees ?? []));
+      .run(
+        input.sourceId,
+        input.meetingDate ?? null,
+        JSON.stringify(input.attendees ?? []),
+        input.detectionConfidence ?? null,
+        input.detectionMethod ?? "manual",
+        input.linkedCalendarSourceId ?? null,
+      );
   }
 
   /** The structured fields of a meeting note, or undefined if the source isn't one. */
@@ -858,6 +1023,9 @@ export class KnowledgeStore {
           source_id: number;
           meeting_date: string | null;
           attendees: string;
+          detection_confidence: number | null;
+          detection_method: "auto" | "manual";
+          linked_calendar_source_id: number | null;
           created_at: string;
           updated_at: string;
         }
@@ -878,6 +1046,9 @@ export class KnowledgeStore {
       source_id: number;
       meeting_date: string | null;
       attendees: string;
+      detection_confidence: number | null;
+      detection_method: "auto" | "manual";
+      linked_calendar_source_id: number | null;
       created_at: string;
       updated_at: string;
       title: string;
@@ -1734,6 +1905,68 @@ export class KnowledgeStore {
       .all(limit) as InboxItemRow[];
   }
 
+  /**
+   * Local-file indexing health for the source dashboard (#87): how many inbox
+   * items are in each meaningful bucket, plus the most recent successful index
+   * time. Folds the fine-grained inbox statuses into the product buckets the UI
+   * shows (indexed / failed / skipped / pending). Connector materializations don't
+   * pass through the inbox, so this is purely the local-file picture.
+   */
+  inboxHealthCounts(): {
+    indexed: number;
+    failed: number;
+    skipped: number;
+    pending: number;
+    lastIndexedAt: string | null;
+  } {
+    const rows = this.db
+      .prepare("SELECT status, COUNT(*) AS n FROM inbox_items GROUP BY status")
+      .all() as Array<{ status: string; n: number }>;
+    const by = new Map(rows.map((r) => [r.status, r.n]));
+    const lastIndexedAt =
+      (
+        this.db
+          .prepare(
+            "SELECT MAX(updated_at) AS t FROM inbox_items WHERE status IN ('done','indexed')",
+          )
+          .get() as { t: string | null }
+      ).t ?? null;
+    return {
+      indexed: by.get("done") ?? 0,
+      failed: by.get("failed") ?? 0,
+      // "unsupported" files are the skipped bucket (a recognized non-error skip).
+      skipped: by.get("unsupported") ?? 0,
+      // Anything still mid-pipeline counts as pending/in-progress.
+      pending:
+        (by.get("queued") ?? 0) +
+        (by.get("parsing") ?? 0) +
+        (by.get("extracting") ?? 0) +
+        (by.get("merging") ?? 0),
+      lastIndexedAt,
+    };
+  }
+
+  /**
+   * The file extensions meOS encountered but does not index, with how many of each
+   * (#87) — surfaced so the user knows what was left out. Derived from inbox items
+   * marked `unsupported`, grouped by the extension parsed from their path/title.
+   */
+  inboxSkippedTypes(): Array<{ extension: string; count: number }> {
+    const rows = this.db
+      .prepare(`SELECT COALESCE(path, title) AS name FROM inbox_items WHERE status = 'unsupported'`)
+      .all() as Array<{ name: string | null }>;
+    const counts = new Map<string, number>();
+    for (const r of rows) {
+      const name = r.name ?? "";
+      const dot = name.lastIndexOf(".");
+      const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "(none)";
+      counts.set(ext, (counts.get(ext) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([extension, count]) => ({ extension, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
   // --- durable ingest jobs (#13) ---------------------------------------
 
   /**
@@ -2359,16 +2592,33 @@ export class KnowledgeStore {
   )`;
 
   /**
+   * A SQL predicate (on alias `e`) restricting entities to the user's enabled
+   * types (#86). Returns "1" (no-op) when every type is enabled — the default —
+   * so the all-enabled path is provably unchanged. The filter is applied only at
+   * surfacing/promotion time; entities of disabled types stay in the DB and
+   * become page-worthy again the moment their type is re-enabled.
+   */
+  private enabledTypePredicate(): string {
+    const prefs = this.getKnowledgePreferences();
+    const enabled = ENABLED_ENTITY_TYPES(prefs);
+    if (enabled.length === ENTITY_TYPE_COUNT) return "1";
+    if (enabled.length === 0) return "0";
+    // Types come from a fixed enum, so inlining the quoted literals is safe.
+    return `e.type IN (${enabled.map((t) => `'${t}'`).join(", ")})`;
+  }
+
+  /**
    * Does this entity warrant a standalone wiki page? True only when it has
-   * page-worthy backing (see {@link HAS_PAGE_WORTHY_SQL}). A person known only
-   * from a connector (contact/email/calendar) and a "name only" contact with no
-   * facts both return false: they earn no page and are hidden from the wiki index,
-   * while staying fully searchable.
+   * page-worthy backing (see {@link HAS_PAGE_WORTHY_SQL}) AND its type is enabled
+   * (#86). A person known only from a connector (contact/email/calendar) and a
+   * "name only" contact with no facts both return false: they earn no page and
+   * are hidden from the wiki index, while staying fully searchable.
    */
   entityWarrantsWikiPage(id: number): boolean {
     const row = this.db
       .prepare(
-        `SELECT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AS warrants FROM entities e WHERE e.id = ?`,
+        `SELECT (${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AND ${this.enabledTypePredicate()}) AS warrants
+         FROM entities e WHERE e.id = ?`,
       )
       .get(id) as { warrants: number } | undefined;
     return row?.warrants === 1;
@@ -2377,11 +2627,15 @@ export class KnowledgeStore {
   /**
    * The set of entity ids that warrant a wiki page (see
    * {@link entityWarrantsWikiPage}). Used to keep connector-only and factless
-   * entities out of the wiki index/graph and out of page synthesis.
+   * entities — and entities of disabled types (#86) — out of the wiki
+   * index/graph and out of page synthesis.
    */
   wikiPageEntityIds(): Set<number> {
     const rows = this.db
-      .prepare(`SELECT e.id AS id FROM entities e WHERE ${KnowledgeStore.HAS_PAGE_WORTHY_SQL}`)
+      .prepare(
+        `SELECT e.id AS id FROM entities e
+         WHERE ${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AND ${this.enabledTypePredicate()}`,
+      )
       .all() as Array<{ id: number }>;
     return new Set(rows.map((r) => r.id));
   }
@@ -2582,6 +2836,41 @@ export class KnowledgeStore {
          WHERE r.status = 'active'`,
       )
       .all() as RelationshipView[];
+  }
+
+  /**
+   * Per-relationship provenance for the graph view (#89): a representative
+   * source id (the edge's primary `source_id`, falling back to any joined
+   * source) and how many distinct sources back it. Returned as a map keyed by
+   * relationship id so the graph route can decorate edges in one query rather
+   * than one lookup per edge.
+   */
+  relationshipSourceStats(): Map<number, { sourceId: number | null; sourceCount: number }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.id AS relationship_id,
+                r.source_id AS primary_source_id,
+                COUNT(DISTINCT rs.source_id) AS source_count,
+                MIN(rs.source_id) AS any_source_id
+         FROM relationships r
+         LEFT JOIN relationship_sources rs ON rs.relationship_id = r.id
+         WHERE r.status = 'active'
+         GROUP BY r.id`,
+      )
+      .all() as {
+      relationship_id: number;
+      primary_source_id: number | null;
+      source_count: number;
+      any_source_id: number | null;
+    }[];
+    const stats = new Map<number, { sourceId: number | null; sourceCount: number }>();
+    for (const row of rows) {
+      stats.set(row.relationship_id, {
+        sourceId: row.primary_source_id ?? row.any_source_id,
+        sourceCount: row.source_count,
+      });
+    }
+    return stats;
   }
 
   relationshipsFor(entityId: number): RelationshipView[] {
@@ -3039,13 +3328,23 @@ export class KnowledgeStore {
   }
 
   /** Wiki pages with no connections to the rest of the graph, surfaced for review. */
-  orphanEntities(): EntityRow[] {
+  /**
+   * Entities with no relationships (digest "possible orphans"). When `focus` is
+   * given (#86), only entities of an enabled type are returned — non-destructive
+   * surfacing filter; omit it for the unchanged pre-#86 behaviour.
+   */
+  orphanEntities(focus?: KnowledgePreferences): EntityRow[] {
+    const types = focus ? [...enabledEntityTypes(focus)] : null;
+    const typeFilter =
+      types && types.length < ENTITY_TYPE_COUNT
+        ? ` AND e.type IN (${types.length ? types.map((t) => `'${t}'`).join(", ") : "''"})`
+        : "";
     return this.db
       .prepare(
         `SELECT * FROM entities e
          WHERE NOT EXISTS (
            SELECT 1 FROM relationships r WHERE r.from_entity = e.id OR r.to_entity = e.id
-         )
+         )${typeFilter}
          ORDER BY e.name`,
       )
       .all() as EntityRow[];
@@ -3076,17 +3375,44 @@ export class KnowledgeStore {
       .all(sinceIso) as Array<{ id: number; title: string; type: string; created_at: string }>;
   }
 
+  /**
+   * Active observations created since a cutoff (digest "new knowledge"). When
+   * `focus` is given (#86), only observations whose entity type AND kind are both
+   * enabled are returned — a non-destructive surfacing filter. Omit `focus` (or
+   * pass the all-enabled default) for the unchanged pre-#86 behaviour.
+   */
   recentObservations(
     sinceIso: string,
+    focus?: KnowledgePreferences,
   ): Array<{ text: string; entity_name: string; confidence: number }> {
+    const filter = this.observationFocusSql(focus);
     return this.db
       .prepare(
         `SELECT o.text, o.confidence, e.name AS entity_name
          FROM observations o JOIN entities e ON e.id = o.entity_id
-         WHERE o.created_at >= ? AND o.status = 'active'
+         WHERE o.created_at >= ? AND o.status = 'active'${filter}
          ORDER BY o.id DESC LIMIT 100`,
       )
       .all(sinceIso) as Array<{ text: string; entity_name: string; confidence: number }>;
+  }
+
+  /**
+   * A SQL predicate (aliases `e` for entity, `o` for observation) restricting to
+   * enabled entity types and observation kinds (#86). Returns "" (no-op) when
+   * preferences are unrestricted, so the default path is unchanged.
+   */
+  private observationFocusSql(focus?: KnowledgePreferences): string {
+    if (!focus) return "";
+    const types = [...enabledEntityTypes(focus)];
+    const kinds = [...enabledObservationKinds(focus)];
+    const clauses: string[] = [];
+    if (types.length < ENTITY_TYPE_COUNT) {
+      clauses.push(types.length ? `e.type IN (${types.map((t) => `'${t}'`).join(", ")})` : "0");
+    }
+    if (kinds.length < OBSERVATION_KIND_COUNT) {
+      clauses.push(kinds.length ? `o.kind IN (${kinds.map((k) => `'${k}'`).join(", ")})` : "0");
+    }
+    return clauses.length ? ` AND ${clauses.join(" AND ")}` : "";
   }
 
   recentlySuperseded(
@@ -3403,6 +3729,26 @@ export class KnowledgeStore {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
       )
       .run(key, JSON.stringify(value));
+  }
+
+  // --- knowledge preferences (#86) -------------------------------------
+  // Which entity types / observation kinds the user wants MeOS to focus on.
+  // Stored as one JSON blob in `settings`; unset == the all-enabled default, so
+  // a fresh DB behaves exactly as before #86. Reads/writes never touch
+  // entities/observations — disabling a type only narrows surfacing.
+
+  /** The resolved preferences, defaulting to all-enabled when unset. */
+  getKnowledgePreferences(): KnowledgePreferences {
+    return resolvePreferences(
+      this.getSetting<Partial<KnowledgePreferences>>(KNOWLEDGE_PREFERENCES_KEY),
+    );
+  }
+
+  /** Persist preferences (resolved/normalised first). Non-destructive. */
+  setKnowledgePreferences(prefs: Partial<KnowledgePreferences>): KnowledgePreferences {
+    const resolved = resolvePreferences(prefs);
+    this.setSetting(KNOWLEDGE_PREFERENCES_KEY, resolved);
+    return resolved;
   }
 
   // --- watched folders -------------------------------------------------

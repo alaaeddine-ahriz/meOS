@@ -1,5 +1,5 @@
 import { wiki } from "@meos/contracts";
-import { findDuplicateEntities, isStale, temporalTag } from "@meos/core";
+import { CONFIDENCE_CAP, findDuplicateEntities, isStale, temporalTag } from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import { commitWikiChanges, type AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
@@ -124,6 +124,10 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
     async () => {
       const withPages = ctx.store.wikiPageEntityIds();
+      // Per-edge provenance loaded once (#89): a representative source id to open
+      // the evidence behind a link, and the distinct-source count that drives the
+      // confirmed-vs-generated idiom.
+      const sourceStats = ctx.store.relationshipSourceStats();
       return wiki.WikiGraphResponse.parse({
         nodes: ctx.store
           .listEntities()
@@ -133,16 +137,30 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
             type: entity.type,
             name: entity.name,
             slug: entity.slug,
+            // Powers the focus/inspect panel without a second round-trip.
+            summary: entity.summary,
           })),
         // Drop edges to a hidden (pageless) endpoint so the graph has no dangling links.
         links: ctx.store
           .allRelationships()
           .filter((r) => withPages.has(r.from_entity) && withPages.has(r.to_entity))
-          .map((r) => ({
-            from: r.from_entity,
-            to: r.to_entity,
-            label: r.label,
-          })),
+          .map((r) => {
+            const stats = sourceStats.get(r.id);
+            const sourceCount = stats?.sourceCount ?? 0;
+            return {
+              from: r.from_entity,
+              to: r.to_entity,
+              label: r.label,
+              confidence: r.confidence,
+              sourceId: stats?.sourceId ?? null,
+              sourceCount,
+              // PROXY for user-confirmed (no confirmation column exists, #89): an
+              // edge corroborated by more than one distinct source, or pinned at
+              // the reinforcement cap, is shown as confirmed/solid; otherwise it's
+              // a single-shot generated guess shown dashed.
+              confirmed: sourceCount > 1 || r.confidence >= CONFIDENCE_CAP,
+            };
+          }),
       });
     },
   );

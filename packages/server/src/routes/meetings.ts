@@ -42,12 +42,22 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
       method: l.method,
       status: l.status,
     }));
+    // An auto-detected meeting may carry a linked calendar event (#85); resolve
+    // it to a compact ref for the detail view (best-effort — may have vanished).
+    const calRef = note.linked_calendar_source_id
+      ? ctx.store.getCalendarEventRef(note.linked_calendar_source_id)
+      : undefined;
     return {
       sourceId,
       title: source.title,
       date: note.meeting_date,
       attendees: note.attendees,
       content: ctx.store.getSourceContent(sourceId) ?? "",
+      detectionMethod: note.detection_method,
+      detectionConfidence: note.detection_confidence,
+      calendarEvent: calRef
+        ? { sourceId: calRef.sourceId, title: calRef.title, start: calRef.start }
+        : null,
       decisions: observations.filter((o) => o.kind === "decision"),
       actionItems: observations.filter((o) => o.kind === ACTION_KIND),
       risks: observations.filter((o) => o.kind === "risk"),

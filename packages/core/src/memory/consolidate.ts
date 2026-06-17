@@ -116,11 +116,16 @@ export async function runConsolidation(deps: {
 
   // The digest is written to disk and git-synced/exported — only list sources
   // whose content is allowed to leave the device (exportable).
+  // Knowledge focus (#86): the digest surfaces only the entity types / observation
+  // kinds the user enabled, so disabled types don't clutter the briefing. Unset
+  // prefs resolve to all-enabled, so the digest is unchanged for an unconfigured
+  // install. Non-destructive — nothing is deleted, only de-emphasised.
+  const prefs = store.getKnowledgePreferences();
   const sources = store.recentSources(since, "export");
-  const observations = store.recentObservations(since);
+  const observations = store.recentObservations(since, prefs);
   const superseded = store.recentlySuperseded(since);
   const contradictions = store.unresolvedContradictions();
-  const orphans = store.orphanEntities();
+  const orphans = store.orphanEntities(prefs);
 
   const digestDate = new Date().toISOString().slice(0, 10);
   const content = await llm.complete({

@@ -1,12 +1,22 @@
-import { CalendarDays, CheckSquare, ExternalLink, Mail, User } from "lucide-react";
+import {
+  Activity,
+  CalendarDays,
+  CheckSquare,
+  Database,
+  ExternalLink,
+  Mail,
+  User,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { SERVICE_BRANDS, type ServiceBrand } from "@/components/brand-logos";
 import { ListSection } from "@/components/list";
 import { Breadcrumbs, Page, PageBody, PageHeader, type Crumb } from "@/components/Page";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { openExternal } from "@/lib/platform";
 import { api, type IndexedSource, type SourceDetail } from "../api.js";
+import { SourceHealthView } from "./SourceHealthView.js";
 
 /**
  * The Sources tab: every locally-indexed connector item — a contact, calendar
@@ -45,26 +55,56 @@ function groupByKind(items: IndexedSource[]) {
 }
 
 export function SourcesView() {
+  const [params, setParams] = useSearchParams();
+  const tab: "items" | "health" = params.get("tab") === "health" ? "health" : "items";
   const [sources, setSources] = useState<IndexedSource[]>([]);
   const [loaded, setLoaded] = useState(false);
 
+  const setTab = (next: string) => {
+    const params2 = new URLSearchParams(params);
+    if (next === "items") params2.delete("tab");
+    else params2.set("tab", next);
+    setParams(params2, { replace: true });
+  };
+
   useEffect(() => {
+    if (tab !== "items") return;
     api
       .listSources()
       .then((r) => setSources(r.sources))
       .finally(() => setLoaded(true));
-  }, []);
+  }, [tab]);
 
   const groups = useMemo(() => groupByKind(sources), [sources]);
+
+  const tabs = (
+    <Tabs value={tab} onValueChange={setTab}>
+      <TabsList>
+        <TabsTrigger value="items">
+          <Database className="size-3.5" /> Items
+        </TabsTrigger>
+        <TabsTrigger value="health">
+          <Activity className="size-3.5" /> Health
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
 
   return (
     <Page>
       <PageHeader
         title="Sources"
-        description={`${sources.length} indexed item${sources.length === 1 ? "" : "s"} from your connected services — each usable as a source for the wiki.`}
+        description={
+          tab === "health"
+            ? "Where meOS reads from, what it indexed, and anything that needs your attention."
+            : `${sources.length} indexed item${sources.length === 1 ? "" : "s"} from your connected services — each usable as a source for the wiki.`
+        }
+        actions={tabs}
       />
       <PageBody>
-        {loaded && sources.length === 0 ? (
+        {tab === "health" ? (
+          <SourceHealthView />
+        ) : loaded && sources.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing indexed yet. Connect Google in{" "}
             <Link className="text-primary underline underline-offset-2" to="/settings">

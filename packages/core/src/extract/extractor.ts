@@ -4,6 +4,11 @@ import {
   RELATIONSHIP_VOCABULARY,
   withSchema,
 } from "../knowledge/schema-doc.js";
+import {
+  defaultPreferences,
+  type KnowledgePreferences,
+  withPreferences,
+} from "../knowledge/preferences.js";
 import { withProfile } from "../profile/profile-doc.js";
 import type { LlmClient } from "../llm/types.js";
 import { extractionSchema, type Extraction } from "./schema.js";
@@ -31,9 +36,14 @@ export async function extractKnowledge(
   schema: string = DEFAULT_SCHEMA_MD,
   /** The user profile lens; when non-empty, steers relevance toward the user's world. */
   profileContext = "",
+  /** Knowledge focus (#86); when restricted, biases extraction toward enabled types/kinds. */
+  preferences: KnowledgePreferences = defaultPreferences(),
 ): Promise<Extraction> {
   return llm.completeStructured({
-    system: withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext),
+    system: withPreferences(
+      withProfile(withSchema(SYSTEM_PROMPT, schema), profileContext),
+      preferences,
+    ),
     cacheSystem: true,
     schema: extractionSchema,
     schemaName: "knowledge_extraction",

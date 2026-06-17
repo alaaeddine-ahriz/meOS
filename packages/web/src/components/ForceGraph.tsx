@@ -21,6 +21,24 @@ interface SimLink {
   source: SimNode;
   target: SimNode;
   label: string;
+  /** Backing relationship confidence (0–1); drives edge opacity/width. */
+  confidence: number;
+  /** Corroborated (multi-source / capped) → solid; otherwise generated → dashed. */
+  confirmed: boolean;
+  /** Representative source id, so the inspector can open the evidence. */
+  sourceId: number | null;
+  sourceCount: number;
+}
+
+/** What the caller's edge inspector receives when an edge is clicked. */
+export interface EdgeSelection {
+  from: { id: number; name: string; slug: string };
+  to: { id: number; name: string; slug: string };
+  label: string;
+  confidence: number;
+  confirmed: boolean;
+  sourceId: number | null;
+  sourceCount: number;
 }
 
 interface Sim {
@@ -105,25 +123,38 @@ export function ForceGraph({
   links: linkData,
   className,
   wheelZoom = true,
+  onEdgeSelect,
 }: {
   nodes: GraphNode[];
   links: GraphLink[];
   className?: string;
   /** Allow wheel-to-zoom. Off inside a scrolling page (e.g. chat) so it doesn't trap scroll. */
   wheelZoom?: boolean;
+  /**
+   * Called when an edge is clicked (#89): the caller opens an inspector showing
+   * the two entities, the relationship, confidence, and a link to the source
+   * evidence. When omitted, edges aren't clickable (e.g. the chat subgraph).
+   */
+  onEdgeSelect?: (edge: EdgeSelection | null) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const simRef = useRef<Sim>({ nodes: [], links: [], alpha: 0 });
   const viewRef = useRef({ x: 0, y: 0, k: 1 });
   const hoverRef = useRef<SimNode | null>(null);
+  const hoverEdgeRef = useRef<SimLink | null>(null);
   const navigate = useNavigate();
+  // Keep the latest callback without re-subscribing pointer handlers each render.
+  const onEdgeSelectRef = useRef(onEdgeSelect);
+  onEdgeSelectRef.current = onEdgeSelect;
 
   // Rebuild the simulation only when the actual graph content changes, not on
   // every render (the node/link arrays are fresh objects each time).
   const signature = useMemo(
     () =>
-      `${nodeData.map((n) => n.id).join(",")}|${linkData.map((l) => `${l.from}-${l.to}-${l.label}`).join(",")}`,
+      `${nodeData.map((n) => n.id).join(",")}|${linkData
+        .map((l) => `${l.from}-${l.to}-${l.label}-${l.confidence ?? ""}-${l.confirmed ? 1 : 0}`)
+        .join(",")}`,
     [nodeData, linkData],
   );
 
@@ -153,7 +184,16 @@ export function ForceGraph({
     for (const link of linkData) {
       const source = nodes.get(link.from);
       const target = nodes.get(link.to);
-      if (source && target) links.push({ source, target, label: link.label });
+      if (source && target)
+        links.push({
+          source,
+          target,
+          label: link.label,
+          confidence: link.confidence ?? 1,
+          confirmed: link.confirmed ?? false,
+          sourceId: link.sourceId ?? null,
+          sourceCount: link.sourceCount ?? 0,
+        });
     }
     const sim: Sim = { nodes: [...nodes.values()], links, alpha: 1 };
     // settle the layout before first paint so it doesn't fly in from a spiral
@@ -247,6 +287,7 @@ export function ForceGraph({
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr * view.k, 0, 0, dpr * view.k, dpr * view.x, dpr * view.y);
 
+      const hoverEdge = hoverEdgeRef.current;
       const neighbors = new Set<SimNode>();
       if (hover) {
         neighbors.add(hover);
@@ -257,14 +298,21 @@ export function ForceGraph({
       }
 
       for (const link of sim.links) {
-        const active = hover !== null && (link.source === hover || link.target === hover);
+        const touchesHover = hover !== null && (link.source === hover || link.target === hover);
+        const active = touchesHover || link === hoverEdge;
+        // Trust shows in the stroke: a confirmed (corroborated) edge is solid, a
+        // generated single-source one is dashed; opacity/width scale with confidence.
+        const conf = link.confidence;
         ctx.strokeStyle = active ? lampColor : lineColor;
-        ctx.globalAlpha = hover ? (active ? 0.9 : 0.15) : 0.6;
-        ctx.lineWidth = (active ? 1.4 : 1) / view.k;
+        const baseAlpha = 0.18 + conf * 0.42; // ~0.18 (weak) … ~0.6 (strong)
+        ctx.globalAlpha = hover || hoverEdge ? (active ? 0.95 : 0.1) : baseAlpha;
+        ctx.lineWidth = ((active ? 1.4 : 0.6 + conf * 0.9) as number) / view.k;
+        ctx.setLineDash(link.confirmed ? [] : [4 / view.k, 3 / view.k]);
         ctx.beginPath();
         ctx.moveTo(link.source.x, link.source.y);
         ctx.lineTo(link.target.x, link.target.y);
         ctx.stroke();
+        ctx.setLineDash([]);
         if (active && link.label) {
           ctx.globalAlpha = 1;
           ctx.fillStyle = fadedColor;
@@ -332,6 +380,45 @@ export function ForceGraph({
       return null;
     };
 
+    // Distance from a point to the segment, to hit-test edges (#89). Only used
+    // when the caller wants edge inspection, and only when no node was hit.
+    const edgeHitTest = (sx: number, sy: number): SimLink | null => {
+      if (!onEdgeSelectRef.current) return null;
+      const { x, y } = toWorld(sx, sy);
+      const tol = 5 / viewRef.current.k;
+      let best: SimLink | null = null;
+      let bestDist = tol;
+      for (const link of simRef.current.links) {
+        const ax = link.source.x;
+        const ay = link.source.y;
+        const bx = link.target.x;
+        const by = link.target.y;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy || 1;
+        let t = ((x - ax) * dx + (y - ay) * dy) / len2;
+        t = Math.max(0, Math.min(1, t));
+        const px = ax + t * dx;
+        const py = ay + t * dy;
+        const dist = Math.hypot(x - px, y - py);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = link;
+        }
+      }
+      return best;
+    };
+
+    const toSelection = (link: SimLink): EdgeSelection => ({
+      from: { id: link.source.id, name: link.source.name, slug: link.source.slug },
+      to: { id: link.target.id, name: link.target.name, slug: link.target.slug },
+      label: link.label,
+      confidence: link.confidence,
+      confirmed: link.confirmed,
+      sourceId: link.sourceId,
+      sourceCount: link.sourceCount,
+    });
+
     let dragNode: SimNode | null = null;
     let panning = false;
     let moved = 0;
@@ -364,13 +451,20 @@ export function ForceGraph({
       } else {
         const hit = hitTest(event.offsetX, event.offsetY);
         hoverRef.current = hit;
-        canvas.style.cursor = hit ? "pointer" : "grab";
+        // Only fall through to edge hover when not over a node, so node hover wins.
+        hoverEdgeRef.current = hit ? null : edgeHitTest(event.offsetX, event.offsetY);
+        canvas.style.cursor = hit || hoverEdgeRef.current ? "pointer" : "grab";
       }
     };
 
     const onPointerUp = (event: PointerEvent) => {
       if (dragNode && moved < 5) {
         navigate(`/wiki/${dragNode.slug}`);
+      } else if (!dragNode && !panning && moved < 5) {
+        // A click on empty canvas: open an edge inspector if one was hit, else
+        // clear any open inspector.
+        const edge = edgeHitTest(event.offsetX, event.offsetY);
+        onEdgeSelectRef.current?.(edge ? toSelection(edge) : null);
       }
       dragNode = null;
       panning = false;
@@ -379,6 +473,7 @@ export function ForceGraph({
 
     const onPointerLeave = () => {
       hoverRef.current = null;
+      hoverEdgeRef.current = null;
     };
 
     const onWheel = (event: WheelEvent) => {

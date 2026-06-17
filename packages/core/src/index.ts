@@ -40,6 +40,13 @@ export {
   processMeetingNote,
 } from "./ingest/meeting.js";
 export type { MeetingNoteInput, MeetingProcessResult } from "./ingest/meeting.js";
+export {
+  detectMeeting,
+  meetingHeuristicScore,
+  MEETING_DETECTION_THRESHOLD,
+  MEETING_HEURISTIC_FLOOR,
+} from "./ingest/meeting-detect.js";
+export type { MeetingDetectionResult, MeetingDetectionMethod } from "./ingest/meeting-detect.js";
 export { suggestMeetingLinks } from "./knowledge/meeting-links.js";
 export type { MeetingLinkSuggestion } from "./knowledge/meeting-links.js";
 export {
@@ -124,6 +131,24 @@ export {
   strongerSensitivity,
 } from "./knowledge/schema-doc.js";
 export type { ObservationKind, Sensitivity } from "./knowledge/schema-doc.js";
+export {
+  defaultPreferences,
+  enabledEntityTypes,
+  enabledObservationKinds,
+  ENTITY_TYPES,
+  KNOWLEDGE_PRESETS,
+  preferencesForPreset,
+  preferencesVersion,
+  preferencesAreUnrestricted,
+  resolvePreferences,
+  withPreferences,
+} from "./knowledge/preferences.js";
+export type {
+  EntityTypeToggles,
+  KnowledgePreferences,
+  KnowledgePreset,
+  ObservationKindToggles,
+} from "./knowledge/preferences.js";
 export { mergeExtraction } from "./knowledge/merge.js";
 export type { MergeResult } from "./knowledge/merge.js";
 export {
@@ -202,7 +227,12 @@ export {
 export type { OutputMode } from "./outputs.js";
 export { detectContradictions } from "./memory/contradictions.js";
 export type { ContradictionSummary } from "./memory/contradictions.js";
-export { clampConfidence, initialConfidence, sourceQuality } from "./memory/confidence.js";
+export {
+  clampConfidence,
+  CONFIDENCE_CAP,
+  initialConfidence,
+  sourceQuality,
+} from "./memory/confidence.js";
 export { classifyMemoryTier, reclassifyMemoryTiers } from "./memory/memory-tiers.js";
 export type { MemoryTier } from "./memory/memory-tiers.js";
 export { expireStaleValidity } from "./memory/supersession.js";

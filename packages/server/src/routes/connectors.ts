@@ -5,6 +5,7 @@ import {
   connectorRegistry,
   createPkcePair,
   createTask,
+  deriveCoverageState,
   ensureAccessToken,
   fetchSelf,
   listTaskLists,
@@ -69,13 +70,25 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   const coverageFor = (accountId: number, kind: string) => {
     const config = ctx.store.getSyncConfig(accountId, kind);
     const stats = ctx.store.connectorCoverageStats(accountId, kind);
+    const last = config.lastSync;
     const base = {
       itemCount: stats.itemCount,
       oldestIndexed: stats.oldestIndexed,
       coverageWindow: config.coverageWindow ?? "recent",
+      // The unambiguous completeness state + last-success/last-failure split (#88),
+      // so the UI never shows just "connected". Derived deterministically in core.
+      state: deriveCoverageState(config),
+      lastSuccessAt: last?.okAt ?? null,
+      lastFailureAt: last?.errorAt ?? null,
+      lastError: last?.error ?? null,
+      lastIndexed: last?.indexed,
+      lastSkipped: last?.skipped,
+      lastFailed: last?.failed,
     } as Record<string, unknown>;
     if (kind === "gmail") {
       base.contentMode = config.contentMode ?? "metadata";
+      base.includeLabels = config.includeLabels ?? [];
+      base.excludeLabels = config.excludeLabels ?? [];
       if (config.backfill) {
         base.backfill = {
           indexed: config.backfill.indexed,
@@ -85,6 +98,9 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       }
     }
     if (kind === "calendar") {
+      // The live calendar list (`availableCalendars`) is fetched via the dedicated
+      // GET /calendars endpoint the UI already calls — kept out of this per-poll
+      // status view so /api/connectors stays a cheap, network-free read.
       base.enabledCalendars =
         config.enabledCalendars && config.enabledCalendars.length > 0
           ? config.enabledCalendars
@@ -94,6 +110,11 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         indexed: c.indexed,
         lastSyncedAt: c.lastSyncedAt,
       }));
+    }
+    if (kind === "tasks") {
+      // Task-list selection (#88); the available lists come from the dedicated
+      // GET /tasks/lists endpoint (it needs a live token), like calendars above.
+      base.enabledTaskLists = config.enabledTaskLists ?? [];
     }
     return base;
   };
@@ -228,6 +249,10 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       contentMode?: string;
       enabledCalendars?: string[];
       mode?: "index" | "wiki";
+      includeLabels?: string[];
+      excludeLabels?: string[];
+      enabledTaskLists?: string[];
+      reset?: boolean;
     };
   }>(
     "/api/connectors/google/:kind/config",
@@ -248,36 +273,64 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       if (!account) throw httpError.badRequest("Google is not connected");
 
       const body = parseOrThrow(connectorsSchema.ConfigureKindBody, request.body, "body");
-      const { enabled, intervalMinutes, coverageWindow, contentMode, enabledCalendars, mode } =
-        body;
+      const {
+        enabled,
+        intervalMinutes,
+        coverageWindow,
+        contentMode,
+        enabledCalendars,
+        mode,
+        includeLabels,
+        excludeLabels,
+        enabledTaskLists,
+        reset,
+      } = body;
 
-      // Assemble any coverage-config changes into a single config patch (#68).
+      // Assemble any coverage-config changes into a single config patch (#68/#88).
       const configPatch: ConnectorKindConfig = {};
       if (coverageWindow != null) configPatch.coverageWindow = coverageWindow;
       if (kind === "gmail" && contentMode != null) configPatch.contentMode = contentMode;
+      if (kind === "gmail" && includeLabels != null) configPatch.includeLabels = includeLabels;
+      if (kind === "gmail" && excludeLabels != null) configPatch.excludeLabels = excludeLabels;
       if (kind === "calendar" && enabledCalendars != null)
         configPatch.enabledCalendars = enabledCalendars;
-      const coverageChanged = Object.keys(configPatch).length > 0;
-      // Re-seeding coverage: clear the cursor so the new window/calendars re-pull from
-      // the bound (a wider window must not be limited to the old incremental cursor).
-      if (coverageChanged) configPatch.backfill = undefined;
+      if (kind === "tasks" && enabledTaskLists != null)
+        configPatch.enabledTaskLists = enabledTaskLists;
+      // A coverage change re-seeds: clear the cursor so the new window/labels/lists
+      // re-pull from the bound (a wider window must not be limited to the old cursor).
+      // Content mode + the index/wiki mode are NOT coverage — toggling them must not
+      // re-pull the mailbox — so they're tracked separately.
+      const coverageChanged =
+        coverageWindow != null ||
+        includeLabels != null ||
+        excludeLabels != null ||
+        enabledCalendars != null ||
+        enabledTaskLists != null;
+      // Full re-import (#88): the explicit "reset & re-import" action wipes the
+      // cursor + backfill so the whole window is re-pulled from scratch.
+      const resetting = reset === true;
+      if (coverageChanged || resetting) configPatch.backfill = undefined;
       // The index/wiki mode (the "one of two" choice) is a plain config flag — it
       // never resets the cursor, so toggling it doesn't re-pull the mailbox.
       if (mode != null) configPatch.mode = mode;
       const configChanged = Object.keys(configPatch).length > 0;
+      // Clearing the cursor forces a fresh full pull (new window seed, or a reset).
+      const clearCursor = coverageWindow != null || resetting;
 
       ctx.store.setSyncState(account.id, kind, {
         enabled,
         intervalMinutes:
           intervalMinutes != null ? Math.max(1, Math.floor(intervalMinutes)) : undefined,
         ...(configChanged
-          ? { config: configPatch, ...(coverageWindow != null ? { syncToken: null } : {}) }
-          : {}),
+          ? { config: configPatch, ...(clearCursor ? { syncToken: null } : {}) }
+          : clearCursor
+            ? { syncToken: null }
+            : {}),
       });
       ctx.connectors.reschedule();
-      // Pull immediately on first enable or a coverage change so the user sees the
-      // new coverage without waiting for the next scheduled tick.
-      if (enabled || coverageChanged) ctx.connectors.enqueueSync("google", kind);
+      // Pull immediately on first enable, a coverage change, or a reset so the user
+      // sees the new coverage without waiting for the next scheduled tick.
+      if (enabled || coverageChanged || resetting) ctx.connectors.enqueueSync("google", kind);
       return connectorsSchema.ConnectorStatusSchema.parse(statusView());
     },
   );

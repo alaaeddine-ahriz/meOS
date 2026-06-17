@@ -28,8 +28,10 @@ export * as digest from "./schemas/digest.js";
 export * as outputs from "./schemas/outputs.js";
 export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
+export * as preferences from "./schemas/preferences.js";
 export * as connectors from "./schemas/connectors.js";
 export * as sources from "./schemas/sources.js";
+export * as sourceHealth from "./schemas/source-health.js";
 export * as calendar from "./schemas/calendar.js";
 export * as git from "./schemas/git.js";
 export * as runtime from "./schemas/runtime.js";
@@ -80,17 +82,36 @@ export type {
   WatchedFolder,
 } from "./schemas/settings.js";
 export type {
+  EntityTypeName,
+  ObservationKindName,
+  KnowledgePreset,
+  KnowledgePreferences,
+} from "./schemas/preferences.js";
+export type {
   CalendarListEntry,
   ConnectorCoverage,
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
+  CoverageState,
   CoverageWindow,
   GmailContentMode,
   IndexMode,
   Task,
   TaskList,
 } from "./schemas/connectors.js";
+export type {
+  HealthLabel,
+  SourceCounts,
+  LocalFoldersHealth,
+  ConnectorHealth,
+  ConnectorsHealth,
+  RunningJob,
+  RecentFailure,
+  PipelineHealth,
+  SkippedType,
+  SourceHealth,
+} from "./schemas/source-health.js";
 export type {
   IndexedSource,
   IndexedEntityLink,
@@ -116,8 +137,10 @@ import type * as gitSchemas from "./schemas/git.js";
 import type * as ingestSchemas from "./schemas/ingest.js";
 import type * as meetingsSchemas from "./schemas/meetings.js";
 import type * as outputsSchemas from "./schemas/outputs.js";
+import type * as preferencesSchemas from "./schemas/preferences.js";
 import type * as profileSchemas from "./schemas/profile.js";
 import type * as settingsSchemas from "./schemas/settings.js";
+import type * as sourceHealthSchemas from "./schemas/source-health.js";
 import type * as sourcesSchemas from "./schemas/sources.js";
 import type * as vaultSchemas from "./schemas/vault.js";
 import type * as wikiSchemas from "./schemas/wiki.js";
@@ -173,12 +196,18 @@ export type AddFolderResponse = z.infer<typeof settingsSchemas.AddFolderResponse
 export type RemoveFolderResponse = z.infer<typeof settingsSchemas.RemoveFolderResponse>;
 export type ResetResponse = z.infer<typeof settingsSchemas.ResetResponse>;
 
+export type KnowledgePreferencesResponse = z.infer<
+  typeof preferencesSchemas.KnowledgePreferencesSchema
+>;
+
 export type AuthStartResponse = z.infer<typeof connectorsSchemas.AuthStartResponse>;
 export type SyncKindResponse = z.infer<typeof connectorsSchemas.SyncKindResponse>;
 export type DisconnectResponse = z.infer<typeof connectorsSchemas.DisconnectResponse>;
 
 export type ListSourcesResponse = z.infer<typeof sourcesSchemas.ListSourcesResponse>;
 export type SourceDetailResponse = z.infer<typeof sourcesSchemas.SourceDetailResponse>;
+
+export type SourceHealthResponse = z.infer<typeof sourceHealthSchemas.SourceHealthResponse>;
 
 export type ListCalendarEventsResponse = z.infer<typeof calendarSchemas.ListCalendarEventsResponse>;
 
