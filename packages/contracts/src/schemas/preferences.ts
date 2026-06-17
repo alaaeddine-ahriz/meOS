@@ -39,8 +39,32 @@ export const KnowledgePresetSchema = z.enum([
   "custom",
 ]);
 
-export const EntityTypeTogglesSchema = z.record(EntityTypeSchema, z.boolean());
-export const ObservationKindTogglesSchema = z.record(ObservationKindSchema, z.boolean());
+// NOTE: these are explicit object schemas (one boolean per fixed key) rather
+// than `z.record(EnumSchema, z.boolean())`. An enum-keyed record makes Zod v4
+// emit a JSON Schema with `additionalProperties` + `required` but no
+// `properties`, which Fastify's response serializer (fast-json-stringify) turns
+// into malformed JSON (`{,"person":true,...}` — a stray leading comma that
+// fails JSON.parse on the client). Explicit `properties` serialize correctly.
+// Keep these keys in sync with EntityTypeSchema / ObservationKindSchema above.
+export const EntityTypeTogglesSchema = z.object({
+  person: z.boolean(),
+  project: z.boolean(),
+  organisation: z.boolean(),
+  concept: z.boolean(),
+  place: z.boolean(),
+  decision: z.boolean(),
+});
+export const ObservationKindTogglesSchema = z.object({
+  fact: z.boolean(),
+  decision: z.boolean(),
+  requirement: z.boolean(),
+  preference: z.boolean(),
+  task: z.boolean(),
+  event: z.boolean(),
+  risk: z.boolean(),
+  open_question: z.boolean(),
+  procedure: z.boolean(),
+});
 
 /** GET /api/settings/knowledge — the resolved, complete preference value. */
 export const KnowledgePreferencesSchema = z.object({
