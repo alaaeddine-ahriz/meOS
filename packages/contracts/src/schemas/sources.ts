@@ -7,8 +7,7 @@ import { z } from "zod";
  *
  * An indexed source is just a `sources` row whose `type` names a connector kind
  * (e.g. "google:gmail"); these schemas are the read-only browse contract over
- * them. They are distinct from {@link wiki.LinkedEntitySchema}, which lists the
- * PEOPLE known from connectors — here the item itself is the entity.
+ * them — here the item itself is the entity.
  */
 
 /** A wiki/graph entity an indexed item references (its sender, an attendee, …). */

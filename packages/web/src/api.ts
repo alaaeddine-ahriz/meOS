@@ -37,7 +37,6 @@ import type {
   InboxItem,
   IngestJob,
   IngestMetrics,
-  LinkedEntity,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
@@ -88,7 +87,6 @@ import type {
   GitLogResponse,
   InboxResponse,
   IngestJobsResponse,
-  LinkedEntitiesResponse,
   ListCalendarEventsResponse,
   ListConversationsResponse,
   ListEntitiesResponse,
@@ -180,9 +178,6 @@ export type {
 // Tauri shell the page is served from tauri:// so the API needs an absolute base.
 const API_BASE = isTauri ? "http://127.0.0.1:4321" : "";
 
-/** Re-export the connector-linked entity type from the contract. */
-export type { LinkedEntity };
-
 /** Re-export the stable error-code identifiers so callers can branch on them. */
 export { ErrorCode };
 export type { ErrorEnvelope };
@@ -263,7 +258,6 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   listEntities: () => json<ListEntitiesResponse>("/api/wiki"),
-  listLinkedEntities: () => json<LinkedEntitiesResponse>("/api/entities/linked"),
   listSources: () => json<ListSourcesResponse>("/api/sources"),
   getSource: (id: number) => json<SourceDetailResponse>(`/api/sources/${id}`),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),

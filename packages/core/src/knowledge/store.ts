@@ -2386,51 +2386,6 @@ export class KnowledgeStore {
     return new Set(rows.map((r) => r.id));
   }
 
-  /**
-   * Entities linked from a connector (Google contacts/calendar/gmail) that do NOT
-   * warrant a wiki page — "people known only from a contact." They have no page
-   * and are hidden from the wiki index, but stay searchable; this lists them so
-   * the UI can offer a browse surface. Each row carries the distinct connector
-   * services backing it and a deep link to open the underlying item, if any.
-   */
-  connectorLinkedEntities(): Array<{
-    id: number;
-    type: string;
-    name: string;
-    slug: string;
-    services: string[];
-    link: string | null;
-  }> {
-    const rows = this.db
-      .prepare(
-        `SELECT e.id, e.type, e.name, e.slug,
-                group_concat(DISTINCT s.type) AS services,
-                MIN(CASE WHEN s.path LIKE 'http%' THEN s.path END) AS link
-         FROM entities e
-         JOIN observations o ON o.entity_id = e.id AND o.status = 'active'
-         JOIN sources s ON s.id = o.source_id AND s.type LIKE 'google:%'
-         WHERE NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL}
-         GROUP BY e.id, e.type, e.name, e.slug
-         ORDER BY e.type, e.name COLLATE NOCASE`,
-      )
-      .all() as Array<{
-      id: number;
-      type: string;
-      name: string;
-      slug: string;
-      services: string | null;
-      link: string | null;
-    }>;
-    return rows.map((r) => ({
-      id: r.id,
-      type: r.type,
-      name: r.name,
-      slug: r.slug,
-      services: r.services ? r.services.split(",") : [],
-      link: r.link,
-    }));
-  }
-
   clearWikiStale(id: number): void {
     this.db
       .prepare("UPDATE entities SET wiki_stale = 0, updated_at = datetime('now') WHERE id = ?")

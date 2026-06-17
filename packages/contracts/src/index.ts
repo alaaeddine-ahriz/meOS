@@ -48,7 +48,7 @@ export type {
   IngestCostMetric,
   IngestMetrics,
 } from "./schemas/ingest.js";
-export type { WikiPage, WikiGraph, DuplicateProposal, LinkedEntity } from "./schemas/wiki.js";
+export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
 export type {
   MeetingSummary,
   MeetingObservation,
@@ -123,7 +123,6 @@ import type * as vaultSchemas from "./schemas/vault.js";
 import type * as wikiSchemas from "./schemas/wiki.js";
 
 export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
-export type LinkedEntitiesResponse = z.infer<typeof wikiSchemas.LinkedEntitiesResponse>;
 export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;
 export type DuplicatesResponse = z.infer<typeof wikiSchemas.DuplicatesResponse>;
 export type MergeEntitiesResponse = z.infer<typeof wikiSchemas.MergeEntitiesResponse>;

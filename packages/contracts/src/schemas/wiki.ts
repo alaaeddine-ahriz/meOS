@@ -9,24 +9,6 @@ import {
 /** GET /api/wiki */
 export const ListEntitiesResponse = z.object({ entities: z.array(EntitySummarySchema) });
 
-/**
- * A connector-linked entity that has no wiki page (browsable under Wiki →
- * Linked): a person/org known only from Google contacts/calendar/gmail.
- */
-export const LinkedEntitySchema = z.object({
-  id: z.number(),
-  type: z.string(),
-  name: z.string(),
-  slug: z.string(),
-  /** Connector source types backing it, e.g. ["google:contacts","google:calendar"]. */
-  services: z.array(z.string()),
-  /** Deep link to open the underlying connector item, when one is available. */
-  link: z.string().nullable(),
-});
-
-/** GET /api/entities/linked */
-export const LinkedEntitiesResponse = z.object({ entities: z.array(LinkedEntitySchema) });
-
 /** GET /api/wiki/graph */
 export const WikiGraphResponse = z.object({
   nodes: z.array(GraphNodeSchema),
@@ -102,4 +84,3 @@ export const BackfillWikiResponse = z.object({ started: z.boolean() });
 export type WikiPage = z.infer<typeof WikiPageResponse>;
 export type WikiGraph = z.infer<typeof WikiGraphResponse>;
 export type DuplicateProposal = z.infer<typeof DuplicateProposalSchema>;
-export type LinkedEntity = z.infer<typeof LinkedEntitySchema>;
