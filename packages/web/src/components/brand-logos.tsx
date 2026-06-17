@@ -62,13 +62,16 @@ export function GoogleCalendarLogo({ className }: LogoProps) {
 export function GoogleContactsLogo({ className }: LogoProps) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden="true" focusable="false">
-      <path
-        fill="#1a73e8"
-        d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"
-      />
-      <rect width="2" height="2" x="2" y="6" fill="#ea4335" rx="0.5" />
-      <rect width="2" height="2" x="2" y="11" fill="#34a853" rx="0.5" />
-      <rect width="2" height="2" x="2" y="16" fill="#fbbc04" rx="0.5" />
+      {/* The four-color proximity ring. */}
+      <g fill="none" strokeWidth="2" strokeLinecap="round">
+        <path stroke="#EA4335" d="M12 3.5A8.5 8.5 0 0 0 3.5 12" />
+        <path stroke="#4285F4" d="M12 3.5A8.5 8.5 0 0 1 20.5 12" />
+        <path stroke="#34A853" d="M20.5 12A8.5 8.5 0 0 1 12 20.5" />
+        <path stroke="#FBBC05" d="M3.5 12A8.5 8.5 0 0 0 12 20.5" />
+      </g>
+      {/* The blue person at the center. */}
+      <circle cx="12" cy="9.6" r="2.4" fill="#4285F4" />
+      <path fill="#4285F4" d="M12 13c-2.5 0-4.6 1.5-4.6 3.7V17h9.2v-.3c0-2.2-2.1-3.7-4.6-3.7z" />
     </svg>
   );
 }

@@ -1,18 +1,22 @@
-import { ChevronRight, Library, Maximize2, Waypoints, X } from "lucide-react";
+import { Library, Maximize2, Waypoints, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Breadcrumbs, type Crumb, Page } from "@/components/Page";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
-import { stripWikiMarkup, wikiSlugFromHref } from "@/lib/wikilinks";
+import { wikiSlugFromHref } from "@/lib/wikilinks";
 import { pushWikiTrail, readWikiTrail, type TrailEntry } from "@/lib/wiki-trail";
 import { api, type EntitySummary, type WikiPage } from "../api.js";
 import { utcDate } from "../lib/datetime.js";
 import { Markdown } from "../components/Markdown.js";
-import { ServiceChips } from "../components/ServiceChips.js";
-import { SourceList } from "../components/SourceList.js";
+import { WikiSources } from "../components/WikiSources.js";
 import { GraphView } from "./GraphView.js";
 
 /** Strip the YAML frontmatter and duplicate H1 — the header is rendered natively. */
@@ -69,18 +73,6 @@ export function WikiPageView({
     if (!embedded && slug && page) setTrail(pushWikiTrail(slug, page.entity.name));
   }, [embedded, slug, page]);
 
-  // An entity link that stays in the panel when embedded, else routes normally.
-  const EntityRef = ({ slug: s, name }: { slug: string; name: string }) =>
-    embedded && onNavigate ? (
-      <button type="button" className="text-lamp hover:underline" onClick={() => onNavigate(s)}>
-        {name}
-      </button>
-    ) : (
-      <Link className="text-lamp" to={`/wiki/${s}`}>
-        {name}
-      </Link>
-    );
-
   if (error) {
     const back = embedded ? (
       <button type="button" className="text-lamp hover:underline" onClick={onClose}>
@@ -135,21 +127,28 @@ export function WikiPageView({
   // The reading body — shared by the full page and the side panel.
   const body = (
     <>
-      {!embedded && <Breadcrumbs items={crumbs} />}
+      {!embedded && (
+        <div className="flex items-center justify-between gap-4">
+          <Breadcrumbs items={crumbs} />
+          {/* The ego graph lives in a side panel; clicking a node routes away, so route-only. */}
+          {page.relationships.length > 0 && (
+            <button
+              onClick={() => setShowGraph((open) => !open)}
+              className="flex shrink-0 items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-dim transition-colors hover:text-paper"
+            >
+              <Waypoints className="size-3.5" />
+              {showGraph ? "Hide graph" : "Show graph"}
+            </button>
+          )}
+        </div>
+      )}
 
       <header>
         {!embedded && <h2 className="text-2xl font-semibold tracking-tight">{page.entity.name}</h2>}
-        {page.entity.summary && (
-          <p className={cn("italic text-faded", embedded ? "text-sm" : "mt-2 text-[15px]")}>
-            {stripWikiMarkup(page.entity.summary)}
-          </p>
-        )}
-        <p className="mt-2 font-mono text-[11px] text-dim">
+        <p className={cn("font-mono text-[11px] text-dim", !embedded && "mt-2")}>
           updated {utcDate(page.entity.updatedAt).toLocaleString()}
           {page.entity.stale && " · refresh pending"}
         </p>
-        {/* Linked external services (Gmail/Calendar/Contacts) shown as reference chips. */}
-        <ServiceChips sources={page.sources} />
       </header>
 
       <article className={cn(embedded ? "mt-5" : "mt-8")}>
@@ -168,132 +167,100 @@ export function WikiPageView({
         )}
       </article>
 
-      {page.relationships.length > 0 && (
-        <section className={cn(embedded ? "mt-8" : "mt-10")}>
-          <Separator className="bg-line" />
-          <div className="mt-6 flex items-center justify-between gap-4">
-            <h3 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
-              connections
-            </h3>
-            {/* The graph navigates on node-click, which would leave the panel — route only. */}
-            {!embedded && (
-              <button
-                onClick={() => setShowGraph((open) => !open)}
-                className="flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-wider text-dim transition-colors hover:text-paper"
-              >
-                <Waypoints className="size-3.5" />
-                {showGraph ? "Hide graph" : "Show graph"}
-              </button>
-            )}
-          </div>
-
-          {!embedded && showGraph && (
-            <div className="mt-4 h-[420px] overflow-hidden rounded-xl border border-line bg-desk">
-              <GraphView focusSlug={slug} embedded />
-            </div>
-          )}
-
-          <ul className="mt-3 space-y-1.5">
-            {page.relationships.map((relationship, index) => {
-              const other = entities.find((e) => e.name === relationship.other);
-              const otherLink = other ? (
-                <EntityRef slug={other.slug} name={relationship.other} />
-              ) : (
-                relationship.other
-              );
-              return (
-                <li key={index} className="text-sm text-faded">
-                  {relationship.direction === "out" ? (
-                    <>
-                      {relationship.label} {otherLink}
-                    </>
-                  ) : (
-                    <>
-                      {otherLink} {relationship.label} this
-                    </>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
-
       {page.sources.length > 0 && (
         <section className={cn(embedded ? "mt-8" : "mt-10")}>
-          <Separator className="bg-line" />
-          <div className="mt-6">
-            <SourceList sources={page.sources} defaultOpen />
-          </div>
+          <h3 className="mb-3 font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+            sources
+          </h3>
+          <WikiSources sources={page.sources} />
         </section>
       )}
 
-      <section className={cn("mt-10", !embedded && "pb-16")}>
-        <Separator className="bg-line" />
-        <Collapsible className="mt-6">
-          <CollapsibleTrigger className="group flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.25em] text-dim transition-colors hover:text-faded">
-            <ChevronRight className="size-3 transition-transform group-data-[state=open]:rotate-90" />
-            underlying facts · {page.observations.length}
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <ul className="mt-3 space-y-2">
-              {page.observations.map((observation, index) => (
-                <li key={index} className="flex items-baseline gap-3 text-sm">
-                  <span
-                    className={cn(
-                      "shrink-0 font-mono text-[11px]",
-                      observation.confidence >= 0.7
-                        ? "text-moss"
-                        : observation.confidence >= 0.4
-                          ? "text-lamp"
-                          : "text-ember",
-                    )}
-                  >
-                    {observation.confidence.toFixed(2)}
-                  </span>
-                  <span className="flex-1 text-faded">{observation.text}</span>
-                  {observation.sourceStatus ? (
+      {page.observations.length > 0 && (
+        <section className={cn("mt-8", !embedded && "pb-16")}>
+          <Dialog>
+            <DialogTrigger asChild>
+              <button
+                type="button"
+                className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim transition-colors hover:text-faded"
+              >
+                underlying facts · {page.observations.length}
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+                  underlying facts · {page.observations.length}
+                </DialogTitle>
+              </DialogHeader>
+              <ul className="-mx-2 max-h-[60vh] space-y-2 overflow-y-auto px-2">
+                {page.observations.map((observation, index) => (
+                  <li key={index} className="flex items-baseline gap-3 text-sm">
                     <span
-                      className="shrink-0 whitespace-nowrap rounded-full border border-ember/40 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-ember"
+                      className={cn(
+                        "shrink-0 font-mono text-[11px]",
+                        observation.confidence >= 0.7
+                          ? "text-moss"
+                          : observation.confidence >= 0.4
+                            ? "text-lamp"
+                            : "text-ember",
+                      )}
+                    >
+                      {observation.confidence.toFixed(2)}
+                    </span>
+                    <span className="flex-1 text-faded">{observation.text}</span>
+                    {observation.sourceStatus ? (
+                      <span
+                        className="shrink-0 whitespace-nowrap rounded-full border border-ember/40 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-ember"
+                        title={
+                          observation.sourceStatus === "superseded"
+                            ? "Backed only by a superseded version of its source"
+                            : observation.sourceStatus === "deleted"
+                              ? "Backed only by a deleted source"
+                              : "Backed only by a source whose file is missing"
+                        }
+                      >
+                        {observation.sourceStatus === "superseded"
+                          ? "outdated"
+                          : observation.sourceStatus}
+                      </span>
+                    ) : null}
+                    <span
+                      className={cn(
+                        "shrink-0 whitespace-nowrap font-mono text-[11px]",
+                        observation.stale ? "text-ember" : "text-dim",
+                      )}
                       title={
-                        observation.sourceStatus === "superseded"
-                          ? "Backed only by a superseded version of its source"
-                          : observation.sourceStatus === "deleted"
-                            ? "Backed only by a deleted source"
-                            : "Backed only by a source whose file is missing"
+                        observation.stale
+                          ? "Unconfirmed past this fact's freshness horizon"
+                          : `Recorded ${utcDate(observation.recordedAt).toLocaleDateString()}`
                       }
                     >
-                      {observation.sourceStatus === "superseded"
-                        ? "outdated"
-                        : observation.sourceStatus}
+                      {observation.when}
                     </span>
-                  ) : null}
-                  <span
-                    className={cn(
-                      "shrink-0 whitespace-nowrap font-mono text-[11px]",
-                      observation.stale ? "text-ember" : "text-dim",
-                    )}
-                    title={
-                      observation.stale
-                        ? "Unconfirmed past this fact's freshness horizon"
-                        : `Recorded ${utcDate(observation.recordedAt).toLocaleDateString()}`
-                    }
-                  >
-                    {observation.when}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </CollapsibleContent>
-        </Collapsible>
-      </section>
+                  </li>
+                ))}
+              </ul>
+            </DialogContent>
+          </Dialog>
+        </section>
+      )}
     </>
   );
 
   if (!embedded)
     return (
       <Page>
-        <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 pt-10">{body}</div>
+        <div className="flex min-h-0 flex-1">
+          <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 pt-10">
+            <div className="max-w-3xl">{body}</div>
+          </div>
+          {showGraph && (
+            <aside className="min-h-0 w-[380px] shrink-0 border-l border-line bg-desk">
+              <GraphView focusSlug={slug} embedded />
+            </aside>
+          )}
+        </div>
       </Page>
     );
 
