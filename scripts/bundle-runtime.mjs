@@ -62,6 +62,26 @@ function npmCmd() {
   return hostIsWin ? "npm.cmd" : "npm";
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Retry a flaky async step (network fetches against nodejs.org / HuggingFace
+// regularly hit ETIMEDOUT on CI runners). Exponential backoff, then give up.
+async function withRetries(label, fn, { attempts = 4, baseDelayMs = 2000 } = {}) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === attempts) throw error;
+      const delay = baseDelayMs * 2 ** (attempt - 1);
+      console.warn(
+        `${label} failed (attempt ${attempt}/${attempts}): ${error.message}\n` +
+          `Retrying in ${delay / 1000}s…`,
+      );
+      await sleep(delay);
+    }
+  }
+}
+
 async function readJson(p) {
   return JSON.parse(await fs.readFile(p, "utf-8"));
 }
@@ -255,9 +275,11 @@ async function bundleNode() {
   const tmp = path.join(os.tmpdir(), `${name}.${ext}`);
 
   console.log(`Downloading ${url}`);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Node download failed: ${res.status} ${url}`);
-  await pipeline(res.body, createWriteStream(tmp));
+  await withRetries(`Node download (${url})`, async () => {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Node download failed: ${res.status} ${url}`);
+    await pipeline(res.body, createWriteStream(tmp));
+  });
 
   const extractDir = await fs.mkdtemp(path.join(os.tmpdir(), "meos-node-"));
   run("tar", ["-xf", tmp, "-C", extractDir]); // bsdtar (mac/win) and GNU tar both handle zip/xz
@@ -274,7 +296,6 @@ async function bundleNode() {
 // ---------------------------------------------------------------------------
 async function seedModel() {
   const models = path.join(payload, "models");
-  await fs.mkdir(models, { recursive: true });
   const transformers = resolveFromApp(path.join(payload, "app"), "@huggingface/transformers");
   const transformersSpecifier = pathToFileURL(transformers).href;
   const script = `
@@ -283,7 +304,14 @@ async function seedModel() {
     await pipeline("feature-extraction", ${JSON.stringify(EMBED_MODEL)});
     console.log("model cached");
   `;
-  run(process.execPath, ["--input-type=module", "-e", script]);
+  // The HuggingFace CDN fetch flakes with ETIMEDOUT on CI; retry before failing
+  // the whole bundle. Clear any partial cache between attempts so a half-written
+  // model can't poison the retry.
+  await withRetries(`seed embedding model (${EMBED_MODEL})`, async () => {
+    await fs.rm(models, { recursive: true, force: true });
+    await fs.mkdir(models, { recursive: true });
+    run(process.execPath, ["--input-type=module", "-e", script]);
+  });
 }
 
 // ---------------------------------------------------------------------------
