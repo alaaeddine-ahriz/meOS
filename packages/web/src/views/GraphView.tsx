@@ -1,7 +1,7 @@
-import { ExternalLink, FileText, X } from "lucide-react";
+import { ExternalLink, FileText, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Combobox } from "@/components/ui/combobox";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER, typeColor } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,9 @@ export function GraphView({
   // null = no explicit type filter yet → all present types shown.
   const [enabledTypes, setEnabledTypes] = useState<Set<string> | null>(null);
   const [hideWeak, setHideWeak] = useState(true);
+  const [query, setQuery] = useState("");
+  // Keyboard cursor into the search results (↑/↓ to move, Enter to pick).
+  const [activeIndex, setActiveIndex] = useState(0);
   // The entity the graph centres on. Seeded from focusSlug; the user can re-focus
   // by picking from search. null = whole graph (no ego focus).
   const [focusId, setFocusId] = useState<number | null>(null);
@@ -103,20 +106,18 @@ export function GraphView({
     return { nodes, links };
   }, [graph, enabledTypes, focusId, hideWeak]);
 
-  // Search options for the combobox: entity names → the first node that has it.
-  const nodeByName = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const n of graph.nodes) if (!m.has(n.name)) m.set(n.name, n.id);
-    return m;
-  }, [graph.nodes]);
-  const nodeNames = useMemo(() => [...nodeByName.keys()], [nodeByName]);
+  // Search matches by name; the matched ids drive the dropdown + focus.
+  const searchMatches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    return graph.nodes.filter((n) => n.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [query, graph.nodes]);
 
   const presentTypes = useMemo(
     () => ENTITY_TYPE_ORDER.filter((type) => graph.nodes.some((n) => n.type === type)),
     [graph.nodes],
   );
 
-  const focusNode = focusId != null ? graph.nodes.find((n) => n.id === focusId) : undefined;
   const emptyAfterFilter = loaded && graph.nodes.length > 0 && data.nodes.length === 0;
   const typeOn = (type: string) => enabledTypes === null || enabledTypes.has(type);
   const toggleType = (type: string) => {
@@ -163,20 +164,63 @@ export function GraphView({
       <div className="flex flex-col gap-3 px-10 pb-4">
         {/* Row 1: search · hide weak · count */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
-          <Combobox
-            value={focusNode?.name ?? ""}
-            onChange={(name) => {
-              const id = nodeByName.get(name);
-              if (id == null) return;
-              // Re-picking the focused entity clears the focus (back to the whole graph).
-              setFocusId((cur) => (cur === id ? null : id));
-            }}
-            options={nodeNames}
-            placeholder="Find an entity…"
-            searchPlaceholder="Search entities…"
-            emptyText="No entities."
-            className="h-8 w-56 text-sm"
-          />
+          <div className="relative w-56">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
+            <Input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setActiveIndex(0);
+              }}
+              onKeyDown={(e) => {
+                if (searchMatches.length === 0) return;
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveIndex((i) => Math.min(i + 1, searchMatches.length - 1));
+                } else if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveIndex((i) => Math.max(i - 1, 0));
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  const pick = searchMatches[activeIndex];
+                  if (pick) {
+                    setFocusId(pick.id);
+                    setQuery("");
+                  }
+                } else if (e.key === "Escape") {
+                  setQuery("");
+                }
+              }}
+              placeholder="Find an entity…"
+              className="h-8 pl-8 text-sm"
+            />
+            {searchMatches.length > 0 && (
+              <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-line bg-popover shadow-md">
+                {searchMatches.map((n, i) => (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      onMouseEnter={() => setActiveIndex(i)}
+                      onClick={() => {
+                        setFocusId(n.id);
+                        setQuery("");
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-faded",
+                        i === activeIndex && "bg-line/50",
+                      )}
+                    >
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: typeColor(n.type) }}
+                      />
+                      <span className="truncate">{n.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <label className="flex cursor-pointer items-center gap-2 text-xs text-faded">
             <Switch checked={hideWeak} onCheckedChange={setHideWeak} />
