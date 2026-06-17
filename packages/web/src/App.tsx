@@ -1,14 +1,6 @@
-import {
-  Activity,
-  Library,
-  type LucideIcon,
-  MessageSquare,
-  NotebookPen,
-  Search,
-  Settings,
-} from "lucide-react";
+import { Activity, Library, type LucideIcon, MessageSquare, Search, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { useInbox } from "./lib/inbox-context.js";
@@ -18,22 +10,16 @@ import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
 import { SettingsView } from "./views/SettingsView.js";
-import { VaultView } from "./views/VaultView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
 
+// Notes/meeting feature deprecated — its nav entry was removed. Routes below
+// redirect to Chat; the implementation is retained in views/VaultView.tsx.
 const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> = [
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
-  { to: "/notes", label: "Notes", key: "2", icon: NotebookPen },
-  { to: "/wiki", label: "Wiki", key: "3", icon: Library },
-  { to: "/activity", label: "Activity", key: "4", icon: Activity },
+  { to: "/wiki", label: "Wiki", key: "2", icon: Library },
+  { to: "/activity", label: "Activity", key: "3", icon: Activity },
 ];
-
-/** Legacy `/meetings/:id` links now open inside the unified Notes surface. */
-function MeetingRedirect() {
-  const { id } = useParams();
-  return <Navigate to={`/notes?item=meeting:${id}`} replace />;
-}
 
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -130,9 +116,10 @@ export function App() {
       <main className="min-w-0 flex-1">
         <Routes>
           <Route path="/" element={<ChatView />} />
-          <Route path="/notes" element={<VaultView />} />
-          <Route path="/meetings" element={<Navigate to="/notes?filter=meeting" replace />} />
-          <Route path="/meetings/:id" element={<MeetingRedirect />} />
+          {/* Notes/meeting feature deprecated — redirect to Chat. Code kept in VaultView. */}
+          <Route path="/notes" element={<Navigate to="/" replace />} />
+          <Route path="/meetings" element={<Navigate to="/" replace />} />
+          <Route path="/meetings/:id" element={<Navigate to="/" replace />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/activity" element={<ActivityHub />} />
