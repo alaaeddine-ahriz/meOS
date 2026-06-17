@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_adr_0001_local_first_single_process_md",
+      "label": "0001-local-first-single-process.md",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "label": "1. Local-first, mostly single-process, with explicit boundaries",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0001_local_first_single_process_status",
+      "label": "Status",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L3"
+    },
+    {
+      "id": "adr_0001_local_first_single_process_context",
+      "label": "Context",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "adr_0001_local_first_single_process_decision",
+      "label": "Decision",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L33"
+    },
+    {
+      "id": "adr_0001_local_first_single_process_consequences",
+      "label": "Consequences",
+      "file_type": "document",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L70"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_adr_0001_local_first_single_process_md",
+      "target": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "target": "adr_0001_local_first_single_process_status",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "target": "adr_0001_local_first_single_process_context",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "target": "adr_0001_local_first_single_process_decision",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0001_local_first_single_process_1_local_first_mostly_single_process_with_explicit_boundaries",
+      "target": "adr_0001_local_first_single_process_consequences",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0001-local-first-single-process.md",
+      "source_location": "L70",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

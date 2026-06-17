@@ -16,6 +16,7 @@ const VIEWS = [
   // "Notes" entry removed — notes/meeting feature deprecated.
   { label: "Wiki", to: "/wiki" },
   { label: "Graph", to: "/wiki?view=graph" },
+  { label: "Sources", to: "/sources" },
   { label: "Activity", to: "/activity" },
   { label: "Review", to: "/activity?tab=review" },
   { label: "Digest", to: "/activity?tab=digest" },

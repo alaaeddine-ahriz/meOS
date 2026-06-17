@@ -145,6 +145,41 @@ describe("Gmail resumable backfill (#68)", () => {
     const delta = await fetchGmailDelta("tok", null, { contentMode: "rich" });
     expect(delta.items[0]!.body).toBe("Hello body");
   });
+
+  it("bounds concurrent per-message fetches (Gmail's per-user concurrency cap)", async () => {
+    // Gmail returns 429 "Too many concurrent requests for user." once too many
+    // per-message fetches are in flight at once, which aborts the whole sync. Seed
+    // far more messages than the pool size and assert the peak in-flight count
+    // never exceeds the cap (so the recent seed never blasts a flat Promise.all).
+    const SEED = 40;
+    const ids = Array.from({ length: SEED }, (_, i) => `m${i}`);
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal("fetch", async (input: string) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        ({ ok: true, status: 200, json: async () => body, text: async () => "" }) as Response;
+      if (/\/messages\?maxResults=100$/.test(url)) {
+        return json({ messages: ids.map((id) => ({ id })) });
+      }
+      if (/\/profile/.test(url)) return json({ historyId: "h" });
+      if (/\/messages\/[^?]+\?format=metadata/.test(url)) {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        // Hold the request open across a real tick so concurrent fetches overlap.
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        inFlight--;
+        return json({ id: url.split("/messages/")[1]!.split("?")[0], threadId: "t" });
+      }
+      throw new Error(`unmatched fetch: ${url}`);
+    });
+
+    const delta = await fetchGmailDelta("tok", null, { coverageWindow: "recent" });
+    expect(delta.items).toHaveLength(SEED);
+    // Concurrency is bounded (never a flat 40-wide blast) yet still parallel.
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+  });
 });
 
 describe("Calendar multi-calendar sync (#68)", () => {

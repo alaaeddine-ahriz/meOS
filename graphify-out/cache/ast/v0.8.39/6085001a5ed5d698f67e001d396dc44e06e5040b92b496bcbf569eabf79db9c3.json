@@ -1,0 +1,79 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_adr_0004_tauri_desktop_md",
+      "label": "0004-tauri-desktop.md",
+      "file_type": "document",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0004_tauri_desktop_4_tauri_for_the_desktop_shell",
+      "label": "4. Tauri for the desktop shell",
+      "file_type": "document",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0004_tauri_desktop_context",
+      "label": "Context",
+      "file_type": "document",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L5"
+    },
+    {
+      "id": "adr_0004_tauri_desktop_decision",
+      "label": "Decision",
+      "file_type": "document",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L12"
+    },
+    {
+      "id": "adr_0004_tauri_desktop_consequences",
+      "label": "Consequences",
+      "file_type": "document",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L21"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_adr_0004_tauri_desktop_md",
+      "target": "adr_0004_tauri_desktop_4_tauri_for_the_desktop_shell",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0004_tauri_desktop_4_tauri_for_the_desktop_shell",
+      "target": "adr_0004_tauri_desktop_context",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0004_tauri_desktop_4_tauri_for_the_desktop_shell",
+      "target": "adr_0004_tauri_desktop_decision",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0004_tauri_desktop_4_tauri_for_the_desktop_shell",
+      "target": "adr_0004_tauri_desktop_consequences",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0004-tauri-desktop.md",
+      "source_location": "L21",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

@@ -1,0 +1,63 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_packages_contracts_readme_md",
+      "label": "README.md",
+      "file_type": "document",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "contracts_readme_meos_contracts",
+      "label": "@meos/contracts",
+      "file_type": "document",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "contracts_readme_layout",
+      "label": "Layout",
+      "file_type": "document",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L16"
+    },
+    {
+      "id": "contracts_readme_rules_of_the_road",
+      "label": "Rules of the road",
+      "file_type": "document",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L25"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_packages_contracts_readme_md",
+      "target": "contracts_readme_meos_contracts",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "contracts_readme_meos_contracts",
+      "target": "contracts_readme_layout",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L16",
+      "weight": 1.0
+    },
+    {
+      "source": "contracts_readme_meos_contracts",
+      "target": "contracts_readme_rules_of_the_road",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "packages/contracts/README.md",
+      "source_location": "L25",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

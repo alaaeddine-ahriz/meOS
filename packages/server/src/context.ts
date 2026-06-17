@@ -189,7 +189,13 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // jobs, retries failures with backoff, and prunes old completed history. The
   // in-memory queue above is only its concurrency executor.
   const durableIngest = new DurableIngest({ store, pipeline, queue });
-  const watcher = new FolderWatcher({ store, pipeline, queue, durableIngest });
+  const watcher = new FolderWatcher({
+    store,
+    pipeline,
+    queue,
+    durableIngest,
+    dataDir: config.dataDir,
+  });
   const git = new GitSync(config.dataDir);
   // Background sync for connected external accounts. Pushes onto the same ingest
   // queue so connector merges serialise with file ingest. A nightly delta pass

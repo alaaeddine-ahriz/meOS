@@ -1,0 +1,143 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_contributing_md",
+      "label": "CONTRIBUTING.md",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "meos_contributing_contributing_to_meos",
+      "label": "Contributing to MeOS",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "meos_contributing_prerequisites",
+      "label": "Prerequisites",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "meos_contributing_native_web_development",
+      "label": "Native (web) development",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L12"
+    },
+    {
+      "id": "meos_contributing_desktop_development_tauri",
+      "label": "Desktop development (Tauri)",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L27"
+    },
+    {
+      "id": "meos_contributing_test_and_verify",
+      "label": "Test and verify",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L49"
+    },
+    {
+      "id": "meos_contributing_branch_pr_workflow",
+      "label": "Branch & PR workflow",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L60"
+    },
+    {
+      "id": "meos_contributing_coding_conventions",
+      "label": "Coding conventions",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L72"
+    },
+    {
+      "id": "meos_contributing_architecture_decisions",
+      "label": "Architecture decisions",
+      "file_type": "document",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L85"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_contributing_md",
+      "target": "meos_contributing_contributing_to_meos",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_prerequisites",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_native_web_development",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L12",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_desktop_development_tauri",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L27",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_test_and_verify",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L49",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_branch_pr_workflow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L60",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_coding_conventions",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L72",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_contributing_contributing_to_meos",
+      "target": "meos_contributing_architecture_decisions",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CONTRIBUTING.md",
+      "source_location": "L85",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

@@ -37,11 +37,15 @@ export class WatcherWorker implements Worker {
   }
 
   health(): WorkerHealth {
+    // Prefer a runtime watcher error (EMFILE, etc.) over the start-time one:
+    // the watcher starts fine, then errors asynchronously once it walks a tree
+    // larger than the descriptor budget.
+    const error = this.watcher.lastError ?? this.lastError;
     return {
       name: this.name,
-      status: this.lastError ? "error" : this.started ? "idle" : "stopped",
+      status: error ? "error" : this.started ? "idle" : "stopped",
       detail: this.started ? "watching registered folders" : "not watching",
-      lastError: this.lastError,
+      lastError: error,
       lastRunAt: null,
     };
   }

@@ -1,0 +1,79 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_adr_0003_local_embeddings_md",
+      "label": "0003-local-embeddings.md",
+      "file_type": "document",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0003_local_embeddings_3_on_device_embeddings",
+      "label": "3. On-device embeddings",
+      "file_type": "document",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0003_local_embeddings_context",
+      "label": "Context",
+      "file_type": "document",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L5"
+    },
+    {
+      "id": "adr_0003_local_embeddings_decision",
+      "label": "Decision",
+      "file_type": "document",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L13"
+    },
+    {
+      "id": "adr_0003_local_embeddings_consequences",
+      "label": "Consequences",
+      "file_type": "document",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L20"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_adr_0003_local_embeddings_md",
+      "target": "adr_0003_local_embeddings_3_on_device_embeddings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0003_local_embeddings_3_on_device_embeddings",
+      "target": "adr_0003_local_embeddings_context",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0003_local_embeddings_3_on_device_embeddings",
+      "target": "adr_0003_local_embeddings_decision",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0003_local_embeddings_3_on_device_embeddings",
+      "target": "adr_0003_local_embeddings_consequences",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0003-local-embeddings.md",
+      "source_location": "L20",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

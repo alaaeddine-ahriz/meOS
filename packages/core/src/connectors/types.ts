@@ -139,6 +139,14 @@ export type CoverageWindow = "recent" | "30d" | "90d" | "1y" | "all";
 export type GmailContentMode = "metadata" | "rich";
 
 /**
+ * The "enable one of two" choice for a kind: "index" indexes items locally as
+ * linked entities/sources (browsable in the Sources tab, read by the wiki-
+ * maintainer as source material) without authoring wiki pages on sync; "wiki"
+ * additionally drives wiki regeneration so the facts are woven into prose.
+ */
+export type IndexMode = "index" | "wiki";
+
+/**
  * The resumable historical-backfill cursor for Gmail. Persisted between runs so a
  * long mailbox pull survives restarts and never blocks the app. `complete` flips
  * true once the backfill has walked past the window boundary.
@@ -171,6 +179,12 @@ export interface CalendarState {
  * Calendar use disjoint subsets.
  */
 export interface ConnectorKindConfig {
+  /**
+   * Index-only vs index+wiki for this kind (the "one of two" enable choice).
+   * Undefined is treated as "index" — the safe, lighter default.
+   */
+  mode?: IndexMode;
+
   // --- gmail ---
   /** How far back Gmail backfills. Default "recent". */
   coverageWindow?: CoverageWindow;

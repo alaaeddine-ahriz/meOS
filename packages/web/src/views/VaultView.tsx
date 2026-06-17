@@ -567,9 +567,7 @@ export function VaultView() {
           )}
 
           <nav className="min-h-0 flex-1 overflow-y-auto pb-10 pl-[1.875rem] pr-2 pt-2">
-            {allRows.length === 0 && !creating ? (
-              <p className="px-2 py-3 text-xs text-muted-foreground">Nothing yet. Create a note.</p>
-            ) : (
+            {allRows.length > 0 && (
               <div className="flex flex-col gap-1">
                 {tree.map((node) => (
                   <FileTreeNode key={nodeKey(node)} node={node} sel={sel} onOpen={open} />

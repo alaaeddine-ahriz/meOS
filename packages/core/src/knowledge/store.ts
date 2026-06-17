@@ -408,6 +408,56 @@ export interface SourceRef {
   charEnd?: number | null;
 }
 
+/** A wiki/graph entity an indexed connector item links to (the Sources tab). */
+export interface IndexedEntityLinkRow {
+  id: number;
+  type: string;
+  name: string;
+  slug: string;
+  /** True when the entity warrants a wiki page (so the UI links to one). */
+  hasPage: boolean;
+}
+
+/** One locally-indexed connector item, for the Sources tab listing. */
+export interface IndexedSourceRow {
+  id: number;
+  provider: string;
+  kind: string;
+  type: string;
+  title: string;
+  link: string | null;
+  createdAt: string | null;
+  status: string | null;
+  linkedEntities: IndexedEntityLinkRow[];
+}
+
+/** Another indexed item connected to one through a shared entity. */
+export interface RelatedSourceRow {
+  id: number;
+  provider: string;
+  kind: string;
+  type: string;
+  title: string;
+  link: string | null;
+  /** Entity name(s) that connect the two items. */
+  via: string[];
+}
+
+/** An indexed item with its content + the items/entities it links to. */
+export interface IndexedSourceDetailRow extends IndexedSourceRow {
+  content: string | null;
+  relatedSources: RelatedSourceRow[];
+}
+
+/** An indexed connector item with its content, as read by the wiki-maintainer. */
+export interface IndexedSourceContentRow {
+  id: number;
+  type: string;
+  title: string;
+  link: string | null;
+  content: string | null;
+}
+
 /** A connected external account (one row per provider). Carries OAuth secrets. */
 export interface ConnectorAccountRow {
   id: number;
@@ -1127,6 +1177,207 @@ export class KnowledgeStore {
          ORDER BY s.title`,
       )
       .all(entityId) as SourceRef[];
+  }
+
+  /**
+   * The locally-indexed connector items backing an entity's active facts, with
+   * their normalized content — the raw source material the wiki-maintainer reads
+   * (as files in its sandbox) when writing the entity's page. Newest first.
+   */
+  indexedSourcesForEntity(entityId: number): IndexedSourceContentRow[] {
+    return this.db
+      .prepare(
+        `SELECT DISTINCT s.id AS id, s.type AS type, s.title AS title, s.path AS link, s.content AS content
+         FROM observations o JOIN sources s ON s.id = o.source_id
+         WHERE o.entity_id = ? AND o.status = 'active' AND s.type LIKE '%:%'
+         ORDER BY s.created_at DESC, s.id DESC`,
+      )
+      .all(entityId) as IndexedSourceContentRow[];
+  }
+
+  // --- indexed sources (the Sources tab) -------------------------------
+  //
+  // Every connector item (a contact, event, task, email) is a `sources` row
+  // whose `type` names its kind ("google:gmail"). The Sources tab browses these
+  // items as first-class entities: each with a deep link to open the original
+  // and links to the wiki entities it touches (its correspondents/attendees).
+  // A source `type` carries a colon only for connectors — the built-in origins
+  // (file/image/conversation/session/profile_context) never do — so `LIKE '%:%'`
+  // selects exactly the externally-indexed items.
+
+  /**
+   * All locally-indexed connector items, newest first, each tagged with its
+   * latest-revision status and the entities it links to. Drives `GET /api/sources`.
+   */
+  listIndexedSources(): IndexedSourceRow[] {
+    const sources = this.db
+      .prepare(
+        `SELECT s.id, s.type, s.title, s.path, s.created_at,
+                (SELECT sr.status FROM source_revisions sr
+                  WHERE sr.source_id = s.id ORDER BY sr.revision DESC LIMIT 1) AS status
+         FROM sources s
+         WHERE s.type LIKE '%:%'
+         ORDER BY s.created_at DESC, s.id DESC`,
+      )
+      .all() as Array<{
+      id: number;
+      type: string;
+      title: string;
+      path: string | null;
+      created_at: string | null;
+      status: string | null;
+    }>;
+
+    // One pass for every (connector source → entity) link, grouped in memory so
+    // the listing is two queries regardless of how many items are indexed.
+    const links = this.db
+      .prepare(
+        `SELECT o.source_id AS source_id, e.id AS id, e.type AS type, e.name AS name, e.slug AS slug,
+                ${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AS has_page
+         FROM observations o
+         JOIN sources src ON src.id = o.source_id AND src.type LIKE '%:%'
+         JOIN entities e ON e.id = o.entity_id
+         WHERE o.status = 'active'
+         GROUP BY o.source_id, e.id, e.type, e.name, e.slug
+         ORDER BY e.name COLLATE NOCASE`,
+      )
+      .all() as Array<{
+      source_id: number;
+      id: number;
+      type: string;
+      name: string;
+      slug: string;
+      has_page: number;
+    }>;
+
+    const bySource = new Map<number, IndexedEntityLinkRow[]>();
+    for (const l of links) {
+      const list = bySource.get(l.source_id) ?? [];
+      list.push({ id: l.id, type: l.type, name: l.name, slug: l.slug, hasPage: l.has_page === 1 });
+      bySource.set(l.source_id, list);
+    }
+
+    return sources.map((s) => ({
+      ...this.splitSourceType(s.type),
+      id: s.id,
+      type: s.type,
+      title: s.title,
+      link: s.path,
+      createdAt: s.created_at,
+      status: s.status,
+      linkedEntities: bySource.get(s.id) ?? [],
+    }));
+  }
+
+  /**
+   * One indexed item with its normalized content, linked entities, and the other
+   * indexed items it connects to through a shared entity (email ↔ contact, event
+   * ↔ attendee). Returns undefined for a non-connector or unknown source.
+   */
+  getIndexedSource(id: number): IndexedSourceDetailRow | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.id, s.type, s.title, s.path, s.created_at, s.content,
+                (SELECT sr.status FROM source_revisions sr
+                  WHERE sr.source_id = s.id ORDER BY sr.revision DESC LIMIT 1) AS status
+         FROM sources s
+         WHERE s.id = ? AND s.type LIKE '%:%'`,
+      )
+      .get(id) as
+      | {
+          id: number;
+          type: string;
+          title: string;
+          path: string | null;
+          created_at: string | null;
+          content: string | null;
+          status: string | null;
+        }
+      | undefined;
+    if (!row) return undefined;
+
+    const linkedEntities = this.db
+      .prepare(
+        `SELECT e.id AS id, e.type AS type, e.name AS name, e.slug AS slug,
+                ${KnowledgeStore.HAS_PAGE_WORTHY_SQL} AS has_page
+         FROM observations o
+         JOIN entities e ON e.id = o.entity_id
+         WHERE o.source_id = ? AND o.status = 'active'
+         GROUP BY e.id, e.type, e.name, e.slug
+         ORDER BY e.name COLLATE NOCASE`,
+      )
+      .all(id) as Array<{
+      id: number;
+      type: string;
+      name: string;
+      slug: string;
+      has_page: number;
+    }>;
+
+    // Sibling items sharing any of this item's entities, with the entity name(s)
+    // that connect them so the UI can explain the link ("via Jane Doe").
+    const related = this.db
+      .prepare(
+        `SELECT s2.id AS id, s2.type AS type, s2.title AS title, s2.path AS path, e.name AS via
+         FROM observations o1
+         JOIN observations o2
+           ON o2.entity_id = o1.entity_id AND o2.source_id <> o1.source_id AND o2.status = 'active'
+         JOIN entities e ON e.id = o1.entity_id
+         JOIN sources s2 ON s2.id = o2.source_id AND s2.type LIKE '%:%'
+         WHERE o1.source_id = ? AND o1.status = 'active'
+         GROUP BY s2.id, e.name
+         ORDER BY s2.created_at DESC, s2.id DESC`,
+      )
+      .all(id) as Array<{
+      id: number;
+      type: string;
+      title: string;
+      path: string | null;
+      via: string;
+    }>;
+
+    const byItem = new Map<number, RelatedSourceRow>();
+    for (const r of related) {
+      const existing = byItem.get(r.id);
+      if (existing) {
+        if (!existing.via.includes(r.via)) existing.via.push(r.via);
+      } else {
+        byItem.set(r.id, {
+          id: r.id,
+          ...this.splitSourceType(r.type),
+          type: r.type,
+          title: r.title,
+          link: r.path,
+          via: [r.via],
+        });
+      }
+    }
+
+    return {
+      ...this.splitSourceType(row.type),
+      id: row.id,
+      type: row.type,
+      title: row.title,
+      link: row.path,
+      createdAt: row.created_at,
+      status: row.status,
+      content: row.content,
+      linkedEntities: linkedEntities.map((e) => ({
+        id: e.id,
+        type: e.type,
+        name: e.name,
+        slug: e.slug,
+        hasPage: e.has_page === 1,
+      })),
+      relatedSources: [...byItem.values()],
+    };
+  }
+
+  /** Split a connector source type ("google:gmail") into provider + kind. */
+  private splitSourceType(type: string): { provider: string; kind: string } {
+    const idx = type.indexOf(":");
+    if (idx === -1) return { provider: type, kind: type };
+    return { provider: type.slice(0, idx), kind: type.slice(idx + 1) };
   }
 
   // --- source revisions (#16) ------------------------------------------
@@ -2133,51 +2384,6 @@ export class KnowledgeStore {
       .prepare(`SELECT e.id AS id FROM entities e WHERE ${KnowledgeStore.HAS_PAGE_WORTHY_SQL}`)
       .all() as Array<{ id: number }>;
     return new Set(rows.map((r) => r.id));
-  }
-
-  /**
-   * Entities linked from a connector (Google contacts/calendar/gmail) that do NOT
-   * warrant a wiki page — "people known only from a contact." They have no page
-   * and are hidden from the wiki index, but stay searchable; this lists them so
-   * the UI can offer a browse surface. Each row carries the distinct connector
-   * services backing it and a deep link to open the underlying item, if any.
-   */
-  connectorLinkedEntities(): Array<{
-    id: number;
-    type: string;
-    name: string;
-    slug: string;
-    services: string[];
-    link: string | null;
-  }> {
-    const rows = this.db
-      .prepare(
-        `SELECT e.id, e.type, e.name, e.slug,
-                group_concat(DISTINCT s.type) AS services,
-                MIN(CASE WHEN s.path LIKE 'http%' THEN s.path END) AS link
-         FROM entities e
-         JOIN observations o ON o.entity_id = e.id AND o.status = 'active'
-         JOIN sources s ON s.id = o.source_id AND s.type LIKE 'google:%'
-         WHERE NOT ${KnowledgeStore.HAS_PAGE_WORTHY_SQL}
-         GROUP BY e.id, e.type, e.name, e.slug
-         ORDER BY e.type, e.name COLLATE NOCASE`,
-      )
-      .all() as Array<{
-      id: number;
-      type: string;
-      name: string;
-      slug: string;
-      services: string | null;
-      link: string | null;
-    }>;
-    return rows.map((r) => ({
-      id: r.id,
-      type: r.type,
-      name: r.name,
-      slug: r.slug,
-      services: r.services ? r.services.split(",") : [],
-      link: r.link,
-    }));
   }
 
   clearWikiStale(id: number): void {

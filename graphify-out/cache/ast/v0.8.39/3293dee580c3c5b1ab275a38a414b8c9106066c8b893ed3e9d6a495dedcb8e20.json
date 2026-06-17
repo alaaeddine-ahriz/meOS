@@ -1,0 +1,79 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_adr_0006_connector_privacy_md",
+      "label": "0006-connector-privacy.md",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0006_connector_privacy_6_connector_privacy_via_observation_sensitivity",
+      "label": "6. Connector privacy via observation sensitivity",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "adr_0006_connector_privacy_context",
+      "label": "Context",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L5"
+    },
+    {
+      "id": "adr_0006_connector_privacy_decision",
+      "label": "Decision",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L13"
+    },
+    {
+      "id": "adr_0006_connector_privacy_consequences",
+      "label": "Consequences",
+      "file_type": "document",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L23"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_adr_0006_connector_privacy_md",
+      "target": "adr_0006_connector_privacy_6_connector_privacy_via_observation_sensitivity",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0006_connector_privacy_6_connector_privacy_via_observation_sensitivity",
+      "target": "adr_0006_connector_privacy_context",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L5",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0006_connector_privacy_6_connector_privacy_via_observation_sensitivity",
+      "target": "adr_0006_connector_privacy_decision",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L13",
+      "weight": 1.0
+    },
+    {
+      "source": "adr_0006_connector_privacy_6_connector_privacy_via_observation_sensitivity",
+      "target": "adr_0006_connector_privacy_consequences",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/adr/0006-connector-privacy.md",
+      "source_location": "L23",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

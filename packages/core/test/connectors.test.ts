@@ -1066,3 +1066,156 @@ describe("connectors complement the wiki as references, not pages", () => {
     cleanup();
   });
 });
+
+describe("indexed sources (Sources tab)", () => {
+  it("lists connector items as linked entities with related siblings", async () => {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-src-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+    });
+
+    const contact: ContactItem = {
+      externalId: "people/c1",
+      displayName: "Charles Babbage",
+      nicknames: [],
+      emails: ["charles@example.com"],
+      phones: [],
+      organisation: "Analytical Engine Co",
+      deepLink: "https://contacts.google.com/person/c1",
+    };
+    await pipeline.ingestExtraction({
+      type: "google:contacts",
+      title: contact.displayName,
+      content: "contact",
+      path: contact.deepLink,
+      extraction: mapContact(contact),
+    });
+
+    const message: GmailMessageItem = {
+      externalId: "msg1",
+      threadId: "t1",
+      subject: "Re: the engine",
+      date: "2026-01-02T10:00:00Z",
+      from: { name: "Charles Babbage", email: "charles@example.com" },
+      to: [{ name: "Ada Lovelace", email: "ada@example.com" }],
+      snippet: "the plans are ready",
+      deepLink: "https://mail.google.com/mail/u/0/#inbox/msg1",
+    };
+    await pipeline.ingestExtraction({
+      type: "google:gmail",
+      title: message.subject,
+      content: "email",
+      path: message.deepLink,
+      extraction: mapGmailMessage(message, self),
+    });
+
+    // Both items surface as first-class indexed sources, newest first.
+    const indexed = store.listIndexedSources();
+    expect(indexed.map((s) => s.kind).sort()).toEqual(["contacts", "gmail"]);
+
+    const email = indexed.find((s) => s.kind === "gmail")!;
+    expect(email.provider).toBe("google");
+    expect(email.link).toBe(message.deepLink);
+    expect(email.status).toBe("active");
+    // The email is linked to its correspondent entity.
+    expect(email.linkedEntities.some((e) => e.name === "Charles Babbage")).toBe(true);
+
+    // Detail: the email and the contact connect through the shared person.
+    const detail = store.getIndexedSource(email.id)!;
+    expect(detail.relatedSources.some((r) => r.kind === "contacts")).toBe(true);
+    expect(detail.relatedSources.find((r) => r.kind === "contacts")!.via).toContain(
+      "Charles Babbage",
+    );
+
+    // A non-connector / unknown source is not an indexed source.
+    expect(store.getIndexedSource(999_999)).toBeUndefined();
+
+    // The wiki-maintainer reads an entity's indexed sources (with content) as files.
+    const person = store.findEntityByName("Charles Babbage")!;
+    const backing = store.indexedSourcesForEntity(person.id);
+    expect(backing.map((s) => s.type).sort()).toEqual(["google:contacts", "google:gmail"]);
+    expect(backing.every((s) => (s.content ?? "").length > 0)).toBe(true);
+
+    db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
+describe("connector index vs wiki mode", () => {
+  function makePipeline() {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-mode-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    let refreshes = 0;
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {
+        refreshes++;
+      },
+    });
+    const cleanup = () => {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    };
+    return { store, pipeline, refreshes: () => refreshes, cleanup };
+  }
+
+  const contact: ContactItem = {
+    externalId: "people/m1",
+    displayName: "Grace Hopper",
+    nicknames: [],
+    emails: ["grace@example.com"],
+    phones: [],
+    organisation: "US Navy",
+    deepLink: "https://contacts.google.com/person/m1",
+  };
+
+  it("index mode merges entities + indexes but does not author the wiki", async () => {
+    const { store, pipeline, refreshes, cleanup } = makePipeline();
+    const out = await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: "Contact: Grace Hopper\nEmail: grace@example.com",
+      extraction: mapContact(contact),
+      skipWikiRefresh: true,
+    });
+    expect(out.status).toBe("done");
+    // Entity merged + the item is a browsable indexed source...
+    expect(store.findEntityByName("Grace Hopper")).toBeTruthy();
+    expect(store.listIndexedSources().some((s) => s.id === out.sourceId)).toBe(true);
+    // ...but the sync did not spin up a wiki regeneration.
+    expect(refreshes()).toBe(0);
+    cleanup();
+  });
+
+  it("wiki mode triggers wiki regeneration", async () => {
+    const { pipeline, refreshes, cleanup } = makePipeline();
+    await pipeline.materialize({
+      type: "google:contacts",
+      title: contact.displayName,
+      path: contact.deepLink,
+      rawContent: JSON.stringify(contact),
+      normalizedContent: "Contact: Grace Hopper\nEmail: grace@example.com",
+      extraction: mapContact(contact),
+    });
+    expect(refreshes()).toBeGreaterThan(0);
+    cleanup();
+  });
+});

@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_llm_providers_md",
+      "label": "llm-providers.md",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_llm_providers_llm_providers",
+      "label": "LLM providers",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_llm_providers_supported_providers",
+      "label": "Supported providers",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L9"
+    },
+    {
+      "id": "docs_llm_providers_configuration",
+      "label": "Configuration",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L18"
+    },
+    {
+      "id": "docs_llm_providers_local_embeddings",
+      "label": "Local embeddings",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L29"
+    },
+    {
+      "id": "docs_llm_providers_testing",
+      "label": "Testing",
+      "file_type": "document",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L38"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_llm_providers_md",
+      "target": "docs_llm_providers_llm_providers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_llm_providers_llm_providers",
+      "target": "docs_llm_providers_supported_providers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_llm_providers_llm_providers",
+      "target": "docs_llm_providers_configuration",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_llm_providers_llm_providers",
+      "target": "docs_llm_providers_local_embeddings",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L29",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_llm_providers_llm_providers",
+      "target": "docs_llm_providers_testing",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/llm-providers.md",
+      "source_location": "L38",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

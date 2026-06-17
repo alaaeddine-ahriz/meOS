@@ -223,6 +223,15 @@ export class IngestionPipeline {
      * connector ledger so identity stays keyed by (account, kind, external_id).
      */
     existingSourceId?: number;
+    /**
+     * Index-only mode (the connector's "index" choice): merge the item's
+     * entities/links and keep it searchable, but do NOT proactively author/rewrite
+     * wiki pages from this sync. Affected pages are still flagged stale so a later
+     * regeneration (triggered by a real document) reads this item as source
+     * material — the wiki uses indexed items as sources without the sync itself
+     * spinning up a wiki run. Defaults to false (the "wiki" path).
+     */
+    skipWikiRefresh?: boolean;
   }): Promise<{
     sourceId: number;
     sourceRevisionId: number;
@@ -306,10 +315,14 @@ export class IngestionPipeline {
       });
       await this.deps.events?.emit("onNewSource", { sourceId, merge });
 
-      if (this.deps.scheduleWikiRefresh) {
-        this.deps.scheduleWikiRefresh();
-      } else {
-        await this.deps.wiki.regenerateStale();
+      // Index-only mode stops here: entities/links are merged and the item is
+      // searchable + flagged stale, but the sync doesn't author the wiki itself.
+      if (!input.skipWikiRefresh) {
+        if (this.deps.scheduleWikiRefresh) {
+          this.deps.scheduleWikiRefresh();
+        } else {
+          await this.deps.wiki.regenerateStale();
+        }
       }
 
       return { sourceId, sourceRevisionId: revisionId, status: "done", merge };

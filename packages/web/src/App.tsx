@@ -1,4 +1,12 @@
-import { Activity, Library, type LucideIcon, MessageSquare, Search, Settings } from "lucide-react";
+import {
+  Activity,
+  Database,
+  Library,
+  type LucideIcon,
+  MessageSquare,
+  Search,
+  Settings,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useNavigate } from "react-router-dom";
 import { Kbd } from "@/components/ui/kbd";
@@ -10,6 +18,7 @@ import { ActivityHub } from "./views/ActivityHub.js";
 import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
 import { SettingsView } from "./views/SettingsView.js";
+import { SourcePageView, SourcesView } from "./views/SourcesView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
 
@@ -18,7 +27,8 @@ import { WikiView } from "./views/WikiView.js";
 const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> = [
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/wiki", label: "Wiki", key: "2", icon: Library },
-  { to: "/activity", label: "Activity", key: "3", icon: Activity },
+  { to: "/sources", label: "Sources", key: "3", icon: Database },
+  { to: "/activity", label: "Activity", key: "4", icon: Activity },
 ];
 
 export function App() {
@@ -122,6 +132,8 @@ export function App() {
           <Route path="/meetings/:id" element={<Navigate to="/" replace />} />
           <Route path="/wiki" element={<WikiView />} />
           <Route path="/wiki/:slug" element={<WikiPageView />} />
+          <Route path="/sources" element={<SourcesView />} />
+          <Route path="/sources/:id" element={<SourcePageView />} />
           <Route path="/activity" element={<ActivityHub />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/settings" element={<SettingsView />} />

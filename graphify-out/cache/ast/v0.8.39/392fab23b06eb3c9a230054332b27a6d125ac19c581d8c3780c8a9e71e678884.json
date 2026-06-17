@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_landing_readme_md",
+      "label": "README.md",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "landing_readme_meos_landing_page",
+      "label": "meOS landing page",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "landing_readme_develop",
+      "label": "Develop",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "landing_readme_build",
+      "label": "Build",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L19"
+    },
+    {
+      "id": "landing_readme_deploy_to_github_pages",
+      "label": "Deploy to GitHub Pages",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L28"
+    },
+    {
+      "id": "landing_readme_editing",
+      "label": "Editing",
+      "file_type": "document",
+      "source_file": "landing/README.md",
+      "source_location": "L40"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_landing_readme_md",
+      "target": "landing_readme_meos_landing_page",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "landing/README.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "landing_readme_meos_landing_page",
+      "target": "landing_readme_develop",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "landing/README.md",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "landing_readme_meos_landing_page",
+      "target": "landing_readme_build",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "landing/README.md",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "landing_readme_meos_landing_page",
+      "target": "landing_readme_deploy_to_github_pages",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "landing/README.md",
+      "source_location": "L28",
+      "weight": 1.0
+    },
+    {
+      "source": "landing_readme_meos_landing_page",
+      "target": "landing_readme_editing",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "landing/README.md",
+      "source_location": "L40",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
