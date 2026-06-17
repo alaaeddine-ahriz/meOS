@@ -62,6 +62,35 @@ function contains(haystack: string, needles: string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
 }
 
+/**
+ * Pull the provider's own human-readable reason out of an HTTP error so we can
+ * append it to our message instead of hiding it behind a canned line. Local
+ * servers (Ollama, LM Studio) report precise, actionable causes here — e.g.
+ * "llama3:latest does not support tools" — which our generic 400 text masks.
+ * Returns a trimmed single line, or undefined when there's nothing useful.
+ */
+function extractProviderMessage(error: APICallError): string | undefined {
+  const fromBody = (body: string): string | undefined => {
+    try {
+      const parsed = JSON.parse(body) as {
+        error?: string | { message?: string };
+        message?: string;
+      };
+      const raw =
+        (typeof parsed.error === "string" ? parsed.error : parsed.error?.message) ?? parsed.message;
+      if (typeof raw === "string" && raw.trim()) return raw;
+    } catch {
+      // Not JSON — fall back to the raw body if it's short enough to be a message.
+      if (body.length <= 300) return body;
+    }
+    return undefined;
+  };
+
+  const candidate = (error.responseBody && fromBody(error.responseBody)) || error.message;
+  const cleaned = candidate?.replace(/\s+/g, " ").trim();
+  return cleaned ? cleaned : undefined;
+}
+
 /** Pretty provider name for messages, given the raw config provider id. */
 export function providerLabel(provider: string): string {
   switch (provider) {
@@ -249,16 +278,22 @@ function classifyApiError(
     );
   }
   if (status === 400) {
+    const detail = extractProviderMessage(error);
     return new LlmError(
-      `${who} rejected the request (400). The content may be too long or malformed.`,
+      detail
+        ? `${who} rejected the request (400): ${detail}`
+        : `${who} rejected the request (400). The content may be too long or malformed.`,
       "bad_request",
       provider,
       status,
       { cause: error },
     );
   }
+  const detail = extractProviderMessage(error);
   return new LlmError(
-    `${who} returned an error${status ? ` (${status})` : ""}. Try again, or switch provider in Settings.`,
+    detail
+      ? `${who} returned an error${status ? ` (${status})` : ""}: ${detail}`
+      : `${who} returned an error${status ? ` (${status})` : ""}. Try again, or switch provider in Settings.`,
     "unknown",
     provider,
     status,

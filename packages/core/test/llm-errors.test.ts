@@ -51,6 +51,26 @@ describe("normalizeLlmError", () => {
     expect(error.kind).toBe("credits");
   });
 
+  it("surfaces a local server's real 400 reason instead of the canned message", () => {
+    const error = normalizeLlmError(
+      apiError({
+        statusCode: 400,
+        responseBody:
+          '{"error":{"message":"registry.ollama.ai/library/llama3:latest does not support tools","type":"api_error"}}',
+      }),
+      "local",
+    );
+    expect(error.kind).toBe("bad_request");
+    expect(error.message).toMatch(/does not support tools/);
+    expect(error.message).not.toMatch(/too long or malformed/);
+  });
+
+  it("falls back to the canned 400 message when there's no usable detail", () => {
+    const error = normalizeLlmError(apiError({ statusCode: 400, message: "" }), "local");
+    expect(error.kind).toBe("bad_request");
+    expect(error.message).toMatch(/too long or malformed/);
+  });
+
   it("treats a plain 429 as a transient rate limit", () => {
     const error = normalizeLlmError(apiError({ statusCode: 429, message: "rate limit" }), "google");
     expect(error.kind).toBe("rate_limit");
