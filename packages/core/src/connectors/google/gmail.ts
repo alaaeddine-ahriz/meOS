@@ -190,6 +190,26 @@ function afterQuery(afterIso: string | null): string | undefined {
 }
 
 /**
+ * Build the Gmail search `q` for a window + label include/exclude filters (#88).
+ * Include labels OR together (`{label:a label:b}`); exclude labels each negate
+ * (`-label:c`). Returns undefined when nothing constrains the search.
+ */
+function buildQuery(
+  afterIso: string | null,
+  includeLabels?: string[],
+  excludeLabels?: string[],
+): string | undefined {
+  const parts: string[] = [];
+  const after = afterQuery(afterIso);
+  if (after) parts.push(after);
+  const include = (includeLabels ?? []).filter(Boolean);
+  if (include.length === 1) parts.push(`label:${include[0]}`);
+  else if (include.length > 1) parts.push(`{${include.map((l) => `label:${l}`).join(" ")}}`);
+  for (const l of (excludeLabels ?? []).filter(Boolean)) parts.push(`-label:${l}`);
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+/**
  * Advance the resumable historical backfill by up to {@link BACKFILL_PAGES_PER_RUN}
  * pages of `messages.list` (bounded by the window's `after:`), fetching each
  * message at the configured content mode. Persists the pageToken + progress in the
@@ -201,16 +221,17 @@ async function runBackfill(
   accessToken: string,
   state: GmailBackfillState,
   mode: GmailContentMode,
+  labels?: { include?: string[]; exclude?: string[] },
 ): Promise<{ items: GmailMessageItem[]; state: GmailBackfillState; hasMore: boolean }> {
   if (state.complete) return { items: [], state, hasMore: false };
   const ids = new Set<string>();
   let pageToken = state.pageToken ?? undefined;
   let pages = 0;
   let exhausted = false;
-  const after = afterQuery(state.afterIso);
+  const query = buildQuery(state.afterIso, labels?.include, labels?.exclude);
   do {
     const params = new URLSearchParams({ maxResults: String(BACKFILL_PAGE_SIZE) });
-    if (after) params.set("q", after);
+    if (query) params.set("q", query);
     if (pageToken) params.set("pageToken", pageToken);
     const list = await googleGet<ListResponse>(
       `${BASE}/messages?${params.toString()}`,
@@ -263,6 +284,11 @@ export async function fetchGmailDelta(
 ): Promise<DeltaResult<GmailMessageItem>> {
   const window: CoverageWindow = config?.coverageWindow ?? "recent";
   const mode: GmailContentMode = config?.contentMode ?? "metadata";
+  // Label include/exclude (#88): a `q` constraint applied to the seed list, the
+  // history-fallback re-seed, and the backfill so every code path respects it.
+  const includeLabels = config?.includeLabels;
+  const excludeLabels = config?.excludeLabels;
+  const seedQuery = buildQuery(null, includeLabels, excludeLabels);
   let backfill = config?.backfill ?? initialBackfill(window);
   // A window change resets the backfill boundary so coverage tracks the new choice.
   if (backfill.afterIso !== windowAfterIso(window) && window !== "all") {
@@ -274,10 +300,14 @@ export async function fetchGmailDelta(
 
   const ids = new Set<string>();
   let nextSyncToken: string | null = syncToken ?? null;
+  // The recent-seed list URL, label-filtered when the user set include/exclude.
+  const seedParams = new URLSearchParams({ maxResults: "100" });
+  if (seedQuery) seedParams.set("q", seedQuery);
+  const seedUrl = `${BASE}/messages?${seedParams.toString()}`;
 
   try {
     if (!syncToken) {
-      const list = await googleGet<ListResponse>(`${BASE}/messages?maxResults=100`, accessToken);
+      const list = await googleGet<ListResponse>(seedUrl, accessToken);
       for (const m of list.messages ?? []) ids.add(m.id);
       const profile = await googleGet<ProfileResponse>(`${BASE}/profile`, accessToken);
       nextSyncToken = profile.historyId ?? null;
@@ -308,7 +338,7 @@ export async function fetchGmailDelta(
     // rather than reporting a destructive full resync that would clear everything.
     if (error instanceof SyncTokenExpiredError || isHistoryGone(error)) {
       ids.clear();
-      const list = await googleGet<ListResponse>(`${BASE}/messages?maxResults=100`, accessToken);
+      const list = await googleGet<ListResponse>(seedUrl, accessToken);
       for (const m of list.messages ?? []) ids.add(m.id);
       const profile = await googleGet<ProfileResponse>(`${BASE}/profile`, accessToken);
       nextSyncToken = profile.historyId ?? null;
@@ -322,14 +352,25 @@ export async function fetchGmailDelta(
   );
 
   // Advance the historical backfill (bounded, resumable, non-blocking).
-  const bf = await runBackfill(accessToken, backfill, mode);
+  const bf = await runBackfill(accessToken, backfill, mode, {
+    include: includeLabels,
+    exclude: excludeLabels,
+  });
 
   const items = recent.concat(bf.items);
   return {
     items,
     deletions: [],
     nextSyncToken,
-    nextConfig: { coverageWindow: window, contentMode: mode, backfill: bf.state },
+    // Preserve the label selections in the persisted config so they survive a
+    // re-merge by the orchestrator (which shallow-merges nextConfig).
+    nextConfig: {
+      coverageWindow: window,
+      contentMode: mode,
+      backfill: bf.state,
+      includeLabels,
+      excludeLabels,
+    },
     hasMore: bf.hasMore,
   };
 }

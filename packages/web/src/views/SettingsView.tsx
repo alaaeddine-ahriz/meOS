@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  Shapes,
   Sparkles,
   Sun,
   Trash2,
@@ -44,6 +45,7 @@ import {
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { ENTITY_TYPE_ORDER, ENTITY_TYPES } from "@/lib/entity-meta";
 import { isTauri, openExternal, openFolder } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
@@ -60,10 +62,14 @@ import {
   api,
   type ConnectorKind,
   type ConnectorStatus,
+  type EntityTypeName,
   type GitCommit,
   type GitStatus,
+  type KnowledgePreferences,
+  type KnowledgePreset,
   type LlmProvider,
   type LlmSettings,
+  type ObservationKindName,
   type WatchedFolder,
 } from "../api.js";
 
@@ -93,6 +99,7 @@ type TabId =
   | "intelligence"
   | "folders"
   | "connectors"
+  | "knowledge"
   | "sync"
   | "reset";
 
@@ -138,6 +145,12 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         label: "Connectors",
         icon: Plug,
         blurb: "Sync people from Google Contacts, Calendar and Mail.",
+      },
+      {
+        id: "knowledge",
+        label: "Entity types",
+        icon: Shapes,
+        blurb: "Tailor which kinds of knowledge MeOS tracks and surfaces.",
       },
       {
         id: "sync",
@@ -288,12 +301,224 @@ export function SettingsView() {
             {tab === "intelligence" && <IntelligenceSection />}
             {tab === "folders" && <FoldersSection />}
             {tab === "connectors" && <ConnectorsSection />}
+            {tab === "knowledge" && <KnowledgeSection />}
             {tab === "sync" && <GitSyncSection />}
             {tab === "reset" && <ResetSection />}
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Knowledge preferences (#86) ---------------------------------------------
+// The canonical entity types (from entity-meta) and observation kinds. The kind
+// list mirrors core's OBSERVATION_KINDS; web imports only types from contracts,
+// so the human labels live here.
+const ENTITY_TYPE_NAMES = ENTITY_TYPE_ORDER as EntityTypeName[];
+
+const OBSERVATION_KIND_META: Array<{ id: ObservationKindName; label: string }> = [
+  { id: "fact", label: "Facts" },
+  { id: "decision", label: "Decisions" },
+  { id: "requirement", label: "Requirements" },
+  { id: "preference", label: "Preferences" },
+  { id: "task", label: "Tasks / action items" },
+  { id: "event", label: "Events" },
+  { id: "risk", label: "Risks" },
+  { id: "open_question", label: "Open questions" },
+  { id: "procedure", label: "Procedures" },
+];
+const OBSERVATION_KIND_NAMES = OBSERVATION_KIND_META.map((k) => k.id);
+
+const KNOWLEDGE_PRESET_OPTIONS: Array<{ value: KnowledgePreset; label: string }> = [
+  { value: "default", label: "Everything" },
+  { value: "consultant", label: "Consultant" },
+  { value: "executive", label: "Executive" },
+  { value: "personal", label: "Personal" },
+  { value: "research", label: "Research" },
+  { value: "custom", label: "Custom" },
+];
+
+// Preset → enabled (entityTypes, observationKinds). Mirrors core's PRESET_DEFS
+// so picking a preset sets the toggles client-side; the full resolved toggle set
+// is then sent to the server (the source of truth still resolves/normalises it).
+const PRESET_TYPE_SETS: Record<Exclude<KnowledgePreset, "default" | "custom">, EntityTypeName[]> = {
+  consultant: ["person", "organisation", "project", "decision", "concept"],
+  executive: ["person", "organisation", "project", "decision"],
+  personal: ["person", "place", "organisation", "project", "decision"],
+  research: ["concept", "person", "organisation", "project"],
+};
+const PRESET_KIND_SETS: Record<
+  Exclude<KnowledgePreset, "default" | "custom">,
+  ObservationKindName[]
+> = {
+  consultant: ["fact", "decision", "requirement", "task", "risk", "open_question"],
+  executive: ["fact", "decision", "requirement", "risk", "event"],
+  personal: ["fact", "decision", "preference", "task", "event"],
+  research: ["fact", "decision", "requirement", "open_question", "procedure"],
+};
+
+function togglesFor<K extends string>(all: readonly K[], on: readonly K[]): Record<K, boolean> {
+  const set = new Set<string>(on);
+  return Object.fromEntries(all.map((k) => [k, set.has(k)])) as Record<K, boolean>;
+}
+
+function preferencesForPreset(preset: KnowledgePreset): KnowledgePreferences {
+  if (preset === "default" || preset === "custom") {
+    return {
+      preset,
+      entityTypes: togglesFor(ENTITY_TYPE_NAMES, ENTITY_TYPE_NAMES),
+      observationKinds: togglesFor(OBSERVATION_KIND_NAMES, OBSERVATION_KIND_NAMES),
+    };
+  }
+  return {
+    preset,
+    entityTypes: togglesFor(ENTITY_TYPE_NAMES, PRESET_TYPE_SETS[preset]),
+    observationKinds: togglesFor(OBSERVATION_KIND_NAMES, PRESET_KIND_SETS[preset]),
+  };
+}
+
+/** A labelled toggle row, styled like the rest of Settings. */
+function ToggleRow({
+  label,
+  icon: Icon,
+  iconColor,
+  checked,
+  onChange,
+}: {
+  label: string;
+  icon?: LucideIcon;
+  iconColor?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center justify-between gap-3 py-2">
+      <span className="flex items-center gap-2.5 text-sm text-paper">
+        {Icon && (
+          <Icon
+            className="size-4 shrink-0 opacity-80"
+            style={iconColor ? { color: iconColor } : undefined}
+          />
+        )}
+        {label}
+      </span>
+      <Switch checked={checked} onCheckedChange={onChange} aria-label={label} />
+    </label>
+  );
+}
+
+function KnowledgeSection() {
+  const [prefs, setPrefs] = useState<KnowledgePreferences | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api
+      .getKnowledgePreferences()
+      .then(setPrefs)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  // Persist a full preference value (debounced via the caller's action) and
+  // reflect the server's resolved copy back into local state.
+  const save = async (next: KnowledgePreferences) => {
+    setPrefs(next); // optimistic
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = await api.setKnowledgePreferences(next);
+      setPrefs(saved);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const choosePreset = (preset: KnowledgePreset) => void save(preferencesForPreset(preset));
+
+  const toggleType = (type: EntityTypeName, on: boolean) => {
+    if (!prefs) return;
+    void save({
+      ...prefs,
+      preset: "custom",
+      entityTypes: { ...prefs.entityTypes, [type]: on },
+    });
+  };
+
+  const toggleKind = (kind: ObservationKindName, on: boolean) => {
+    if (!prefs) return;
+    void save({
+      ...prefs,
+      preset: "custom",
+      observationKinds: { ...prefs.observationKinds, [kind]: on },
+    });
+  };
+
+  if (!prefs) {
+    return (
+      <section className="flex flex-col gap-4">
+        <PanelIntro>{error ?? "Loading your knowledge preferences…"}</PanelIntro>
+      </section>
+    );
+  }
+
+  return (
+    <section className="flex flex-col gap-8">
+      <PanelIntro>
+        Tailor which kinds of knowledge MeOS tracks and surfaces across the wiki, graph, digest and
+        chat. Disabling a type only narrows what is surfaced — your existing knowledge is preserved
+        and reappears the moment you re-enable it.
+      </PanelIntro>
+
+      <Segmented<KnowledgePreset>
+        label="Preset"
+        value={prefs.preset}
+        options={KNOWLEDGE_PRESET_OPTIONS}
+        onChange={choosePreset}
+      />
+
+      <div className="flex flex-col gap-2">
+        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+          Entity types
+        </span>
+        <div className="flex flex-col divide-y divide-line/40">
+          {ENTITY_TYPE_NAMES.map((type) => {
+            const meta = ENTITY_TYPES[type];
+            return (
+              <ToggleRow
+                key={type}
+                label={meta ? meta.plural[0]!.toUpperCase() + meta.plural.slice(1) : type}
+                icon={meta?.icon}
+                iconColor={meta?.color}
+                checked={prefs.entityTypes[type] ?? true}
+                onChange={(on) => toggleType(type, on)}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-dim">
+          Focus areas (observation kinds)
+        </span>
+        <div className="flex flex-col divide-y divide-line/40">
+          {OBSERVATION_KIND_META.map(({ id, label }) => (
+            <ToggleRow
+              key={id}
+              label={label}
+              checked={prefs.observationKinds[id] ?? true}
+              onChange={(on) => toggleKind(id, on)}
+            />
+          ))}
+        </div>
+      </div>
+
+      {error && <p className="text-sm text-rose-400">{error}</p>}
+      {saving && <p className="text-xs text-dim">Saving…</p>}
+    </section>
   );
 }
 
@@ -905,6 +1130,82 @@ const COVERAGE_WINDOWS: Array<{ value: string; label: string }> = [
   { value: "all", label: "Everything" },
 ];
 
+/**
+ * The unambiguous per-kind coverage state (#88) → a small colored badge. Never an
+ * ambiguous "connected"-only state: the user always sees complete / partial /
+ * recent-only / backfilling / failed.
+ */
+const STATE_BADGE: Record<string, { label: string; cls: string }> = {
+  complete: { label: "Complete", cls: "bg-emerald-500/15 text-emerald-400" },
+  partial: { label: "Partial", cls: "bg-amber-500/15 text-amber-400" },
+  "recent-only": { label: "Recent only", cls: "bg-amber-500/15 text-amber-400" },
+  backfilling: { label: "Backfilling…", cls: "bg-sky-500/15 text-sky-400" },
+  failed: { label: "Failed", cls: "bg-red-500/15 text-red-400" },
+  idle: { label: "Not synced", cls: "bg-card text-dim" },
+};
+
+function CoverageStateBadge({ state }: { state?: string }) {
+  if (!state) return null;
+  const meta = STATE_BADGE[state] ?? { label: "Not synced", cls: "bg-card text-dim" };
+  return (
+    <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-medium", meta.cls)}>
+      {meta.label}
+    </span>
+  );
+}
+
+/**
+ * A comma-separated label-filter input (#88). Edits live locally; commits the
+ * parsed list (trimmed, de-duped, empties dropped) on blur or Enter so a sync
+ * isn't re-triggered on every keystroke.
+ */
+function LabelFilterControl({
+  label,
+  placeholder,
+  value,
+  onCommit,
+}: {
+  label: string;
+  placeholder: string;
+  value: string[];
+  onCommit: (labels: string[]) => void;
+}) {
+  const [text, setText] = useState(value.join(", "));
+  // Keep the field in sync when the server's value changes (e.g. after a refresh).
+  useEffect(() => {
+    setText(value.join(", "));
+  }, [value]);
+  const commit = () => {
+    const labels = [
+      ...new Set(
+        text
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (labels.join(" ") !== value.join(" ")) onCommit(labels);
+  };
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[12px] text-dim">{label}</span>
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        placeholder={placeholder}
+        className={cn(inputClass, "h-7")}
+      />
+    </label>
+  );
+}
+
 function ConnectorsSection() {
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
   const [clientId, setClientId] = useState("");
@@ -918,6 +1219,8 @@ function ConnectorsSection() {
   const [calendars, setCalendars] = useState<
     Array<{ id: string; summary: string; primary: boolean }>
   >([]);
+  // The user's Google Tasks lists, for the per-list selection UI (#88).
+  const [taskLists, setTaskLists] = useState<Array<{ id: string; title: string }>>([]);
 
   const refresh = () =>
     api
@@ -941,6 +1244,10 @@ function ConnectorsSection() {
     api
       .listGoogleCalendars()
       .then((r) => setCalendars(r.calendars))
+      .catch(() => {});
+    api
+      .listGoogleTaskLists()
+      .then((r) => setTaskLists(r.lists))
       .catch(() => {});
   }, [google?.connected]);
 
@@ -999,6 +1306,10 @@ function ConnectorsSection() {
       contentMode?: string;
       enabledCalendars?: string[];
       mode?: "index" | "wiki";
+      includeLabels?: string[];
+      excludeLabels?: string[];
+      enabledTaskLists?: string[];
+      reset?: boolean;
     },
   ) => {
     setError(null);
@@ -1014,6 +1325,19 @@ function ConnectorsSection() {
     try {
       await api.syncConnectorKind(kind);
       // Status (last-synced) updates a moment after the queued sync runs.
+      setTimeout(refresh, 2500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Reset & re-import (#88): clear the cursor + backfill and pull the whole window
+  // from scratch. Used when coverage looks wrong/partial and the user wants a fresh,
+  // complete re-index.
+  const resetKind = async (kind: ConnectorKind) => {
+    setError(null);
+    try {
+      setStatus(await api.configureConnectorKind(kind, { reset: true }));
       setTimeout(refresh, 2500);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -1205,15 +1529,17 @@ function ConnectorsSection() {
             const k = google?.kinds.find((entry) => entry.kind === kind);
             const connected = google?.connected ?? false;
             const enabled = k?.enabled ?? false;
-            // Only Gmail and Calendar carry service-specific settings.
-            const hasSettings = kind === "gmail" || kind === "calendar";
+            // Gmail, Calendar and Tasks all carry service-specific settings (#88).
+            const hasSettings = kind === "gmail" || kind === "calendar" || kind === "tasks";
             const open = openKind === kind;
+            const cov = k?.coverage;
             return (
               <li key={kind} className="px-4 py-2.5">
                 <div className="flex items-center gap-3">
                   <Logo className="size-5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate text-[14px] text-paper">
+                  <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-[14px] text-paper">
                     {meta.label}
+                    {connected && enabled && <CoverageStateBadge state={cov?.state} />}
                   </span>
                   {connected && enabled && hasSettings && (
                     <button
@@ -1259,17 +1585,77 @@ function ConnectorsSection() {
                             </span>
                           </span>
                         </label>
+                        {/* Label include/exclude (#88): comma-separated label names. */}
+                        <LabelFilterControl
+                          label="Only these labels (optional)"
+                          placeholder="e.g. Work, Important"
+                          value={k.coverage?.includeLabels ?? []}
+                          onCommit={(labels) => void configure(kind, { includeLabels: labels })}
+                        />
+                        <LabelFilterControl
+                          label="Exclude these labels (optional)"
+                          placeholder="e.g. Promotions, Spam"
+                          value={k.coverage?.excludeLabels ?? []}
+                          onCommit={(labels) => void configure(kind, { excludeLabels: labels })}
+                        />
                         {k.coverage?.backfill && (
-                          <span className="text-[11px] text-dim">
-                            {k.coverage.backfill.complete
-                              ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
-                              : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
-                            {k.coverage.oldestIndexed
-                              ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
-                              : ""}
-                          </span>
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[11px] text-dim">
+                              {k.coverage.backfill.complete
+                                ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
+                                : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
+                              {k.coverage.oldestIndexed
+                                ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
+                                : ""}
+                            </span>
+                            <div className="h-1 w-full overflow-hidden rounded-full bg-card">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full",
+                                  k.coverage.backfill.complete ? "bg-emerald-500" : "bg-sky-500",
+                                )}
+                                style={{ width: k.coverage.backfill.complete ? "100%" : "60%" }}
+                              />
+                            </div>
+                          </div>
                         )}
                       </>
+                    )}
+
+                    {kind === "tasks" && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[12px] text-dim">Task lists</span>
+                        {taskLists.length > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            {taskLists.map((list) => {
+                              const selected = k.coverage?.enabledTaskLists ?? [];
+                              // Empty selection ⇒ all lists are synced.
+                              const on = selected.length === 0 || selected.includes(list.id);
+                              return (
+                                <label key={list.id} className="flex items-center gap-2 text-faded">
+                                  <input
+                                    type="checkbox"
+                                    checked={on}
+                                    onChange={(e) => {
+                                      const base =
+                                        selected.length === 0
+                                          ? taskLists.map((l) => l.id)
+                                          : selected;
+                                      const next = e.target.checked
+                                        ? [...new Set([...base, list.id])]
+                                        : base.filter((id) => id !== list.id);
+                                      void configure(kind, { enabledTaskLists: next });
+                                    }}
+                                  />
+                                  {list.title}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-dim">No task lists found yet.</span>
+                        )}
+                      </div>
                     )}
 
                     {kind === "calendar" && (
@@ -1312,6 +1698,45 @@ function ConnectorsSection() {
                         )}
                       </div>
                     )}
+
+                    {/* Shared per-kind footer (#88): last success / last failure and
+                        the manual sync + full re-import actions. */}
+                    <div className="flex flex-col gap-2 border-t border-line pt-3">
+                      <div className="flex flex-col gap-0.5 text-[11px] text-dim">
+                        <span>
+                          Last successful sync:{" "}
+                          {cov?.lastSuccessAt
+                            ? new Date(cov.lastSuccessAt).toLocaleString()
+                            : "never"}
+                        </span>
+                        {cov?.lastFailureAt && (
+                          <span className="text-ember">
+                            Last failure: {new Date(cov.lastFailureAt).toLocaleString()}
+                            {cov.lastError ? ` — ${cov.lastError}` : ""}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void syncNow(kind)}
+                          className={actionButtonClass}
+                        >
+                          <RefreshCw className="size-3.5" />
+                          Sync now
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => void resetKind(kind)}
+                          className="text-dim hover:text-paper"
+                          title="Clear what's indexed and re-import the whole coverage window from scratch."
+                        >
+                          Reset & re-import
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </li>

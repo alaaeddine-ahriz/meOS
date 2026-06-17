@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { settings as settingsSchema } from "@meos/contracts";
+import { preferences as preferencesSchema, settings as settingsSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import {
   createLlmClient,
@@ -304,6 +304,44 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       }
       ctx.watcher.removeFolder(removedPath);
       return settingsSchema.RemoveFolderResponse.parse({ removed: true });
+    },
+  );
+
+  // Knowledge preferences (#86): which entity types / observation kinds MeOS
+  // tracks and surfaces. Stored as one JSON blob in the settings table; unset
+  // resolves to all-enabled, so a fresh install is unaffected. Non-destructive —
+  // changing prefs never deletes existing knowledge.
+  app.get(
+    "/api/settings/knowledge",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Get knowledge preferences",
+        response: preferencesSchema.KnowledgePreferencesSchema,
+      }),
+    },
+    async () =>
+      preferencesSchema.KnowledgePreferencesSchema.parse(ctx.store.getKnowledgePreferences()),
+  );
+
+  app.put<{ Body: unknown }>(
+    "/api/settings/knowledge",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Update knowledge preferences",
+        body: preferencesSchema.UpdateKnowledgePreferencesBody,
+        response: preferencesSchema.KnowledgePreferencesSchema,
+      }),
+    },
+    async (request) => {
+      const update = parseOrThrow(
+        preferencesSchema.UpdateKnowledgePreferencesBody,
+        request.body,
+        "body",
+      );
+      const saved = ctx.store.setKnowledgePreferences(update);
+      return preferencesSchema.KnowledgePreferencesSchema.parse(saved);
     },
   );
 

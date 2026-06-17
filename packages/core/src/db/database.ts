@@ -865,6 +865,23 @@ export const migrations: readonly string[] = [
   `
   UPDATE sources SET wiki_eligible = 0 WHERE type = 'google:tasks';
   `,
+  // 31 — meeting-note detection provenance (#85).
+  //
+  // Auto-detection routes a generic ingest into the meeting subsystem (#26) when
+  // it looks like meeting notes. These columns record HOW a meeting note came to
+  // be one so the UI can show trust: `detection_method` is 'auto' (classified at
+  // ingest) or 'manual' (created via POST /api/meetings), `detection_confidence`
+  // is the blended classifier score for auto notes (NULL for manual), and
+  // `linked_calendar_source_id` points at a matched google:calendar event source
+  // (date + title/attendee overlap), nullable when no event matched. Existing
+  // meeting_notes rows are pre-#85, so they default to 'manual' with no score.
+  `
+  ALTER TABLE meeting_notes ADD COLUMN detection_confidence REAL;
+  ALTER TABLE meeting_notes ADD COLUMN detection_method TEXT NOT NULL DEFAULT 'manual'
+    CHECK (detection_method IN ('auto','manual'));
+  ALTER TABLE meeting_notes ADD COLUMN linked_calendar_source_id INTEGER
+    REFERENCES sources(id) ON DELETE SET NULL;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

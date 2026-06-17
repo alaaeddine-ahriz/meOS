@@ -109,12 +109,15 @@ export async function processMeetingNote(
   }
 
   // Persist the structured fields. Title can drift from the parser's heading, so
-  // pin it to the user's input.
+  // pin it to the user's input. An explicit POST /api/meetings note is "manual"
+  // with no detection score (#85).
   store.updateSourceTitle(sourceId, title);
   store.upsertMeetingNote({
     sourceId,
     meetingDate: input.date ?? null,
     attendees: (input.attendees ?? []).map((a) => a.trim()).filter(Boolean),
+    detectionMethod: "manual",
+    detectionConfidence: null,
   });
   // First-time creation: key the source by its synthetic path so future
   // reprocesses (#16) advance this same source instead of forking a new one.

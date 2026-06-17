@@ -19,14 +19,18 @@ import type {
   ContradictionProposal,
   Conversation,
   ConnectorCoverage,
+  ConnectorHealth,
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
+  CoverageState,
+  SourceHealth,
   Task,
   TaskList,
   DiffFile,
   DuplicateProposal,
   EntitySummary,
+  EntityTypeName,
   ErrorCode as ErrorCodeType,
   ErrorEnvelope,
   GitCommit,
@@ -37,9 +41,12 @@ import type {
   InboxItem,
   IngestJob,
   IngestMetrics,
+  KnowledgePreferences,
+  KnowledgePreset,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
+  ObservationKindName,
   MeetingDetail,
   MeetingLink,
   MeetingObservation,
@@ -87,6 +94,7 @@ import type {
   GitLogResponse,
   InboxResponse,
   IngestJobsResponse,
+  KnowledgePreferencesResponse,
   ListCalendarEventsResponse,
   ListConversationsResponse,
   ListEntitiesResponse,
@@ -112,6 +120,7 @@ import type {
   RunEventsResponse,
   SearchResponse,
   SourceDetailResponse,
+  SourceHealthResponse,
   SyncKindResponse,
   WikiGraphResponse,
 } from "@meos/contracts";
@@ -131,9 +140,12 @@ export type {
   ContradictionProposal,
   Conversation,
   ConnectorCoverage,
+  ConnectorHealth,
   ConnectorKind,
   ConnectorKindStatus,
   ConnectorStatus,
+  CoverageState,
+  SourceHealth,
   Task,
   TaskList,
   DiffFile,
@@ -144,12 +156,16 @@ export type {
   GitStatus,
   GraphLink,
   GraphNode,
+  EntityTypeName,
   InboxItem,
   IngestJob,
   IngestMetrics,
+  KnowledgePreferences,
+  KnowledgePreset,
   LlmErrorKind,
   LlmProvider,
   LlmSettings,
+  ObservationKindName,
   MeetingDetail,
   MeetingLink,
   MeetingObservation,
@@ -260,6 +276,9 @@ export const api = {
   listEntities: () => json<ListEntitiesResponse>("/api/wiki"),
   listSources: () => json<ListSourcesResponse>("/api/sources"),
   getSource: (id: number) => json<SourceDetailResponse>(`/api/sources/${id}`),
+  // Source health dashboard (#87): the unified indexed/failed/skipped/pending +
+  // last-sync + running-jobs + recent-failures overview across folders + connectors.
+  getSourceHealth: () => json<SourceHealthResponse>("/api/source-health"),
   getWikiPage: (slug: string) => json<WikiPage>(`/api/wiki/${slug}`),
   getGraph: () => json<WikiGraphResponse>("/api/wiki/graph"),
   getInbox: () => json<InboxResponse>("/api/inbox"),
@@ -280,6 +299,15 @@ export const api = {
   removeFolder: (id: number) =>
     json<RemoveFolderResponse>(`/api/settings/folders/${id}`, { method: "DELETE" }),
   resetEverything: () => json<ResetResponse>("/api/settings/reset", { method: "POST" }),
+  // Knowledge preferences (#86): which entity types / observation kinds MeOS
+  // focuses on. Unset on the server resolves to all-enabled.
+  getKnowledgePreferences: () => json<KnowledgePreferencesResponse>("/api/settings/knowledge"),
+  setKnowledgePreferences: (prefs: Partial<KnowledgePreferences>) =>
+    json<KnowledgePreferencesResponse>("/api/settings/knowledge", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(prefs),
+    }),
   getLlmSettings: () => json<LlmSettings>("/api/settings/llm"),
   updateLlmSettings: (update: {
     provider: LlmProvider;
@@ -426,6 +454,10 @@ export const api = {
       contentMode?: string;
       enabledCalendars?: string[];
       mode?: "index" | "wiki";
+      includeLabels?: string[];
+      excludeLabels?: string[];
+      enabledTaskLists?: string[];
+      reset?: boolean;
     },
   ) =>
     json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {

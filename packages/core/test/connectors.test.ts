@@ -28,6 +28,7 @@ import type {
 } from "../src/connectors/framework.js";
 import { ConnectorRegistry } from "../src/connectors/registry.js";
 import { syncConnector } from "../src/connectors/sync.js";
+import { deriveCoverageState } from "../src/connectors/types.js";
 
 const self: SelfIdentity = { name: "Ada Lovelace", email: "ada@example.com" };
 
@@ -781,9 +782,147 @@ describe("connector framework (#5) — a second provider slots in", () => {
   });
 });
 
+describe("connector coverage state + structured sync metrics (#88)", () => {
+  it("derives the user-facing coverage state from config", () => {
+    // Never synced.
+    expect(deriveCoverageState({})).toBe("idle");
+    // A failed last attempt dominates.
+    expect(
+      deriveCoverageState({ lastSync: { at: "t", ok: false, indexed: 0, skipped: 0, deleted: 0 } }),
+    ).toBe("failed");
+    // Non-"recent" window without a backfill reads as recent-only.
+    expect(
+      deriveCoverageState({
+        coverageWindow: "1y",
+        lastSync: { at: "t", ok: true, indexed: 5, skipped: 0, deleted: 0 },
+      }),
+    ).toBe("recent-only");
+    // An in-progress backfill reads as backfilling.
+    expect(
+      deriveCoverageState({
+        coverageWindow: "all",
+        backfill: {
+          pageToken: "p",
+          afterIso: null,
+          indexed: 3,
+          oldestIndexed: null,
+          complete: false,
+        },
+        lastSync: { at: "t", ok: true, indexed: 3, skipped: 0, deleted: 0 },
+      }),
+    ).toBe("backfilling");
+    // A finished backfill with no exclusions reads as complete.
+    expect(
+      deriveCoverageState({
+        coverageWindow: "all",
+        backfill: {
+          pageToken: null,
+          afterIso: null,
+          indexed: 9,
+          oldestIndexed: null,
+          complete: true,
+        },
+        lastSync: { at: "t", ok: true, indexed: 9, skipped: 0, deleted: 0 },
+      }),
+    ).toBe("complete");
+    // A task-list subset reads as partial.
+    expect(
+      deriveCoverageState({
+        enabledTaskLists: ["list-1"],
+        lastSync: { at: "t", ok: true, indexed: 2, skipped: 0, deleted: 0 },
+      }),
+    ).toBe("partial");
+    // A plain "recent" window that synced cleanly reads as complete.
+    expect(
+      deriveCoverageState({
+        coverageWindow: "recent",
+        lastSync: { at: "t", ok: true, indexed: 4, skipped: 0, deleted: 0 },
+      }),
+    ).toBe("complete");
+  });
+
+  it("persists structured last-sync metrics on a successful sync", async () => {
+    const db = openDatabase(":memory:");
+    const store = new KnowledgeStore(db);
+    const embedder = new HashEmbedder();
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-metrics-"));
+    const llm = new StubLlmClient({});
+    const wiki = new WikiWriter(store, llm, tmpDir);
+    const pipeline = new IngestionPipeline({
+      store,
+      llm,
+      embedder,
+      wiki,
+      scheduleWikiRefresh: () => {},
+    });
+
+    const memo: Connector = {
+      manifest: {
+        id: "memo2",
+        displayName: "Memo2",
+        auth: { kind: "oauth2", scopes: ["read"] } as const,
+        kinds: [
+          {
+            kind: "notes",
+            displayName: "Notes",
+            sourceType: "memo:notes",
+            contentMode: "document" as const,
+            defaultIntervalMinutes: 30,
+          },
+        ],
+      },
+      oauth: {
+        scopes: ["read"],
+        buildAuthUrl: () => "https://example.com/auth",
+        exchangeCode: async () => ({ accessToken: "fresh", refreshToken: "r", expiry: null }),
+        refreshAccessToken: async () => ({
+          accessToken: "refreshed",
+          refreshToken: "r",
+          expiry: null,
+        }),
+        revokeToken: async () => {},
+      },
+      fetchDelta: async () => ({
+        items: [
+          {
+            externalId: "n1",
+            title: "Note one",
+            path: "https://memo.example/n1",
+            rawContent: JSON.stringify({ id: "n1" }),
+            normalizedContent: "Note one body",
+            extraction: { entities: [], relationships: [], observations: [] },
+          },
+        ],
+        deletions: [],
+        nextCursor: "c1",
+      }),
+    };
+
+    const accountId = store.upsertConnectorAccount({
+      provider: "memo2",
+      clientId: "id",
+      clientSecret: "secret",
+      accessToken: "tok",
+      refreshToken: "refresh",
+    });
+    await syncConnector({ store, pipeline }, store.getConnectorAccount("memo2")!, "notes", memo);
+
+    const config = store.getSyncConfig(accountId, "notes");
+    expect(config.lastSync).toBeDefined();
+    expect(config.lastSync!.ok).toBe(true);
+    expect(config.lastSync!.indexed).toBe(1);
+    expect(config.lastSync!.okAt).toBeTruthy();
+    // The free-text status is still written for legacy clients.
+    expect(store.getSyncState(accountId, "notes")!.last_status).toContain("1 updated");
+
+    db.close();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+});
+
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(30);
+    expect(migrations.length).toBe(31);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -851,7 +990,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(30);
+    expect(migrations.length).toBe(31);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {

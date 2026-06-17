@@ -29,6 +29,32 @@ describe("GET /api/wiki/graph", () => {
     expect(parsed.nodes).toEqual([]);
     expect(parsed.links).toEqual([]);
   });
+
+  it("decorates edges with confidence and source provenance (#89)", async () => {
+    const { store } = server.ctx;
+    // Two documented people linked by a relationship backed by a real source, so
+    // both endpoints warrant a wiki page and the edge survives the route's filter.
+    const a = store.createEntity({ type: "person", name: "Graph A" });
+    const b = store.createEntity({ type: "person", name: "Graph B" });
+    const src = store.createSource({ type: "file", title: "Graph notes", content: "..." });
+    store.insertObservation({ entityId: a.id, text: "Graph A leads.", sourceId: src });
+    store.insertObservation({ entityId: b.id, text: "Graph B helps.", sourceId: src });
+    store.upsertRelationship(a.id, b.id, "works with", src);
+
+    const res = await server.app.inject({ method: "GET", url: "/api/wiki/graph" });
+    const parsed = wiki.WikiGraphResponse.parse(res.json());
+    const edge = parsed.links.find((l) => l.from === a.id && l.to === b.id);
+    expect(edge).toBeDefined();
+    expect(typeof edge!.confidence).toBe("number");
+    expect(edge!.sourceId).toBe(src);
+    expect(edge!.sourceCount).toBe(1);
+    // A single-source edge below the reinforcement cap is a "generated" proxy.
+    expect(edge!.confirmed).toBe(false);
+    // Nodes now carry the entity summary for the focus/inspect panel.
+    const node = parsed.nodes.find((n) => n.id === a.id);
+    expect(node).toBeDefined();
+    expect(node).toHaveProperty("summary");
+  });
 });
 
 describe("GET /api/wiki/:slug", () => {

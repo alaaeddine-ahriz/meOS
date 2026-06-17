@@ -5,13 +5,20 @@ import { extractKnowledgeMapReduce } from "../extract/map-reduce.js";
 import type { Extraction } from "../extract/schema.js";
 import { readImage } from "../extract/image.js";
 import { loadSchema } from "../knowledge/schema-doc.js";
+import { suggestMeetingLinks } from "../knowledge/meeting-links.js";
 import { loadProfileContext } from "../profile/profile-doc.js";
 import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
+import { MEETING_SOURCE_TYPE } from "../knowledge/visibility.js";
 import type { LlmClient } from "../llm/types.js";
+import { createLogger } from "../logger.js";
 import type { WikiWriter } from "../wiki/writer.js";
 import { chunkBlocks } from "./chunk.js";
+import { detectMeeting, type MeetingDetectionResult } from "./meeting-detect.js";
+import { MEETING_EXTRACTION_LENS } from "./meeting.js";
 import { blocksFromText, imageMediaType, parseDocument, type Block } from "./parse.js";
+
+const log = createLogger("ingest-pipeline");
 
 export type IngestInput =
   | { kind: "file"; filename: string; buffer: Buffer; origin?: string; path?: string }
@@ -103,6 +110,12 @@ export class IngestionPipeline {
       extractionModelId?: string;
       /** Event bus; onNewSource / onMemoryWrite fire here for automation hooks. */
       events?: MeosEvents;
+      /**
+       * Auto-detect meeting notes during generic ingests and route them into the
+       * meeting subsystem (#85). Defaults ON; set false to disable detection
+       * entirely (documents still ingest as normal sources).
+       */
+      detectMeetings?: boolean;
     },
   ) {}
 
@@ -366,6 +379,23 @@ export class IngestionPipeline {
         return { inboxItemId, status: "unsupported" };
       }
 
+      // Meeting auto-detection (#85). A GENERIC file/text ingest is screened for
+      // meeting shape; on a confident hit it is routed into the existing meeting
+      // machinery (#26) — meeting source type, meeting extraction lens, and an
+      // onExtraction that persists the structured row + link suggestions — WITHOUT
+      // rewriting the document (it stays the citable source). Inputs that already
+      // declare the meeting origin (the explicit POST /api/meetings path) are
+      // skipped to avoid double-processing, as are connector materialize paths
+      // (which don't flow through ingest()). Detection never breaks ingestion:
+      // any failure logs and falls through to normal ingestion below.
+      const detection = await this.maybeDetectMeeting(input, parsed);
+      const origin = detection ? MEETING_SOURCE_TYPE : input.origin;
+      const extractionLens = detection
+        ? MEETING_EXTRACTION_LENS
+        : input.kind === "text"
+          ? input.extractionLens
+          : undefined;
+
       // Logical-source identity (#16): a watched/uploaded file (or keyed text,
       // e.g. a meeting note) re-ingested at a known path advances the SAME
       // source's revision history instead of forking a fresh source row — so an
@@ -380,7 +410,7 @@ export class IngestionPipeline {
         store.clearChunksForSource(sourceId);
       } else {
         sourceId = store.createSource({
-          type: input.origin ?? input.kind,
+          type: origin ?? input.kind,
           title: parsed.title,
           path: sourcePath,
           content: parsed.text,
@@ -433,8 +463,15 @@ export class IngestionPipeline {
           revisionId,
           parsed,
           inboxItemId,
-          extractionLens: input.kind === "text" ? input.extractionLens : undefined,
-          onExtraction: input.kind === "text" ? input.onExtraction : undefined,
+          extractionLens,
+          // A detected meeting (#85) persists its structured row + link
+          // suggestions here; an explicit text ingest uses its own callback.
+          onExtraction: detection
+            ? ({ sourceId: sid, extraction }) =>
+                this.persistDetectedMeeting(sid, extraction, parsed.title, detection)
+            : input.kind === "text"
+              ? input.onExtraction
+              : undefined,
         });
       } catch (error) {
         // Mark the revision incomplete so it doesn't look fully ingested, and
@@ -458,6 +495,94 @@ export class IngestionPipeline {
         error instanceof Error ? error.message : String(error),
       );
       return { inboxItemId, status: "failed" };
+    }
+  }
+
+  /**
+   * Run meeting auto-detection (#85) over a freshly-parsed generic ingest, or
+   * return undefined when detection is disabled, the input is already a meeting
+   * (the explicit POST /api/meetings path, which sets `origin === "meeting"`), or
+   * the document doesn't clear the confidence threshold. Fully guarded: any
+   * detection error logs and returns undefined so ingestion proceeds normally.
+   */
+  private async maybeDetectMeeting(
+    input: IngestInput,
+    parsed: { title: string; text: string },
+  ): Promise<MeetingDetectionResult | undefined> {
+    if (this.deps.detectMeetings === false) return undefined;
+    // Never re-detect an explicit meeting (or any pre-typed origin): the meeting
+    // flow already routes through here with origin "meeting".
+    if (input.kind === "text" && input.origin) return undefined;
+    if (input.kind === "file" && input.origin) return undefined;
+    try {
+      const result = await detectMeeting(parsed.text, parsed.title, this.deps.llm);
+      if (!result.isMeeting) return undefined;
+      log.info(
+        { title: parsed.title, confidence: result.confidence },
+        "ingest auto-classified as a meeting note",
+      );
+      return result;
+    } catch (error) {
+      log.warn({ err: error }, "meeting detection failed; ingesting as a normal source");
+      return undefined;
+    }
+  }
+
+  /**
+   * Persist the structured meeting row + reviewable link suggestions for an
+   * auto-detected meeting (#85), mirroring {@link processMeetingNote}'s
+   * post-extraction step. Best-effort link matching to a synced calendar event is
+   * attempted when a date is known. Never throws back into extraction in a way
+   * that would undo the index: it logs and returns on failure.
+   */
+  private persistDetectedMeeting(
+    sourceId: number,
+    extraction: Extraction,
+    parsedTitle: string,
+    detection: MeetingDetectionResult,
+  ): void {
+    const { store } = this.deps;
+    try {
+      const suggestions = suggestMeetingLinks(store, extraction, sourceId);
+      store.replaceMeetingLinkSuggestions(
+        sourceId,
+        suggestions.map((s) => ({
+          entityId: s.entityId,
+          rationale: s.rationale,
+          method: s.method,
+        })),
+      );
+
+      const attendees = detection.attendees ?? [];
+      const date = detection.date ?? null;
+      // Best-effort calendar linking (#85): match a synced google:calendar event
+      // by date proximity + title/attendee overlap. Guarded — no calendar, no match.
+      let linkedCalendarSourceId: number | null = null;
+      if (date) {
+        try {
+          const match = store.findCalendarEventForMeeting({
+            date,
+            title: detection.title ?? parsedTitle,
+            attendees,
+          });
+          linkedCalendarSourceId = match?.sourceId ?? null;
+        } catch (error) {
+          log.warn({ err: error, sourceId }, "calendar match failed for detected meeting");
+        }
+      }
+
+      store.upsertMeetingNote({
+        sourceId,
+        meetingDate: date,
+        attendees,
+        detectionMethod: "auto",
+        detectionConfidence: detection.confidence,
+        linkedCalendarSourceId,
+      });
+    } catch (error) {
+      // The source is still indexed + extracted; only the structured meeting
+      // overlay failed. Log and leave it as a normal extracted source.
+      log.warn({ err: error, sourceId }, "failed to persist detected meeting structure");
     }
   }
 
@@ -504,6 +629,9 @@ export class IngestionPipeline {
       modelId: this.deps.extractionModelId ?? "unknown",
       schemaMd: schema,
       profileContext: profile,
+      // Knowledge focus (#86): bias extraction toward enabled types/kinds. Unset
+      // prefs resolve to all-enabled, so this is a no-op for an unconfigured install.
+      preferences: store.getKnowledgePreferences(),
     });
 
     if (inboxItemId) store.updateInboxItem(inboxItemId, "merging");

@@ -182,7 +182,10 @@ export class GoogleConnector implements Connector {
 
     if (kind === "tasks") {
       // Tasks are things-to-do, not relationships — no self identity needed.
-      const delta = await fetchTasksDelta(accessToken, cursor);
+      // A task-list subset (#88) narrows the pull to the enabled lists.
+      const delta = await fetchTasksDelta(accessToken, cursor, {
+        taskListIds: config?.enabledTaskLists,
+      });
       return toNormalized(delta, (raw) => {
         const t = raw as TaskItem;
         return {

@@ -314,7 +314,7 @@ describe("durable ingest jobs (store)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(30);
+    expect(migrations.length).toBe(31);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -390,7 +390,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(30);
+    expect(migrations.length).toBe(31);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -438,7 +438,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
 
 describe("migration 27 (repair inbox_items CHECK)", () => {
   it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
-    expect(migrations.length).toBe(30);
+    expect(migrations.length).toBe(31);
 
     const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
     try {
@@ -479,6 +479,13 @@ describe("migration 27 (repair inbox_items CHECK)", () => {
       // Drop the migration-29 column too, so re-running 27→29 from v26 re-applies
       // it cleanly instead of colliding on a duplicate ADD COLUMN.
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
+      // Likewise drop migration-31's meeting-note columns so 27→31 re-applies them
+      // cleanly instead of colliding on duplicate ADD COLUMNs (#85).
+      db.exec(`
+        ALTER TABLE meeting_notes DROP COLUMN detection_confidence;
+        ALTER TABLE meeting_notes DROP COLUMN detection_method;
+        ALTER TABLE meeting_notes DROP COLUMN linked_calendar_source_id;
+      `);
       db.pragma("user_version = 26");
       db.close();
 

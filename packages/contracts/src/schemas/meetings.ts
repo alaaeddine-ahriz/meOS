@@ -65,6 +65,14 @@ export const MeetingLinkSchema = z.object({
   status: z.enum(["suggested", "accepted", "rejected"]),
 });
 
+/** A calendar event auto-linked to a detected meeting (#85). */
+export const MeetingCalendarLinkSchema = z.object({
+  sourceId: z.number(),
+  title: z.string(),
+  /** ISO start (date or date-time), or null when unknown. */
+  start: z.string().nullable(),
+});
+
 /** GET /api/meetings/:id — the detail view payload. */
 export const MeetingDetailSchema = z.object({
   sourceId: z.number(),
@@ -73,6 +81,12 @@ export const MeetingDetailSchema = z.object({
   attendees: z.array(z.string()),
   /** The original markdown body. */
   content: z.string(),
+  /** How the note became a meeting: detected at ingest ('auto') or created ('manual') (#85). */
+  detectionMethod: z.enum(["auto", "manual"]),
+  /** Classifier confidence in [0,1] for an auto-detected meeting; null for manual (#85). */
+  detectionConfidence: z.number().nullable(),
+  /** A synced calendar event auto-linked to this meeting, when matched (#85). */
+  calendarEvent: MeetingCalendarLinkSchema.nullable(),
   /** Decisions made in the meeting. */
   decisions: z.array(MeetingObservationSchema),
   /** Action items / follow-ups. */
@@ -100,4 +114,5 @@ export const ReprocessMeetingResponse = z.object({
 export type MeetingSummary = z.infer<typeof MeetingSummarySchema>;
 export type MeetingObservation = z.infer<typeof MeetingObservationSchema>;
 export type MeetingLink = z.infer<typeof MeetingLinkSchema>;
+export type MeetingCalendarLink = z.infer<typeof MeetingCalendarLinkSchema>;
 export type MeetingDetail = z.infer<typeof MeetingDetailSchema>;

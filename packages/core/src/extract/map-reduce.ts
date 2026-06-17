@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
 import { chunkBlocks } from "../ingest/chunk.js";
 import { blocksFromText, type Block } from "../ingest/parse.js";
+import {
+  defaultPreferences,
+  type KnowledgePreferences,
+  preferencesVersion,
+} from "../knowledge/preferences.js";
 import { DEFAULT_SCHEMA_MD } from "../knowledge/schema-doc.js";
 import type { ExtractionStrategy, ExtractionCacheKey, KnowledgeStore } from "../knowledge/store.js";
 import type { LlmClient } from "../llm/types.js";
@@ -71,6 +76,9 @@ export interface MapReduceOptions {
   schemaMd?: string;
   /** The profile lens; folded into relevance + the cache key. */
   profileContext?: string;
+  /** Knowledge focus (#86); biases extraction + folded into the cache key so a
+   *  preference change invalidates stale cached partials. Defaults to all-enabled. */
+  preferences?: KnowledgePreferences;
   /** Override the size gate (tests). */
   singlePassTokenLimit?: number;
 }
@@ -127,10 +135,18 @@ export async function extractKnowledgeMapReduce(
 ): Promise<ExtractionRunResult> {
   const schemaMd = options.schemaMd ?? DEFAULT_SCHEMA_MD;
   const profileContext = options.profileContext ?? "";
+  const preferences = options.preferences ?? defaultPreferences();
   const limit = options.singlePassTokenLimit ?? SINGLE_PASS_TOKEN_LIMIT;
 
+  // The knowledge-preferences version (#86) rides on schemaVersion so a prefs
+  // change invalidates cached partials without a new cache column/migration.
+  // The all-enabled default contributes NOTHING (empty suffix), keeping the key
+  // byte-identical to pre-#86 for an unconfigured install — no spurious
+  // re-extraction. Only a restricted preference set appends a `:p<hash>` segment.
+  const prefsVer = preferencesVersion(preferences);
+  const prefsSuffix = prefsVer === "all" ? "" : `:p${prefsVer}`;
   const versionTuple = {
-    schemaVersion: `${EXTRACTION_SCHEMA_VERSION}:${schemaDocVersion(schemaMd)}`,
+    schemaVersion: `${EXTRACTION_SCHEMA_VERSION}:${schemaDocVersion(schemaMd)}${prefsSuffix}`,
     promptVersion: EXTRACTION_PROMPT_VERSION,
     modelId: options.modelId,
     profileVersion: profileVersion(profileContext),
@@ -148,7 +164,7 @@ export async function extractKnowledgeMapReduce(
     if (cached) {
       return { extraction: cached, strategy: "single", tokenUsage: 0, llmCalls: 0, cacheHits: 1 };
     }
-    const extraction = await extractKnowledge(llm, source, schemaMd, profileContext);
+    const extraction = await extractKnowledge(llm, source, schemaMd, profileContext, preferences);
     options.store.putCachedExtraction(keyFor(wholeHash), extraction, "single", 0);
     return {
       extraction,
@@ -181,6 +197,7 @@ export async function extractKnowledgeMapReduce(
       { title: source.title, text: section.text },
       schemaMd,
       profileContext,
+      preferences,
     );
     options.store.putCachedExtraction(key, partial, "map-reduce", 0);
     partials.push(partial);
