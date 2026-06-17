@@ -13,7 +13,7 @@ import { api, type Conversation, type EntitySummary } from "../api.js";
 
 const VIEWS = [
   { label: "Chat", to: "/" },
-  { label: "Notes", to: "/notes" },
+  // "Notes" entry removed — notes/meeting feature deprecated.
   { label: "Wiki", to: "/wiki" },
   { label: "Graph", to: "/wiki?view=graph" },
   { label: "Activity", to: "/activity" },
