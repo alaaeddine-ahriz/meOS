@@ -78,20 +78,28 @@ export async function syncConnector(
   const state = store.getSyncState(account.id, kind);
   const config = store.getSyncConfig(account.id, kind);
 
-  let delta = await connector.fetchDelta({ accessToken, config }, kind, state?.sync_token ?? null);
-  if (delta.fullResync) {
-    // Saved cursor expired — clear it and re-pull from scratch (config preserved).
-    store.setSyncState(account.id, kind, { syncToken: null });
-    delta = await connector.fetchDelta({ accessToken, config }, kind, null);
-  }
-
   const result: SyncResult = {
     ingested: 0,
     skipped: 0,
     deleted: 0,
-    hasMore: Boolean(delta.hasMore),
+    hasMore: false,
   };
   try {
+    // Fetch inside the try so a delta failure (e.g. a provider 429) is recorded as
+    // an `error` status the UI can surface, rather than bubbling out unrecorded and
+    // leaving the kind looking enabled-but-never-synced.
+    let delta = await connector.fetchDelta(
+      { accessToken, config },
+      kind,
+      state?.sync_token ?? null,
+    );
+    if (delta.fullResync) {
+      // Saved cursor expired — clear it and re-pull from scratch (config preserved).
+      store.setSyncState(account.id, kind, { syncToken: null });
+      delta = await connector.fetchDelta({ accessToken, config }, kind, null);
+    }
+    result.hasMore = Boolean(delta.hasMore);
+
     // Deletions first: a delta removal marks the item's latest revision inactive
     // (#16) so its facts surface as stale, but never hard-deletes — the audit
     // history and the ledger row (for content-hash dedup if it reappears) stay.

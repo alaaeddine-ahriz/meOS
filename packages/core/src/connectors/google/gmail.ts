@@ -21,6 +21,32 @@ import { googleGet, SyncTokenExpiredError } from "./http.js";
 const BACKFILL_PAGE_SIZE = 100;
 /** How many backfill pages one sync call walks before yielding (resumable). */
 const BACKFILL_PAGES_PER_RUN = 3;
+/**
+ * Max concurrent per-message fetches. Gmail enforces a per-user *concurrent
+ * request* cap (separate from the daily quota) and returns 429 "Too many
+ * concurrent requests for user." once it's exceeded — a flat `Promise.all` over
+ * a 100-message seed plus a 300-message backfill page trips it and aborts the
+ * whole sync. A small pool keeps us under the cap while still draining quickly.
+ */
+const MESSAGE_FETCH_CONCURRENCY = 8;
+
+/**
+ * Map `items` through `fn` with at most `limit` calls in flight, preserving input
+ * order. The bounded sibling of `Promise.all(items.map(fn))` — used so a large
+ * message fetch stays under Gmail's per-user concurrency cap.
+ */
+async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 /** Days of history a coverage window covers; "all" ⇒ unbounded; "recent" ⇒ seed only. */
 function windowDays(window: CoverageWindow): number | null {
@@ -199,7 +225,9 @@ async function runBackfill(
     }
   } while (pages < BACKFILL_PAGES_PER_RUN);
 
-  const items = await Promise.all([...ids].map((id) => getMessage(accessToken, id, mode)));
+  const items = await mapPool([...ids], MESSAGE_FETCH_CONCURRENCY, (id) =>
+    getMessage(accessToken, id, mode),
+  );
   let oldest = state.oldestIndexed;
   for (const it of items) {
     if (it.date && (!oldest || it.date < oldest)) oldest = it.date;
@@ -289,7 +317,9 @@ export async function fetchGmailDelta(
     }
   }
 
-  const recent = await Promise.all([...ids].map((id) => getMessage(accessToken, id, mode)));
+  const recent = await mapPool([...ids], MESSAGE_FETCH_CONCURRENCY, (id) =>
+    getMessage(accessToken, id, mode),
+  );
 
   // Advance the historical backfill (bounded, resumable, non-blocking).
   const bf = await runBackfill(accessToken, backfill, mode);

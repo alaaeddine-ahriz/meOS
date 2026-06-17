@@ -98,6 +98,9 @@ export function SourcesView() {
 function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode }) {
   const brand = brandFor(item.type);
   const gone = item.status === "deleted" || item.status === "missing";
+  // A source is "referenced" only by entities that actually have a wiki page — raw
+  // extraction of page-less entities is not a wiki reference.
+  const refCount = item.linkedEntities.filter((e) => e.hasPage).length;
   return (
     <div className="-mx-2 flex w-[calc(100%+1rem)] items-center gap-2.5 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
@@ -108,9 +111,12 @@ function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode
           {item.title || "(untitled)"}
         </span>
       </Link>
-      {item.linkedEntities.length > 0 && (
-        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-          {item.linkedEntities.length} linked
+      {refCount > 0 && (
+        <span
+          className="shrink-0 text-xs tabular-nums text-muted-foreground"
+          title={`Referenced by ${refCount} wiki page${refCount === 1 ? "" : "s"}`}
+        >
+          {refCount} referenced
         </span>
       )}
       {item.link && brand && (
@@ -179,40 +185,45 @@ export function SourcePageView() {
               </pre>
             )}
 
-            {detail.linkedEntities.length > 0 && (
-              <section>
-                <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Linked entities
-                </h2>
-                <ul className="flex flex-col gap-1">
-                  {detail.linkedEntities.map((e) => {
-                    const EntityIcon = ENTITY_TYPES[e.type]?.icon;
-                    const label = (
-                      <span className="flex items-center gap-2">
-                        {EntityIcon && (
-                          <EntityIcon className="size-4 shrink-0 text-muted-foreground" />
-                        )}
-                        {e.name}
-                      </span>
-                    );
-                    return (
-                      <li key={e.id} className="text-sm">
-                        {e.hasPage ? (
+            {/* "Referenced by": a source is a raw indexed item — it has no wiki page of
+                its own. It surfaces here only once a wiki entry actually references it,
+                i.e. an entity it mentions has a synthesised page built (in part) from it.
+                Page-less extracted entities are not wiki references and aren't shown. */}
+            <section>
+              <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                Referenced by
+              </h2>
+              {(() => {
+                const referencedBy = detail.linkedEntities.filter((e) => e.hasPage);
+                if (referencedBy.length === 0) {
+                  return (
+                    <p className="text-sm text-muted-foreground">
+                      Not yet referenced by any wiki page.
+                    </p>
+                  );
+                }
+                return (
+                  <ul className="flex flex-col gap-1">
+                    {referencedBy.map((e) => {
+                      const EntityIcon = ENTITY_TYPES[e.type]?.icon;
+                      return (
+                        <li key={e.id} className="text-sm">
                           <Link
                             to={`/wiki/${e.slug}`}
-                            className="text-primary hover:underline underline-offset-2"
+                            className="flex items-center gap-2 text-primary hover:underline underline-offset-2"
                           >
-                            {label}
+                            {EntityIcon && (
+                              <EntityIcon className="size-4 shrink-0 text-muted-foreground" />
+                            )}
+                            {e.name}
                           </Link>
-                        ) : (
-                          <span className="text-muted-foreground">{label}</span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              })()}
+            </section>
 
             {detail.relatedSources.length > 0 && (
               <section>
