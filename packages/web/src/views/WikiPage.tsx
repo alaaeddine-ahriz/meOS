@@ -252,9 +252,7 @@ export function WikiPageView({
     return (
       <Page>
         <div className="flex min-h-0 flex-1">
-          <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 pt-10">
-            <div className="max-w-3xl">{body}</div>
-          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-10 pb-10 pt-10">{body}</div>
           {showGraph && (
             <aside className="min-h-0 w-[380px] shrink-0 border-l border-line bg-desk">
               <GraphView focusSlug={slug} embedded />
