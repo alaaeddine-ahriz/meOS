@@ -15,6 +15,19 @@ export async function revealInFinder(path: string): Promise<void> {
   });
 }
 
+/**
+ * Open a folder (or file) in the system file manager so its contents show —
+ * desktop shell only. A plain browser can't open native paths, so this no-ops
+ * there.
+ */
+export async function openFolder(path: string): Promise<void> {
+  if (!isTauri) return;
+  const { openPath } = await import("@tauri-apps/plugin-opener");
+  await openPath(path).catch((error: unknown) => {
+    console.error(`open folder failed for ${path}:`, error);
+  });
+}
+
 /** Open a URL in the system browser (desktop shell) or a new tab (browser). */
 export async function openExternal(url: string): Promise<void> {
   if (isTauri) {

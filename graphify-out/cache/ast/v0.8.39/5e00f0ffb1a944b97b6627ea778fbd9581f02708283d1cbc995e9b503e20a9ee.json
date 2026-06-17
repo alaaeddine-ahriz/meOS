@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_connectors_md",
+      "label": "connectors.md",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_connectors_connectors",
+      "label": "Connectors",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_connectors_google_contacts_calendar_gmail",
+      "label": "Google: Contacts, Calendar, Gmail",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L9"
+    },
+    {
+      "id": "docs_connectors_oauth",
+      "label": "OAuth",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L19"
+    },
+    {
+      "id": "docs_connectors_background_sync",
+      "label": "Background sync",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L32"
+    },
+    {
+      "id": "docs_connectors_privacy",
+      "label": "Privacy",
+      "file_type": "document",
+      "source_file": "docs/connectors.md",
+      "source_location": "L42"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_connectors_md",
+      "target": "docs_connectors_connectors",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/connectors.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_connectors_connectors",
+      "target": "docs_connectors_google_contacts_calendar_gmail",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/connectors.md",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_connectors_connectors",
+      "target": "docs_connectors_oauth",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/connectors.md",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_connectors_connectors",
+      "target": "docs_connectors_background_sync",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/connectors.md",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_connectors_connectors",
+      "target": "docs_connectors_privacy",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/connectors.md",
+      "source_location": "L42",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

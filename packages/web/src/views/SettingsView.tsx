@@ -42,7 +42,7 @@ import {
 } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
-import { isTauri, openExternal } from "@/lib/platform";
+import { isTauri, openExternal, openFolder } from "@/lib/platform";
 import { isReasoningModel } from "@/lib/reasoning";
 import { ProfileSection } from "./ProfileSection";
 import {
@@ -787,12 +787,24 @@ function FoldersSection() {
       <ul className="flex flex-col">
         {folders.map((folder) => (
           <li key={folder.id} className="group flex items-center gap-3 py-2.5">
-            <span
-              className="min-w-0 flex-1 truncate font-mono text-[13px] text-paper"
-              title={folder.path}
-            >
-              {folder.path}
-            </span>
+            {isTauri ? (
+              <button
+                type="button"
+                onClick={() => void openFolder(folder.path)}
+                title={`Open ${folder.path}`}
+                className="flex min-w-0 flex-1 items-center gap-2 truncate text-left font-mono text-[13px] text-paper transition-colors hover:text-lamp"
+              >
+                <FolderOpen className="size-3.5 shrink-0 opacity-60" />
+                <span className="truncate">{folder.path}</span>
+              </button>
+            ) : (
+              <span
+                className="min-w-0 flex-1 truncate font-mono text-[13px] text-paper"
+                title={folder.path}
+              >
+                {folder.path}
+              </span>
+            )}
             <Button
               variant="ghost"
               size="icon-sm"

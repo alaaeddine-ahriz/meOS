@@ -1,0 +1,111 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_troubleshooting_md",
+      "label": "troubleshooting.md",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_troubleshooting_troubleshooting",
+      "label": "Troubleshooting",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_troubleshooting_setup",
+      "label": "Setup",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L3"
+    },
+    {
+      "id": "docs_troubleshooting_ingestion",
+      "label": "Ingestion",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L21"
+    },
+    {
+      "id": "docs_troubleshooting_connectors",
+      "label": "Connectors",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L32"
+    },
+    {
+      "id": "docs_troubleshooting_desktop_build",
+      "label": "Desktop build",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L41"
+    },
+    {
+      "id": "docs_troubleshooting_tests",
+      "label": "Tests",
+      "file_type": "document",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L60"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_troubleshooting_md",
+      "target": "docs_troubleshooting_troubleshooting",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_troubleshooting_troubleshooting",
+      "target": "docs_troubleshooting_setup",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L3",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_troubleshooting_troubleshooting",
+      "target": "docs_troubleshooting_ingestion",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L21",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_troubleshooting_troubleshooting",
+      "target": "docs_troubleshooting_connectors",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_troubleshooting_troubleshooting",
+      "target": "docs_troubleshooting_desktop_build",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_troubleshooting_troubleshooting",
+      "target": "docs_troubleshooting_tests",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/troubleshooting.md",
+      "source_location": "L60",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

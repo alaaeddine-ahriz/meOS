@@ -1,0 +1,207 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_releasing_md",
+      "label": "releasing.md",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_releasing_releasing_meos",
+      "label": "Releasing MeOS",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_releasing_versioning_semver",
+      "label": "Versioning (SemVer)",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "docs_releasing_tag_convention",
+      "label": "Tag convention",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L36"
+    },
+    {
+      "id": "docs_releasing_branch_workflow",
+      "label": "Branch workflow",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L55"
+    },
+    {
+      "id": "docs_releasing_automated_releases_release_please",
+      "label": "Automated releases (Release Please)",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L71"
+    },
+    {
+      "id": "docs_releasing_manual_fallback",
+      "label": "Manual fallback",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L119"
+    },
+    {
+      "id": "docs_releasing_release_checklist",
+      "label": "Release checklist",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L125"
+    },
+    {
+      "id": "docs_releasing_desktop_artifacts",
+      "label": "Desktop artifacts",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L163"
+    },
+    {
+      "id": "docs_releasing_database_migrations_compatibility",
+      "label": "Database migrations & compatibility",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L197"
+    },
+    {
+      "id": "docs_releasing_tooling_pinned_versions",
+      "label": "Tooling: pinned versions",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L222"
+    },
+    {
+      "id": "docs_releasing_release_process_release_please_not_changesets",
+      "label": "Release process: Release Please (not Changesets)",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L236"
+    },
+    {
+      "id": "docs_releasing_future_hardening",
+      "label": "Future hardening",
+      "file_type": "document",
+      "source_file": "docs/releasing.md",
+      "source_location": "L260"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_releasing_md",
+      "target": "docs_releasing_releasing_meos",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_versioning_semver",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_tag_convention",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L36",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_branch_workflow",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L55",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_automated_releases_release_please",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L71",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_automated_releases_release_please",
+      "target": "docs_releasing_manual_fallback",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L119",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_release_checklist",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L125",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_desktop_artifacts",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L163",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_database_migrations_compatibility",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L197",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_tooling_pinned_versions",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L222",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_release_process_release_please_not_changesets",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L236",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_releasing_releasing_meos",
+      "target": "docs_releasing_future_hardening",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/releasing.md",
+      "source_location": "L260",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

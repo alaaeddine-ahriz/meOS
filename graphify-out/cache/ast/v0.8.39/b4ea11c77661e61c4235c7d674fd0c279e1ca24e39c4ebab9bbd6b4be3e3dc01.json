@@ -1,0 +1,111 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_claude_md",
+      "label": "CLAUDE.md",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "meos_claude_ai_sdk",
+      "label": "AI SDK",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "meos_claude_web_access",
+      "label": "Web Access",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "meos_claude_local_coding_agents",
+      "label": "Local Coding Agents",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L22"
+    },
+    {
+      "id": "meos_claude_common_starting_points",
+      "label": "Common Starting Points",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L32"
+    },
+    {
+      "id": "meos_claude_full_documentation",
+      "label": "Full Documentation",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L44"
+    },
+    {
+      "id": "meos_claude_graphify",
+      "label": "graphify",
+      "file_type": "document",
+      "source_file": "CLAUDE.md",
+      "source_location": "L48"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_claude_md",
+      "target": "meos_claude_ai_sdk",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_claude_ai_sdk",
+      "target": "meos_claude_web_access",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_claude_ai_sdk",
+      "target": "meos_claude_local_coding_agents",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_claude_ai_sdk",
+      "target": "meos_claude_common_starting_points",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_claude_ai_sdk",
+      "target": "meos_claude_full_documentation",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L44",
+      "weight": 1.0
+    },
+    {
+      "source": "meos_claude_ai_sdk",
+      "target": "meos_claude_graphify",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "CLAUDE.md",
+      "source_location": "L48",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

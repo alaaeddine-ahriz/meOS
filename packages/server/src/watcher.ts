@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  createLogger,
   SUPPORTED_EXTENSIONS,
   type IngestionPipeline,
   type JobQueue,
@@ -12,6 +13,7 @@ import {
 import type { DurableIngest } from "./durable-ingest.js";
 
 const execFileAsync = promisify(execFile);
+const log = createLogger("watcher");
 
 /**
  * macOS cloud placeholders ("online-only" iCloud/Dropbox/OneDrive files):
@@ -335,7 +337,7 @@ export class FolderWatcher {
     const now = Date.now();
     if (now - this.lastErrorLoggedAt < ERROR_LOG_THROTTLE_MS) return;
     this.lastErrorLoggedAt = now;
-    console.error(`watcher: ${this.lastErrorMessage} (${this.errorCount} error(s) so far)`);
+    log.error({ errorCount: this.errorCount }, this.lastErrorMessage);
   }
 
   /**

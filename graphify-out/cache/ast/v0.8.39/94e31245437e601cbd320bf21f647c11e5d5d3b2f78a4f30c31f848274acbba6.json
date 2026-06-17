@@ -1,0 +1,207 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_runtime_md",
+      "label": "runtime.md",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_runtime_runtime_background_workers",
+      "label": "Runtime \u2014 background workers",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_runtime_the_worker_interface",
+      "label": "The worker interface",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L14"
+    },
+    {
+      "id": "docs_runtime_startup_shutdown_ordering",
+      "label": "Startup / shutdown ordering",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L41"
+    },
+    {
+      "id": "docs_runtime_the_workers",
+      "label": "The workers",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L56"
+    },
+    {
+      "id": "docs_runtime_1_folder_watcher_watcherworker_wraps_folderwatcher",
+      "label": "1. Folder watcher \u2014 `WatcherWorker` wraps `FolderWatcher`",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L58"
+    },
+    {
+      "id": "docs_runtime_2_connector_sync_connectorsyncworker_wraps_connectormanager",
+      "label": "2. Connector sync \u2014 `ConnectorSyncWorker` wraps `ConnectorManager`",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L69"
+    },
+    {
+      "id": "docs_runtime_3_scheduler_consolidation_schedulerworker_wraps_a_croner_cron",
+      "label": "3. Scheduler / consolidation \u2014 `SchedulerWorker` wraps a croner `Cron`",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L81"
+    },
+    {
+      "id": "docs_runtime_4_ingestion_pipeline_ingest_queue_queueworker_ingest_ctx_queue",
+      "label": "4. Ingestion pipeline + ingest queue \u2014 `QueueWorker(\"ingest\", ctx.queue)`",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L93"
+    },
+    {
+      "id": "docs_runtime_5_wiki_regeneration_queueworker_wiki_wikiqueue",
+      "label": "5. Wiki regeneration \u2014 `QueueWorker(\"wiki\", wikiQueue)`",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L104"
+    },
+    {
+      "id": "docs_runtime_session_crystallization_not_a_standalone_worker",
+      "label": "Session crystallization (not a standalone worker)",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L114"
+    },
+    {
+      "id": "docs_runtime_health_surface",
+      "label": "Health surface",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L122"
+    },
+    {
+      "id": "docs_runtime_testing_workers_in_isolation",
+      "label": "Testing workers in isolation",
+      "file_type": "document",
+      "source_file": "docs/runtime.md",
+      "source_location": "L130"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_runtime_md",
+      "target": "docs_runtime_runtime_background_workers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_runtime_background_workers",
+      "target": "docs_runtime_the_worker_interface",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L14",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_runtime_background_workers",
+      "target": "docs_runtime_startup_shutdown_ordering",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L41",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_runtime_background_workers",
+      "target": "docs_runtime_the_workers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L56",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_1_folder_watcher_watcherworker_wraps_folderwatcher",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L58",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_2_connector_sync_connectorsyncworker_wraps_connectormanager",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L69",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_3_scheduler_consolidation_schedulerworker_wraps_a_croner_cron",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L81",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_4_ingestion_pipeline_ingest_queue_queueworker_ingest_ctx_queue",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L93",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_5_wiki_regeneration_queueworker_wiki_wikiqueue",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L104",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_the_workers",
+      "target": "docs_runtime_session_crystallization_not_a_standalone_worker",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L114",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_runtime_background_workers",
+      "target": "docs_runtime_health_surface",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L122",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_runtime_runtime_background_workers",
+      "target": "docs_runtime_testing_workers_in_isolation",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/runtime.md",
+      "source_location": "L130",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

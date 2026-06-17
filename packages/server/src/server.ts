@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyBaseLogger, type FastifyInstance } from "fastify";
+import { logger } from "@meos/core";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
@@ -25,7 +26,17 @@ import { registerVaultRoutes } from "./routes/vault.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
 export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
-  const app = Fastify({ logger: { level: "info" } });
+  // Share the one MeOS Pino instance so HTTP request logs (with per-request
+  // reqId) and the app's own logs interleave in a single stream and format;
+  // level/pretty-vs-JSON are governed centrally by @meos/core's logger.
+  // The cast widens Pino's concrete `Logger` to Fastify's `FastifyBaseLogger`:
+  // without it Fastify pins its logger generic to Pino's type and the
+  // default-typed FastifyInstance return (and every route registration below) no
+  // longer matches. ESLint sees only the argument→parameter fit (where Pino's
+  // Logger is accepted) and misreads the cast as redundant; it steers generic
+  // inference, which the rule can't account for.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const app = Fastify({ loggerInstance: logger as FastifyBaseLogger });
   // The Tauri desktop shell serves the UI from tauri:// (or its dev server),
   // so its API calls are cross-origin; browsers reach us same-origin instead.
   await app.register(cors, {

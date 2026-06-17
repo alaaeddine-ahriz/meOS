@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   createEmbedder,
   createLlmClient,
+  createLogger,
   extractionModelId,
   crystallizeSession,
   detectContradictions,
@@ -41,6 +42,10 @@ import { FolderWatcher } from "./watcher.js";
 
 /** How many documents may move through parse/embed/extract at once. */
 const INGEST_CONCURRENCY = 3;
+
+const gitLog = createLogger("git");
+const wikiLog = createLogger("wiki");
+const eventsLog = createLogger("events");
 
 export interface AppContext {
   rootDir: string;
@@ -92,10 +97,7 @@ export async function commitWikiChanges(
     const hash = await deps.git.headHash();
     if (hash) deps.store.recordWikiCommit(hash, subject, changes);
   } catch (error) {
-    console.error(
-      "[git] failed to commit wiki changes:",
-      error instanceof Error ? error.message : error,
-    );
+    gitLog.error({ err: error }, "failed to commit wiki changes");
   }
 }
 
@@ -137,8 +139,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
   const events = new MeosEvents();
   events.on("onContradiction", ({ entityId }) => {
     const entity = store.getEntity(entityId);
-    console.log(
-      `[events] contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`,
+    eventsLog.info(
+      { entityId, entity: entity?.name },
+      `contradiction flagged on ${entity?.name ?? `entity ${entityId}`} — needs review`,
     );
   });
 
@@ -208,9 +211,10 @@ export function createContext(rootDir = findRootDir()): AppContext {
   queue.push(async () => {
     const pruned = wiki.pruneConnectorOnlyPages();
     if (pruned > 0)
-      console.log(`[wiki] pruned ${pruned} page(s) for entities without wiki backing`);
+      wikiLog.info({ pruned }, `pruned ${pruned} page(s) for entities without wiki backing`);
     const filled = await wiki.backfillPages();
-    if (filled > 0) console.log(`[wiki] backfilled ${filled} page(s) into the retrieval index`);
+    if (filled > 0)
+      wikiLog.info({ filled }, `backfilled ${filled} page(s) into the retrieval index`);
   });
 
   // When a conversation closes, distil it into a first-class session source so
@@ -227,8 +231,9 @@ export function createContext(rootDir = findRootDir()): AppContext {
       });
       if (crystal) {
         scheduleWikiRefresh();
-        console.log(
-          `[events] crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
+        eventsLog.info(
+          { conversationId, newFacts: crystal.merge.newObservationIds.length },
+          `crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
         );
       }
     });

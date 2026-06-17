@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "label": "PULL_REQUEST_TEMPLATE.md",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "github_pull_request_template_summary",
+      "label": "Summary",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "github_pull_request_template_changes",
+      "label": "Changes",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L7"
+    },
+    {
+      "id": "github_pull_request_template_affected_packages",
+      "label": "Affected packages",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L11"
+    },
+    {
+      "id": "github_pull_request_template_checklist",
+      "label": "Checklist",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L19"
+    },
+    {
+      "id": "github_pull_request_template_notes_for_reviewers",
+      "label": "Notes for reviewers",
+      "file_type": "document",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L28"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "target": "github_pull_request_template_summary",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "target": "github_pull_request_template_changes",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L7",
+      "weight": 1.0
+    },
+    {
+      "source": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "target": "github_pull_request_template_affected_packages",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L11",
+      "weight": 1.0
+    },
+    {
+      "source": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "target": "github_pull_request_template_checklist",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L19",
+      "weight": 1.0
+    },
+    {
+      "source": "users_alaaeddineahriz_dev_meos_github_pull_request_template_md",
+      "target": "github_pull_request_template_notes_for_reviewers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": ".github/PULL_REQUEST_TEMPLATE.md",
+      "source_location": "L28",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}

@@ -1,0 +1,111 @@
+{
+  "nodes": [
+    {
+      "id": "users_alaaeddineahriz_dev_meos_docs_testing_md",
+      "label": "testing.md",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_testing_testing_coverage_strategy",
+      "label": "Testing & coverage strategy",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L1"
+    },
+    {
+      "id": "docs_testing_the_layers",
+      "label": "The layers",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L9"
+    },
+    {
+      "id": "docs_testing_root_scripts",
+      "label": "Root scripts",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L22"
+    },
+    {
+      "id": "docs_testing_shared_fixtures",
+      "label": "Shared fixtures",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L32"
+    },
+    {
+      "id": "docs_testing_coverage_thresholds",
+      "label": "Coverage thresholds",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L42"
+    },
+    {
+      "id": "docs_testing_ci",
+      "label": "CI",
+      "file_type": "document",
+      "source_file": "docs/testing.md",
+      "source_location": "L60"
+    }
+  ],
+  "edges": [
+    {
+      "source": "users_alaaeddineahriz_dev_meos_docs_testing_md",
+      "target": "docs_testing_testing_coverage_strategy",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_testing_testing_coverage_strategy",
+      "target": "docs_testing_the_layers",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L9",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_testing_testing_coverage_strategy",
+      "target": "docs_testing_root_scripts",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L22",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_testing_testing_coverage_strategy",
+      "target": "docs_testing_shared_fixtures",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L32",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_testing_testing_coverage_strategy",
+      "target": "docs_testing_coverage_thresholds",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L42",
+      "weight": 1.0
+    },
+    {
+      "source": "docs_testing_testing_coverage_strategy",
+      "target": "docs_testing_ci",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "docs/testing.md",
+      "source_location": "L60",
+      "weight": 1.0
+    }
+  ],
+  "input_tokens": 0,
+  "output_tokens": 0
+}
