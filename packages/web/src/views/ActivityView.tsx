@@ -1,6 +1,7 @@
 import {
   Ban,
   CheckCircle2,
+  ChevronRight,
   Clock,
   FilePenLine,
   FileText,
@@ -355,10 +356,74 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
   );
 }
 
-/** A document in the feed: links to its diff once done. */
+/** A failed document carries a plain-language reason and a raw error for debugging. */
+function failureSummary(item: InboxItem): string {
+  switch (item.status) {
+    case "extract-failed":
+      return "The document was saved and is searchable, but MeOS couldn’t extract structured knowledge from it. It will retry automatically.";
+    case "failed":
+      return "MeOS couldn’t read this document, so nothing from it was saved.";
+    default:
+      return "Something went wrong while processing this document.";
+  }
+}
+
+/** The reason a document failed, revealed when its row is expanded. User-friendly
+ * summary up top, the raw error kept underneath for debugging. */
+function DocFailureDetail({ item }: { item: InboxItem }) {
+  // `detail` already carries the underlying error (set by the ingest pipeline);
+  // strip the redundant "searchable — extraction failed:" prefix we add upstream.
+  const raw = (item.detail ?? "").replace(/^searchable — extraction failed:\s*/i, "").trim();
+  return (
+    <div className="mb-2 ml-6 space-y-2 border-l border-border pl-4 py-2">
+      <p className="text-[13px] text-muted-foreground">{failureSummary(item)}</p>
+      {item.path && (
+        <p className="text-[12px] text-muted-foreground">
+          <span className="text-foreground/70">File:</span>{" "}
+          <span className="font-mono break-all">{item.path}</span>
+        </p>
+      )}
+      <div className="space-y-1">
+        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          Error detail
+        </p>
+        <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
+          {raw || "No error detail was recorded."}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+/** A document in the feed: links to its diff once done, or expands to show why it failed. */
 function DocRow({ item }: { item: InboxItem }) {
+  const stage = docStatus(item.status);
+  const failed = stage === "failed";
   const linkable = item.status === "done" && item.source_id != null;
-  const { Icon, className } = STATUS_META[docStatus(item.status)];
+  const { Icon, className } = STATUS_META[stage];
+  const [open, setOpen] = useState(false);
+
+  if (failed) {
+    return (
+      <div>
+        <ListRow
+          active={open}
+          onClick={() => setOpen((o) => !o)}
+          title="Show why this document failed"
+          icon={<Icon className={cn("size-4", className)} />}
+          label={item.title}
+          meta={
+            <span className="flex items-center gap-1">
+              {formatTime(item.updated_at)}
+              <ChevronRight className={cn("size-3.5 transition-transform", open && "rotate-90")} />
+            </span>
+          }
+        />
+        {open && <DocFailureDetail item={item} />}
+      </div>
+    );
+  }
+
   return (
     <ListRow
       to={linkable ? `/changes/${item.source_id}` : undefined}
