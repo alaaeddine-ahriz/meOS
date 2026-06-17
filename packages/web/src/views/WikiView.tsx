@@ -69,7 +69,7 @@ export function WikiView() {
       />
       {mode === "graph" ? (
         <div className="relative min-h-0 flex-1">
-          <GraphView embedded />
+          <GraphView />
         </div>
       ) : (
         <PageBody>

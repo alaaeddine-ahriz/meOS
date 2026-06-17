@@ -1,9 +1,8 @@
-import { ExternalLink, FileText, Search, SlidersHorizontal, X } from "lucide-react";
+import { ExternalLink, FileText, Search, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { ENTITY_TYPES, ENTITY_TYPE_ORDER, typeColor } from "@/lib/entity-meta";
 import { cn } from "@/lib/utils";
 import { ForceGraph, type EdgeSelection } from "../components/ForceGraph.js";
@@ -20,16 +19,13 @@ const THRESHOLDS: { value: number; label: string; tone: string }[] = [
 ];
 
 /**
- * The knowledge graph. With no props it maps the whole wiki; pass `focusSlug`
- * to draw only one page and its connections (an ego graph). `embedded`
- * drops the floating title so it can sit inside another surface.
+ * The knowledge graph. With no props it maps the whole wiki under an inline
+ * toolbar (search, confidence, hide-weak, and a clickable legend that shows /
+ * hides entity types). Pass `focusSlug` to render a single page and its
+ * neighbours as a clean ego graph (the WikiPage side panel) with no toolbar.
  *
- * #89 turns the old "show everything" map into a filtered knowledge map: type
- * chips, a confidence threshold (hides low-confidence by default), search +
- * focus around an entity with neighbour-depth control, a hide-weak-nodes
- * default, a confirmed-vs-generated edge legend, and an edge inspector that
- * opens the source evidence. All filtering happens here, in the scoping block
- * that feeds {@link ForceGraph}; the simulation/interaction stay in that engine.
+ * All filtering happens here, in the scoping block that feeds {@link ForceGraph};
+ * the simulation/interaction stay in that engine.
  */
 export function GraphView({
   focusSlug,
@@ -50,7 +46,6 @@ export function GraphView({
   // The entity the graph centres on. Seeded from focusSlug; the user can re-focus
   // by picking from search. null = whole graph (no ego focus).
   const [focusId, setFocusId] = useState<number | null>(null);
-  const [depth, setDepth] = useState(1);
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
 
   useEffect(() => {
@@ -94,28 +89,12 @@ export function GraphView({
       (l) => nodeIds.has(l.from) && nodeIds.has(l.to) && (l.confidence ?? 1) >= threshold,
     );
 
-    // 3. Focus + neighbour depth: keep only nodes within `depth` hops of the
-    //    focus node (over the already-thresholded edges), plus the focus itself.
+    // 3. Focus: keep the focus node and its direct neighbours (ego graph).
     if (focusId != null && nodeIds.has(focusId)) {
-      const adj = new Map<number, number[]>();
-      for (const l of links) {
-        (adj.get(l.from) ?? adj.set(l.from, []).get(l.from)!).push(l.to);
-        (adj.get(l.to) ?? adj.set(l.to, []).get(l.to)!).push(l.from);
-      }
       const reachable = new Set<number>([focusId]);
-      let frontier = [focusId];
-      for (let hop = 0; hop < depth; hop++) {
-        const next: number[] = [];
-        for (const id of frontier) {
-          for (const nb of adj.get(id) ?? []) {
-            if (!reachable.has(nb)) {
-              reachable.add(nb);
-              next.push(nb);
-            }
-          }
-        }
-        frontier = next;
-        if (frontier.length === 0) break;
+      for (const l of links) {
+        if (l.from === focusId) reachable.add(l.to);
+        if (l.to === focusId) reachable.add(l.from);
       }
       nodeIds = reachable;
       nodes = nodes.filter((n) => reachable.has(n.id));
@@ -136,9 +115,9 @@ export function GraphView({
     }
 
     return { nodes, links };
-  }, [graph, enabledTypes, threshold, focusId, depth, hideWeak]);
+  }, [graph, enabledTypes, threshold, focusId, hideWeak]);
 
-  // Search matches by name; the matched ids drive highlight + a "focus" affordance.
+  // Search matches by name; the matched ids drive a "focus" affordance.
   const searchMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return [];
@@ -152,57 +131,25 @@ export function GraphView({
 
   const focusNode = focusId != null ? graph.nodes.find((n) => n.id === focusId) : undefined;
   const emptyAfterFilter = loaded && graph.nodes.length > 0 && data.nodes.length === 0;
-
+  const typeOn = (type: string) => enabledTypes === null || enabledTypes.has(type);
   const toggleType = (type: string) => {
     setEnabledTypes((prev) => {
-      const base = prev ?? new Set(presentTypes);
-      const next = new Set(base);
+      const next = new Set(prev ?? presentTypes);
       if (next.has(type)) next.delete(type);
       else next.add(type);
       return next;
     });
   };
-  const typeOn = (type: string) => enabledTypes === null || enabledTypes.has(type);
 
-  return (
-    <div className="relative h-full overflow-hidden">
+  // The graph canvas + its overlays (empty states, edge inspector). The sizing
+  // wrapper is applied at each call site (h-full in the side panel; flex-1 below
+  // the toolbar in the full view).
+  const canvas = (sizing: string) => (
+    <div className={cn("relative overflow-hidden", sizing)}>
       <ForceGraph nodes={data.nodes} links={data.links} onEdgeSelect={setSelectedEdge} />
 
-      {!embedded && (
-        <header className="pointer-events-none absolute left-10 top-10">
-          <h2 className="font-serif text-2xl text-paper">{focusNode ? focusNode.name : "Graph"}</h2>
-          <p className="mt-1 text-sm text-dim">
-            {data.nodes.length} pages · {data.links.length} connections. Click a node to open its
-            page, an edge to inspect it.
-          </p>
-        </header>
-      )}
-
-      {/* Controls. A compact popover in the embedded side panel; an open bar otherwise. */}
-      <Controls
-        embedded={embedded}
-        presentTypes={presentTypes}
-        typeOn={typeOn}
-        toggleType={toggleType}
-        threshold={threshold}
-        setThreshold={setThreshold}
-        hideWeak={hideWeak}
-        setHideWeak={setHideWeak}
-        query={query}
-        setQuery={setQuery}
-        searchMatches={searchMatches}
-        onPickSearch={(id) => {
-          setFocusId(id);
-          setQuery("");
-        }}
-        focusNode={focusNode}
-        clearFocus={focusSlug ? undefined : () => setFocusId(null)}
-        depth={depth}
-        setDepth={setDepth}
-      />
-
       {loaded && graph.nodes.length === 0 && (
-        <p className="pointer-events-auto absolute left-10 top-32 text-sm text-faded">
+        <p className="absolute left-1/2 top-1/2 w-full max-w-md -translate-x-1/2 -translate-y-1/2 px-6 text-center text-sm text-faded">
           Nothing to map yet. Add watched folders in{" "}
           <Link className="text-lamp" to="/settings">
             Settings
@@ -212,217 +159,131 @@ export function GraphView({
       )}
 
       {emptyAfterFilter && (
-        <p className="pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-dim">
+        <p className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-dim">
           No connections match these filters. Lower the confidence threshold or turn types back on.
         </p>
-      )}
-
-      {/* Legend: entity types + the confirmed-vs-generated edge idiom. */}
-      {presentTypes.length > 0 && !embedded && (
-        <div className="pointer-events-none absolute bottom-6 left-10 flex flex-col gap-1.5">
-          {presentTypes.map((type) => (
-            <div key={type} className="flex items-center gap-2 text-xs text-faded">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ backgroundColor: typeColor(type) }}
-              />
-              {ENTITY_TYPES[type]!.plural}
-            </div>
-          ))}
-          <div className="mt-2 flex items-center gap-2 text-xs text-faded">
-            <svg width="22" height="6" aria-hidden>
-              <line x1="0" y1="3" x2="22" y2="3" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-            confirmed
-          </div>
-          <div className="flex items-center gap-2 text-xs text-faded">
-            <svg width="22" height="6" aria-hidden>
-              <line
-                x1="0"
-                y1="3"
-                x2="22"
-                y2="3"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeDasharray="4 3"
-              />
-            </svg>
-            generated
-          </div>
-        </div>
       )}
 
       {selectedEdge && <EdgeInspector edge={selectedEdge} onClose={() => setSelectedEdge(null)} />}
     </div>
   );
-}
 
-/** The filter controls. Inline bar (full view) or a popover (embedded panel). */
-function Controls(props: {
-  embedded: boolean;
-  presentTypes: string[];
-  typeOn: (type: string) => boolean;
-  toggleType: (type: string) => void;
-  threshold: number;
-  setThreshold: (v: number) => void;
-  hideWeak: boolean;
-  setHideWeak: (v: boolean) => void;
-  query: string;
-  setQuery: (v: string) => void;
-  searchMatches: GraphNode[];
-  onPickSearch: (id: number) => void;
-  focusNode: GraphNode | undefined;
-  clearFocus?: () => void;
-  depth: number;
-  setDepth: (v: number) => void;
-}) {
-  const body = (
-    <div className="flex flex-col gap-3">
-      {/* Search */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
-        <Input
-          value={props.query}
-          onChange={(e) => props.setQuery(e.target.value)}
-          placeholder="Find an entity…"
-          className="h-8 pl-8 text-sm"
-        />
-        {props.searchMatches.length > 0 && (
-          <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-line bg-popover shadow-md">
-            {props.searchMatches.map((n) => (
-              <li key={n.id}>
+  // Side panel (WikiPage): a clean ego graph, no toolbar.
+  if (embedded) return canvas("h-full");
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-col gap-3 px-10 pb-4">
+        {/* Row 1: search · confidence · hide weak · count */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
+          <div className="relative w-56">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-dim" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find an entity…"
+              className="h-8 pl-8 text-sm"
+            />
+            {searchMatches.length > 0 && (
+              <ul className="absolute z-50 mt-1 w-full overflow-hidden rounded-md border border-line bg-popover shadow-md">
+                {searchMatches.map((n) => (
+                  <li key={n.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFocusId(n.id);
+                        setQuery("");
+                      }}
+                      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-faded hover:bg-line/50"
+                    >
+                      <span
+                        className="inline-block size-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: typeColor(n.type) }}
+                      />
+                      <span className="truncate">{n.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-dim">Confidence</span>
+            <div className="flex gap-1">
+              {THRESHOLDS.map((t) => (
                 <button
+                  key={t.value}
                   type="button"
-                  onClick={() => props.onPickSearch(n.id)}
-                  className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-sm text-faded hover:bg-line/50"
+                  onClick={() => setThreshold(t.value)}
+                  className={cn(
+                    "rounded border px-2 py-1 text-xs transition-colors",
+                    threshold === t.value
+                      ? cn("border-current", t.tone)
+                      : "border-line text-dim hover:text-faded",
+                  )}
                 >
-                  <span
-                    className="inline-block h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: typeColor(n.type) }}
-                  />
-                  <span className="truncate">{n.name}</span>
+                  {t.label}
                 </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
+              ))}
+            </div>
+          </div>
 
-      {/* Focus chip + neighbour depth */}
-      {props.focusNode && (
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="flex min-w-0 items-center gap-1.5 text-faded">
-            Focused:
-            <span className="truncate font-medium text-paper">{props.focusNode.name}</span>
-            {props.clearFocus && (
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-faded">
+            <Switch checked={hideWeak} onCheckedChange={setHideWeak} />
+            Hide weak / isolated
+          </label>
+
+          {focusNode && !focusSlug && (
+            <span className="flex min-w-0 items-center gap-1.5 text-xs text-faded">
+              Focused:
+              <span className="truncate font-medium text-paper">{focusNode.name}</span>
               <button
                 type="button"
-                onClick={props.clearFocus}
+                onClick={() => setFocusId(null)}
                 className="text-dim hover:text-paper"
                 aria-label="Clear focus"
               >
                 <X className="size-3" />
               </button>
-            )}
+            </span>
+          )}
+
+          <span className="ml-auto text-xs text-dim">
+            {data.nodes.length} pages · {data.links.length} connections
           </span>
-          <label className="flex shrink-0 items-center gap-1 text-dim">
-            depth
-            <select
-              value={props.depth}
-              onChange={(e) => props.setDepth(Number(e.target.value))}
-              className="rounded border border-line bg-transparent px-1 py-0.5 text-xs text-paper"
-            >
-              {[1, 2, 3].map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
-      )}
 
-      {/* Confidence threshold buckets, coloured with WikiPage's tiers */}
-      <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-wider text-dim">confidence</span>
-        <div className="flex gap-1">
-          {THRESHOLDS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => props.setThreshold(t.value)}
-              className={cn(
-                "flex-1 rounded border px-2 py-1 text-xs transition-colors",
-                props.threshold === t.value
-                  ? cn("border-current", t.tone)
-                  : "border-line text-dim hover:text-faded",
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Row 2: the legend doubles as the entity-type show/hide filter. */}
+        {presentTypes.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            {presentTypes.map((type) => {
+              const on = typeOn(type);
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => toggleType(type)}
+                  aria-pressed={on}
+                  title={on ? "Hide" : "Show"}
+                  className={cn(
+                    "flex items-center gap-2 text-xs transition-opacity",
+                    on ? "text-faded" : "text-dim line-through opacity-50",
+                  )}
+                >
+                  <span
+                    className="inline-block size-2.5 rounded-full"
+                    style={{ backgroundColor: typeColor(type) }}
+                  />
+                  {ENTITY_TYPES[type]?.plural ?? type}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Type chips */}
-      {props.presentTypes.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {props.presentTypes.map((type) => {
-            const on = props.typeOn(type);
-            return (
-              <button
-                key={type}
-                type="button"
-                onClick={() => props.toggleType(type)}
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-opacity",
-                  on ? "border-line text-faded" : "border-line/50 text-dim opacity-50",
-                )}
-              >
-                <span
-                  className="inline-block h-2 w-2 rounded-full"
-                  style={{ backgroundColor: typeColor(type) }}
-                />
-                {ENTITY_TYPES[type]?.plural ?? type}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Hide weak/isolated toggle */}
-      <label className="flex cursor-pointer items-center justify-between text-xs text-faded">
-        Hide weak / isolated nodes
-        <input
-          type="checkbox"
-          checked={props.hideWeak}
-          onChange={(e) => props.setHideWeak(e.target.checked)}
-          className="accent-lamp"
-        />
-      </label>
-    </div>
-  );
-
-  if (props.embedded) {
-    return (
-      <div className="absolute right-3 top-3 z-10">
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="icon" className="size-8" aria-label="Graph filters">
-              <SlidersHorizontal className="size-3.5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-64">
-            {body}
-          </PopoverContent>
-        </Popover>
-      </div>
-    );
-  }
-
-  return (
-    <div className="absolute right-6 top-6 z-10 w-64 rounded-lg border border-line bg-desk/95 p-4 shadow-lg backdrop-blur">
-      {body}
+      {canvas("min-h-0 flex-1")}
     </div>
   );
 }
