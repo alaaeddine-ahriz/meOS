@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   IngestPriority,
@@ -59,16 +60,44 @@ export class DurableIngest {
   /** Per-pump admission cap for backpressure (#18); overridable for tests. */
   private readonly maxBatchesPerPump: number;
 
+  /**
+   * Where the raw bytes of an upload/paste are spilled so ANY process can
+   * reconstruct the input. The in-memory {@link liveInputs} buffer only exists in
+   * the enqueueing process; once heavy work moved to a forked worker, a job the
+   * app enqueued has no live buffer in the worker that claims it. Watched files
+   * recover from their on-disk `path`; uploads (no path) and pastes (text) had
+   * nothing — so we persist them next to the DB, keyed by job id.
+   */
+  private readonly stagingDir: string;
+
   constructor(
     private readonly deps: {
       store: KnowledgeStore;
       pipeline: IngestionPipeline;
       queue: JobQueue;
+      /** Directory for spilled upload/paste bytes (cross-process recovery). */
+      stagingDir: string;
       /** Backpressure cap on jobs admitted per pump pass; defaults to 20. */
       maxBatchesPerPump?: number;
     },
   ) {
     this.maxBatchesPerPump = deps.maxBatchesPerPump ?? MAX_BATCHES_PER_PUMP;
+    this.stagingDir = deps.stagingDir;
+    fs.mkdirSync(this.stagingDir, { recursive: true });
+  }
+
+  /** The on-disk staging path for a job's spilled input bytes. */
+  private stagingPath(jobId: number): string {
+    return path.join(this.stagingDir, String(jobId));
+  }
+
+  /** Best-effort removal of a job's spilled bytes once it no longer needs them. */
+  private discardStaging(jobId: number): void {
+    try {
+      fs.rmSync(this.stagingPath(jobId), { force: true });
+    } catch {
+      /* a missing/already-removed staging file is fine */
+    }
   }
 
   /** The active per-pump batch admission cap (backpressure), for the metrics surface (#18). */
@@ -107,6 +136,10 @@ export class DurableIngest {
       priority:
         input.priority ?? (input.origin === "watch" ? IngestPriority.WATCH : IngestPriority.USER),
     });
+    // A watched file recovers from its on-disk `path`; an upload has none, so
+    // spill its bytes for any process to reconstruct. Written before the pump
+    // signal so a worker that claims on the signal always finds the file.
+    if (!input.path) fs.writeFileSync(this.stagingPath(jobId), input.buffer);
     this.liveInputs.set(jobId, {
       kind: "file",
       filename: input.filename,
@@ -137,6 +170,9 @@ export class DurableIngest {
       byteSize: Buffer.byteLength(input.text),
       priority: input.priority ?? IngestPriority.USER,
     });
+    // Pasted text has no source file to re-read, so always spill it for
+    // cross-process recovery (the worker that claims it has no live buffer).
+    fs.writeFileSync(this.stagingPath(jobId), input.text, "utf8");
     this.liveInputs.set(jobId, {
       kind: "text",
       title: input.title,
@@ -167,12 +203,38 @@ export class DurableIngest {
     // `pending` (grace 0 — nothing is legitimately in flight at boot).
     this.deps.store.recoverStaleIngestJobs(0);
     this.pump();
+    this.pruneStagingFiles();
     this.timer = setInterval(() => {
       this.deps.store.recoverStaleIngestJobs(STALE_GRACE_SECONDS);
       this.deps.store.pruneCompletedIngestJobs(RETENTION_DAYS);
+      this.pruneStagingFiles();
       this.pump();
     }, SWEEP_INTERVAL_MS);
     this.timer.unref();
+  }
+
+  /**
+   * Backstop cleanup for spilled staging bytes: eager discard on completion
+   * covers the happy path, but a crash between completing a job and discarding
+   * its file would orphan bytes. Drop any staging file whose job is gone or
+   * terminal (completed / dead-letter); keep files for jobs still pending,
+   * processing, or awaiting retry (they need the bytes on the next run).
+   */
+  private pruneStagingFiles(): void {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.stagingDir);
+    } catch {
+      return;
+    }
+    for (const name of entries) {
+      const jobId = Number(name);
+      if (!Number.isInteger(jobId)) continue;
+      const job = this.deps.store.getIngestJob(jobId);
+      if (!job || job.state === "completed" || job.state === "dead-letter") {
+        this.discardStaging(jobId);
+      }
+    }
   }
 
   stop(): void {
@@ -245,9 +307,30 @@ export class DurableIngest {
         );
         return;
       }
-      // An upload (no path) whose buffer is gone after a crash: nothing to
-      // recover from, dead-letter it directly.
-      throw new Error("cannot recover ingest input (no path and no source)");
+      // Upload/paste: reconstruct from the spilled staging bytes. This is the
+      // cross-process recovery path — the worker process that claimed the job
+      // never held the live buffer, and after a crash liveInputs is empty.
+      const staged = this.stagingPath(job.id);
+      if (fs.existsSync(staged)) {
+        const inboxItemId = job.inbox_item_id ?? undefined;
+        if (payload?.kind === "file") {
+          const buffer = await fs.promises.readFile(staged);
+          await this.runIngest(
+            job,
+            { kind: "file", filename: payload.filename, buffer, origin: payload.origin },
+            inboxItemId,
+          );
+          return;
+        }
+        if (payload?.kind === "text") {
+          const text = await fs.promises.readFile(staged, "utf8");
+          await this.runIngest(job, { kind: "text", title: payload.title, text }, inboxItemId);
+          return;
+        }
+      }
+      // No path, no source, no staged bytes (a pre-spill upload lost to a crash):
+      // nothing to recover from, dead-letter it directly.
+      throw new Error("cannot recover ingest input (no path, source, or staged bytes)");
     } catch (error) {
       this.fail(job, error);
     } finally {
@@ -275,6 +358,9 @@ export class DurableIngest {
           job.id,
           outcome.status === "done" ? "done" : "unsupported",
         );
+        // Terminal success: the spilled bytes are no longer needed (the sweep is
+        // the backstop for any we miss after a crash).
+        this.discardStaging(job.id);
       } else if (outcome.status === "indexed") {
         // Searchable, but extraction failed: record a retryable failure so the
         // extraction stage re-runs (now keyed by source_id, so no re-read).
@@ -292,8 +378,12 @@ export class DurableIngest {
     const state = this.deps.store.failIngestJob(job.id, message);
     if (state === "pending") {
       // Re-pump after the backoff window elapses so the retry actually fires
-      // even if no new ingest arrives to drive the queue.
+      // even if no new ingest arrives to drive the queue. Keep the staged bytes:
+      // the retry re-runs from them.
       setTimeout(() => this.pump(), 1500).unref();
+    } else {
+      // Terminal failure (dead-letter): the bytes will never be re-run, drop them.
+      this.discardStaging(job.id);
     }
   }
 }

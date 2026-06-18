@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   IngestPriority,
   JobQueue,
@@ -18,13 +21,16 @@ import { DurableIngest } from "../src/durable-ingest.js";
  */
 describe("DurableIngest backpressure + priority (#18)", () => {
   let db: MeosDatabase;
+  let stagingDir: string;
 
   beforeEach(() => {
     db = openDatabase(":memory:");
+    stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-staging-"));
   });
 
   afterEach(() => {
     db.close();
+    fs.rmSync(stagingDir, { recursive: true, force: true });
   });
 
   /** A pipeline whose ingest blocks forever, so admitted jobs stay `processing`. */
@@ -52,6 +58,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       store,
       pipeline: blockingPipeline(),
       queue,
+      stagingDir,
       maxBatchesPerPump: 2,
     });
     expect(durable.batchCap).toBe(2);
@@ -61,6 +68,39 @@ describe("DurableIngest backpressure + priority (#18)", () => {
     const depths = store.ingestQueueMetrics().find((q) => q.queue === "extraction")!;
     expect(depths.processing).toBe(2);
     expect(depths.pending).toBe(3);
+  });
+
+  it("reconstructs a job's input from spilled staging bytes (cross-process)", async () => {
+    const store = new KnowledgeStore(db);
+    // Simulate the split: a job + its spilled bytes were produced by ANOTHER
+    // process, so this executor never held the live buffer. The worker must
+    // reconstruct the input from the staging file alone.
+    const jobId = store.createIngestJob({
+      kind: "text",
+      payload: { kind: "text", title: "Pasted note" },
+    });
+    fs.writeFileSync(path.join(stagingDir, String(jobId)), "the recovered body", "utf8");
+
+    let received: { kind: string; title?: string; text?: string } | null = null;
+    const recordingPipeline = {
+      ingest: async (input: { kind: string; title?: string; text?: string }) => {
+        received = input;
+        return { status: "done" as const };
+      },
+      retryExtractionForSource: () => new Promise(() => {}),
+    } as unknown as IngestionPipeline;
+
+    const queue = new JobQueue(1);
+    const durable = new DurableIngest({ store, pipeline: recordingPipeline, queue, stagingDir });
+    durable.pump();
+    await queue.onIdle();
+
+    // The executor recovered the title (from payload) + body (from staging)...
+    expect(received).toEqual({ kind: "text", title: "Pasted note", text: "the recovered body" });
+    // ...drove the job to completion...
+    expect(store.getIngestJob(jobId)!.state).toBe("completed");
+    // ...and discarded the now-unneeded staging bytes.
+    expect(fs.existsSync(path.join(stagingDir, String(jobId)))).toBe(false);
   });
 
   it("admits the highest-priority pending job first", () => {
@@ -79,6 +119,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       store,
       pipeline: blockingPipeline(),
       queue,
+      stagingDir,
       maxBatchesPerPump: 1,
     });
 

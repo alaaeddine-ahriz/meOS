@@ -2030,33 +2030,38 @@ export class KnowledgeStore {
    * within a priority class — deterministic and testable.
    */
   claimIngestJob(queue: IngestQueueKind): IngestJobRow | undefined {
+    // Atomic claim: a single conditional UPDATE picks the next ready row and
+    // flips it in one statement. The `AND state = 'pending'` in the UPDATE is the
+    // load-bearing CAS guard — with two processes claiming concurrently, only the
+    // one whose UPDATE matches the still-`pending` row wins; the loser's UPDATE
+    // matches zero rows and RETURNING yields nothing. (The old SELECT-then-UPDATE
+    // could double-claim across processes: both SELECTs saw the same row before
+    // either UPDATE ran.) Run under IMMEDIATE so the write lock is taken up front.
     const claim = this.db.transaction(() => {
       const row = this.db
         .prepare(
-          `SELECT * FROM ingest_jobs
-           WHERE queue = ? AND state = 'pending' AND run_after <= datetime('now')
-           ORDER BY priority DESC, id ASC LIMIT 1`,
+          `UPDATE ingest_jobs
+           SET state = 'processing', attempts = attempts + 1, leased_at = datetime('now'),
+               updated_at = datetime('now')
+           WHERE id = (
+             SELECT id FROM ingest_jobs
+             WHERE queue = ? AND state = 'pending' AND run_after <= datetime('now')
+             ORDER BY priority DESC, id ASC LIMIT 1
+           )
+             AND state = 'pending'
+           RETURNING *`,
         )
         .get(queue) as IngestJobRow | undefined;
       if (!row) return undefined;
-      const attempt = row.attempts + 1;
-      this.db
-        .prepare(
-          `UPDATE ingest_jobs
-           SET state = 'processing', attempts = ?, leased_at = datetime('now'),
-               updated_at = datetime('now')
-           WHERE id = ?`,
-        )
-        .run(attempt, row.id);
       this.db
         .prepare(
           `INSERT INTO ingest_runs (job_id, attempt, stage, state)
            VALUES (?, ?, ?, 'processing')`,
         )
-        .run(row.id, attempt, row.stage);
-      return { ...row, state: "processing" as const, attempts: attempt };
+        .run(row.id, row.attempts, row.stage);
+      return row;
     });
-    return claim();
+    return claim.immediate();
   }
 
   /** Record progress through a stage (and reflect it on the active run row). */
