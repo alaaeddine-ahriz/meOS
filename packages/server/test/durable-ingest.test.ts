@@ -6,11 +6,16 @@ import {
   JobQueue,
   KnowledgeStore,
   openDatabase,
+  Semaphore,
   type IngestionPipeline,
   type MeosDatabase,
 } from "@meos/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DurableIngest } from "../src/durable-ingest.js";
+
+/** A generous descriptor budget — these tests never approach it; it just
+ * satisfies the dependency so the real read paths can run. */
+const fsLimit = new Semaphore(64);
 
 /**
  * Backpressure + priority of the durable ingest orchestration (#18). We drive
@@ -58,6 +63,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       store,
       pipeline: blockingPipeline(),
       queue,
+      fsLimit,
       stagingDir,
       maxBatchesPerPump: 2,
     });
@@ -91,7 +97,13 @@ describe("DurableIngest backpressure + priority (#18)", () => {
     } as unknown as IngestionPipeline;
 
     const queue = new JobQueue(1);
-    const durable = new DurableIngest({ store, pipeline: recordingPipeline, queue, stagingDir });
+    const durable = new DurableIngest({
+      store,
+      pipeline: recordingPipeline,
+      queue,
+      fsLimit,
+      stagingDir,
+    });
     durable.pump();
     await queue.onIdle();
 
@@ -119,6 +131,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       store,
       pipeline: blockingPipeline(),
       queue,
+      fsLimit,
       stagingDir,
       maxBatchesPerPump: 1,
     });
@@ -140,7 +153,13 @@ describe("DurableIngest backpressure + priority (#18)", () => {
     store.setIngestPaused(true);
 
     const queue = new JobQueue(10);
-    const durable = new DurableIngest({ store, pipeline: blockingPipeline(), queue, stagingDir });
+    const durable = new DurableIngest({
+      store,
+      pipeline: blockingPipeline(),
+      queue,
+      fsLimit,
+      stagingDir,
+    });
 
     durable.pump();
     // Paused: the job stays pending — nothing is admitted onto the executor.
@@ -164,6 +183,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       store,
       pipeline: blockingPipeline(),
       queue: new JobQueue(1),
+      fsLimit,
       stagingDir,
     });
     expect(durable.cancel(jobId)).toBe(true);

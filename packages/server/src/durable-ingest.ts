@@ -8,6 +8,7 @@ import {
   type IngestionPipeline,
   type JobQueue,
   type KnowledgeStore,
+  type Semaphore,
 } from "@meos/core";
 
 /** The JSON shape persisted in `ingest_jobs.payload` (a pointer, never bytes). */
@@ -85,6 +86,9 @@ export class DurableIngest {
       store: KnowledgeStore;
       pipeline: IngestionPipeline;
       queue: JobQueue;
+      /** Shared FD budget (with the watcher) bounding concurrent file reads so a
+       * backlog draining at once can't exhaust the process descriptor limit. */
+      fsLimit: Semaphore;
       /** Directory for spilled upload/paste bytes (cross-process recovery). */
       stagingDir: string;
       /** Backpressure cap on jobs admitted per pump pass; defaults to 20. */
@@ -381,7 +385,7 @@ export class DurableIngest {
         return;
       }
       if (payload?.kind === "file" && payload.path) {
-        const buffer = await fs.promises.readFile(payload.path);
+        const buffer = await this.deps.fsLimit.run(() => fs.promises.readFile(payload.path!));
         await this.runIngest(
           job,
           {
@@ -402,7 +406,7 @@ export class DurableIngest {
       if (fs.existsSync(staged)) {
         const inboxItemId = job.inbox_item_id ?? undefined;
         if (payload?.kind === "file") {
-          const buffer = await fs.promises.readFile(staged);
+          const buffer = await this.deps.fsLimit.run(() => fs.promises.readFile(staged));
           await this.runIngest(
             job,
             { kind: "file", filename: payload.filename, buffer, origin: payload.origin },
@@ -411,7 +415,7 @@ export class DurableIngest {
           return;
         }
         if (payload?.kind === "text") {
-          const text = await fs.promises.readFile(staged, "utf8");
+          const text = await this.deps.fsLimit.run(() => fs.promises.readFile(staged, "utf8"));
           await this.runIngest(job, { kind: "text", title: payload.title, text }, inboxItemId);
           return;
         }

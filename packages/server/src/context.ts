@@ -18,6 +18,7 @@ import {
   openDatabase,
   overlayStoredLlmConfig,
   runConsolidation,
+  Semaphore,
   SwitchableLlmClient,
   Vault,
   WikiWriter,
@@ -54,6 +55,16 @@ export type ContextRole = "all" | "app" | "worker";
 
 /** How many documents may move through parse/embed/extract at once. */
 const INGEST_CONCURRENCY = 3;
+
+/**
+ * Ceiling on file descriptors the ingest paths (watcher stats/reads + durable
+ * executor reads) may hold open at once. Defence-in-depth against EMFILE: a
+ * burst of FS events (a large copy, an archive unpacked into a watched folder)
+ * fans out into many simultaneous opens that the per-job {@link INGEST_CONCURRENCY}
+ * does not bound. Kept well under the common macOS soft limit (256) so the DB,
+ * WAL, sockets, and OS watch handles always have headroom.
+ */
+const FS_OPEN_CONCURRENCY = 32;
 
 const gitLog = createLogger("git");
 const wikiLog = createLogger("wiki");
@@ -253,6 +264,9 @@ export function createContext(
     },
   });
   const queue = new JobQueue(INGEST_CONCURRENCY);
+  // Shared descriptor budget for the ingest paths (watcher + durable executor),
+  // so a burst of file events can't exhaust the process FD limit (EMFILE).
+  const fsLimit = new Semaphore(FS_OPEN_CONCURRENCY);
   // The durable layer (#13): persists each ingestion unit, recovers crashed
   // jobs, retries failures with backoff, and prunes old completed history. The
   // in-memory queue above is only its concurrency executor.
@@ -260,6 +274,7 @@ export function createContext(
     store,
     pipeline,
     queue,
+    fsLimit,
     stagingDir: path.join(config.dataDir, "ingest-staging"),
     // In the app process the executor lives in the worker host: persist + spill
     // the job, then wake the worker (its sweep is the backstop). Other roles run
@@ -272,6 +287,7 @@ export function createContext(
     pipeline,
     queue,
     durableIngest,
+    fsLimit,
     dataDir: config.dataDir,
   });
   const git = new GitSync(config.dataDir);

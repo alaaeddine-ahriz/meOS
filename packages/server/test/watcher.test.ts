@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { Semaphore } from "@meos/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DurableIngest } from "../src/durable-ingest.js";
 import { FolderWatcher } from "../src/watcher.js";
@@ -56,6 +57,7 @@ describe("FolderWatcher scan", () => {
       pipeline: {} as never,
       queue: queue as never,
       durableIngest: durableIngest as unknown as DurableIngest,
+      fsLimit: new Semaphore(64),
       dataDir,
     });
     const settle = async () => {
@@ -95,6 +97,36 @@ describe("FolderWatcher scan", () => {
     expect(enqueued.sort()).toEqual(
       ["notes.md", "report.pdf", path.join("sub", "deep", "memo.txt")].sort(),
     );
+  });
+
+  it("skips deep paths under junk/dot dirs on the live watch path, not just the scan", async () => {
+    // Regression: recursive fs.watch delivers a *deep* file path directly
+    // (…/node_modules/pkg/readme.md), whose basename (readme.md) hides the
+    // node_modules ancestor. Matching only the basename let every file a single
+    // `npm install` created slip through and flood the queue until the process
+    // ran out of file descriptors (EMFILE). The scan never hits this because it
+    // prunes at the directory as it descends — only the watch path does.
+    write("keep.md");
+    write("node_modules/pkg/readme.md"); // supported ext, but under a junk dir
+    write(".obsidian/note.md"); // supported ext, but under a dot-dir
+
+    const { watcher, enqueued, settle } = makeWatcher();
+    watcher.addFolder(root);
+    await settle(); // initial scan enqueues keep.md only
+
+    // Drive the watch path the way fs.watch would — with paths relative to root.
+    const w = watcher as unknown as { onRawEvent(root: string, filename: string): void };
+    w.onRawEvent(root, path.join("node_modules", "pkg", "readme.md"));
+    w.onRawEvent(root, path.join(".obsidian", "note.md"));
+    await new Promise((r) => setTimeout(r, 350)); // past the event debounce
+    await settle();
+    await watcher.close();
+
+    // The supported file outside any junk dir is enqueued; nothing under the
+    // junk/dot dirs ever is. (Exact multiplicity of keep.md is left loose: a real
+    // recursive fs.watch may also re-deliver it on platforms that support one.)
+    expect(enqueued).toContain("keep.md");
+    expect(enqueued.some((p) => p.includes("node_modules") || p.includes(".obsidian"))).toBe(false);
   });
 
   it("never enqueues files inside the excluded data dir", async () => {

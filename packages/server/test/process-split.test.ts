@@ -5,6 +5,7 @@ import {
   JobQueue,
   KnowledgeStore,
   openDatabase,
+  Semaphore,
   type IngestionPipeline,
   type MeosDatabase,
 } from "@meos/core";
@@ -200,7 +201,13 @@ describe("cross-connection executor (the worker drains what the app wrote)", () 
       retryExtractionForSource: () => new Promise(() => {}),
     } as unknown as IngestionPipeline;
     const queue = new JobQueue(1);
-    const executor = new DurableIngest({ store: workerStore, pipeline, queue, stagingDir });
+    const executor = new DurableIngest({
+      store: workerStore,
+      pipeline,
+      queue,
+      fsLimit: new Semaphore(64),
+      stagingDir,
+    });
 
     executor.pump();
     await queue.onIdle();
