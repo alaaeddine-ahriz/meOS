@@ -209,6 +209,7 @@ export type { IssueSeverity, LintIssue, PageLintResult } from "./wiki/wiki-lint.
 export { healWiki } from "./wiki/self-healing.js";
 export type { HealingReport } from "./wiki/self-healing.js";
 export { JobQueue, SerialQueue, JobPriority, DEFAULT_PRIORITY } from "./jobs/queue.js";
+export { Semaphore } from "./jobs/semaphore.js";
 export { MeosEvents } from "./events.js";
 export type { MeosEvent, MeosEventHandler, MeosEventMap } from "./events.js";
 export { buildContextPack } from "./chat/retrieval.js";

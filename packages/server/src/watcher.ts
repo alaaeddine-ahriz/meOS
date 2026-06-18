@@ -9,6 +9,7 @@ import {
   type IngestionPipeline,
   type JobQueue,
   type KnowledgeStore,
+  type Semaphore,
 } from "@meos/core";
 import type { DurableIngest } from "./durable-ingest.js";
 
@@ -121,6 +122,9 @@ export class FolderWatcher {
       queue: JobQueue;
       /** Durable ingestion (#13): file ingests are persisted + retryable. */
       durableIngest: DurableIngest;
+      /** Shared FD budget bounding concurrent stats/reads, so a burst of events
+       * can't exhaust the process descriptor limit (EMFILE). */
+      fsLimit: Semaphore;
       /** The app's data dir — excluded from watching to avoid a write→ingest loop. */
       dataDir?: string;
     },
@@ -221,7 +225,7 @@ export class FolderWatcher {
   /** Coalesce a raw FS event into a single delayed consideration per path. */
   private onRawEvent(root: string, filename: string): void {
     const full = path.resolve(root, filename);
-    if (this.isIgnored(full)) return;
+    if (this.isIgnored(full, root)) return;
     const existing = this.pending.get(full);
     if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
@@ -234,12 +238,16 @@ export class FolderWatcher {
 
   /** Resolve a settled path to the right action: present → consider, gone → forget. */
   private dispatch(full: string): void {
-    fs.promises.stat(full).then(
-      (stat) => {
-        if (stat.isFile()) this.considerStat(full, stat);
-      },
-      () => this.forget(full),
-    );
+    // Through the FD budget: a burst of events fires every debounce timer at
+    // once, and an unbounded fan-out of stats is what tips the process into EMFILE.
+    this.deps.fsLimit
+      .run(() => fs.promises.stat(full))
+      .then(
+        (stat) => {
+          if (stat.isFile()) this.considerStat(full, stat);
+        },
+        () => this.forget(full),
+      );
   }
 
   /** Debounced, de-duplicated full reconcile, for unnameable OS events. */
@@ -274,13 +282,15 @@ export class FolderWatcher {
         const dir = stack.pop()!;
         let entries: fs.Dirent[];
         try {
-          entries = await fs.promises.readdir(dir, { withFileTypes: true });
+          entries = await this.deps.fsLimit.run(() =>
+            fs.promises.readdir(dir, { withFileTypes: true }),
+          );
         } catch {
           continue; // unreadable or vanished mid-walk
         }
         for (const entry of entries) {
           const full = path.join(dir, entry.name);
-          if (this.isIgnored(full)) continue;
+          if (this.isIgnored(full, root)) continue;
           // Symlinks report as neither file nor directory here, so loops and
           // out-of-tree escapes are skipped without extra bookkeeping.
           if (entry.isDirectory()) {
@@ -291,7 +301,7 @@ export class FolderWatcher {
           if (!SUPPORTED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
           let stat: fs.Stats;
           try {
-            stat = await fs.promises.stat(full);
+            stat = await this.deps.fsLimit.run(() => fs.promises.stat(full));
           } catch {
             continue;
           }
@@ -312,16 +322,29 @@ export class FolderWatcher {
    * its whole subtree out — the difference between skipping `node_modules` and
    * walking every one inside it.
    */
-  private isIgnored(filePath: string): boolean {
-    const base = path.basename(filePath);
-    // Dotfiles/dot-dirs (.git, .obsidian, …), and Office/LibreOffice owner-lock
-    // files ("~$report.docx", ".~lock.report.odt#") — transient siblings of open
-    // documents that only ever fail to parse and flood the feed.
-    if (base.startsWith(".") || base.startsWith("~$") || base.startsWith(".~lock.")) return true;
-    if (IGNORED_DIR_NAMES.has(base)) return true;
+  private isIgnored(filePath: string, root: string): boolean {
+    // Our own data dir (wiki/db/WAL) is excluded wherever it sits — an absolute
+    // match, independent of the watched root.
     if (this.dataDir) {
       const resolved = path.resolve(filePath);
       if (resolved === this.dataDir || resolved.startsWith(this.dataDir + path.sep)) return true;
+    }
+    // Prune if ANY segment between the root and the file is an ignored dir, a
+    // dotfile/dot-dir (.git, .obsidian, …), or an Office/LibreOffice owner-lock
+    // sibling ("~$report.docx", ".~lock.report.odt#"). Checking only the basename
+    // was a gap: the scan prunes at the directory as it descends, but recursive
+    // fs.watch delivers a *deep* path (…/node_modules/@next/env/package.json)
+    // whose basename (package.json) hides the node_modules ancestor — so a single
+    // `npm install` in a watched folder floods the queue and exhausts file
+    // descriptors. Inspecting every segment lets an ignored ancestor prune its
+    // whole subtree on the watch path too. Segments ABOVE the registered root are
+    // the user's deliberate choice (a vault under ~/.config stays watched), so
+    // they never disqualify.
+    const rel = path.relative(root, filePath);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+    for (const seg of rel.split(path.sep)) {
+      if (seg.startsWith(".") || seg.startsWith("~$") || seg.startsWith(".~lock.")) return true;
+      if (IGNORED_DIR_NAMES.has(seg)) return true;
     }
     return false;
   }
@@ -379,7 +402,7 @@ export class FolderWatcher {
       }
       let buffer: Buffer;
       try {
-        buffer = await fs.promises.readFile(filePath);
+        buffer = await this.deps.fsLimit.run(() => fs.promises.readFile(filePath));
       } catch (error) {
         const { id } = store.upsertInboxItemForFile(filePath, filename);
         store.updateInboxItem(id, "failed", error instanceof Error ? error.message : String(error));
