@@ -1,6 +1,6 @@
 import { PROVIDER_MODELS } from "./index.js";
 
-export type CloudProvider = "anthropic" | "openai" | "google";
+export type CloudProvider = "anthropic" | "openai" | "google" | "openrouter";
 
 /** A live-discovered model list, plus where it came from so the UI can explain itself. */
 export interface ModelListing {
@@ -41,7 +41,18 @@ const DISCOVERERS: Record<CloudProvider, (apiKey: string) => Promise<string[]>> 
   openai: discoverOpenAi,
   anthropic: discoverAnthropic,
   google: discoverGoogle,
+  openrouter: discoverOpenRouter,
 };
+
+async function discoverOpenRouter(apiKey: string): Promise<string[]> {
+  // The catalogue is public, but we still send the key so the list reflects any
+  // models the account is provisioned for.
+  const body = await getJson("https://openrouter.ai/api/v1/models", {
+    Authorization: `Bearer ${apiKey}`,
+  });
+  const data = (body as { data?: Array<{ id?: string }> }).data ?? [];
+  return data.map((m) => m.id).filter((id): id is string => Boolean(id));
+}
 
 async function discoverOpenAi(apiKey: string): Promise<string[]> {
   const body = await getJson("https://api.openai.com/v1/models", {

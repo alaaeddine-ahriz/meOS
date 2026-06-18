@@ -32,6 +32,7 @@ import {
   GoogleLogo,
   GoogleTasksLogo,
   OpenAILogo,
+  OpenRouterLogo,
 } from "@/components/brand-logos";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
@@ -62,6 +63,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   api,
+  type CloudProvider,
   type ConnectorKind,
   type ConnectorStatus,
   type EntityTypeName,
@@ -531,6 +533,7 @@ const PROVIDERS: Array<{ value: LlmProvider; label: string; Logo: BrandLogo }> =
   { value: "anthropic", label: "Anthropic", Logo: AnthropicLogo },
   { value: "openai", label: "OpenAI", Logo: OpenAILogo },
   { value: "google", label: "Google", Logo: GoogleLogo },
+  { value: "openrouter", label: "OpenRouter", Logo: OpenRouterLogo },
   { value: "local", label: "Local (LM Studio)", Logo: Laptop },
 ];
 
@@ -538,6 +541,7 @@ const KEY_PLACEHOLDERS: Record<string, string> = {
   anthropic: "sk-ant-…",
   openai: "sk-…",
   google: "AIza…",
+  openrouter: "sk-or-…",
 };
 
 function IntelligenceSection() {
@@ -621,7 +625,7 @@ function IntelligenceSection() {
   // Ask the cloud provider which models its key can use. Passes the unsaved key
   // when present so the list can be refreshed before saving; otherwise the server
   // uses the saved/env key.
-  const refreshCloudModels = async (target: "anthropic" | "openai" | "google", key?: string) => {
+  const refreshCloudModels = async (target: CloudProvider, key?: string) => {
     setLoadingCloud(true);
     setCloudModelsError(null);
     try {
@@ -640,8 +644,7 @@ function IntelligenceSection() {
 
   // Pull the model list whenever a cloud provider becomes active.
   useEffect(() => {
-    if (provider !== "local")
-      void refreshCloudModels(provider as "anthropic" | "openai" | "google");
+    if (provider !== "local") void refreshCloudModels(provider as CloudProvider);
   }, [provider]);
 
   const chooseProvider = (next: LlmProvider) => {
@@ -671,8 +674,7 @@ function IntelligenceSection() {
       setApiKey("");
       setLlmSaved(true);
       // A freshly-saved key may reveal the account's real catalogue.
-      if (provider !== "local")
-        void refreshCloudModels(provider as "anthropic" | "openai" | "google");
+      if (provider !== "local") void refreshCloudModels(provider as CloudProvider);
     } catch (e) {
       setLlmError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -681,10 +683,7 @@ function IntelligenceSection() {
   };
 
   const cloudProvider = provider !== "local";
-  const keySaved =
-    cloudProvider && llm
-      ? llm.providers[provider as "anthropic" | "openai" | "google"].hasKey
-      : false;
+  const keySaved = cloudProvider && llm ? llm.providers[provider as CloudProvider].hasKey : false;
   // Always keep the currently-selected model selectable, even if discovery hasn't
   // returned it (a key that's saved but unverified, an offline refresh, etc.).
   const cloudOptions =
@@ -731,10 +730,7 @@ function IntelligenceSection() {
                   <Button
                     variant="outline"
                     onClick={() =>
-                      void refreshCloudModels(
-                        provider as "anthropic" | "openai" | "google",
-                        apiKey.trim() || undefined,
-                      )
+                      void refreshCloudModels(provider as CloudProvider, apiKey.trim() || undefined)
                     }
                     disabled={loadingCloud}
                     className={actionButtonClass}

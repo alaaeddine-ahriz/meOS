@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { NumericIdParam, OkSchema } from "./common.js";
 
-export const LlmProviderSchema = z.enum(["anthropic", "openai", "google", "local"]);
-export const CloudProviderSchema = z.enum(["anthropic", "openai", "google"]);
+export const LlmProviderSchema = z.enum(["anthropic", "openai", "google", "openrouter", "local"]);
+export const CloudProviderSchema = z.enum(["anthropic", "openai", "google", "openrouter"]);
 
 /** GET / PUT /api/settings/llm */
 export const LlmSettingsSchema = z.object({
@@ -11,6 +11,7 @@ export const LlmSettingsSchema = z.object({
     anthropic: z.object({ model: z.string(), hasKey: z.boolean() }),
     openai: z.object({ model: z.string(), hasKey: z.boolean() }),
     google: z.object({ model: z.string(), hasKey: z.boolean() }),
+    openrouter: z.object({ model: z.string(), hasKey: z.boolean() }),
     local: z.object({ model: z.string(), baseUrl: z.string() }),
   }),
   maintainer: z.object({
