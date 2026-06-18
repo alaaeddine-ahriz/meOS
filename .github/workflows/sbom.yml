@@ -31,7 +31,15 @@ jobs:
           node-version: 22
 
       - name: Set up pnpm
+        # Pin pnpm to the repo's packageManager version (package.json) so
+        # action-setup installs it deterministically rather than via its flaky
+        # self-installer inference (#93). Keep in sync with package.json.
         uses: pnpm/action-setup@v6
+        with:
+          version: 10.20.0
+
+      - name: Verify pnpm
+        run: pnpm --version
 
       # Install so the SBOM captures the fully resolved dependency tree, not
       # just declared ranges.
