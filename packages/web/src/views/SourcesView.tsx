@@ -16,7 +16,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { openExternal } from "@/lib/platform";
 import { api, type IndexedSource, type SourceDetail } from "../api.js";
-import { SourceHealthView } from "./SourceHealthView.js";
+import { HealthView } from "./HealthView.js";
 
 /**
  * The Sources tab: every locally-indexed connector item — a contact, calendar
@@ -103,7 +103,7 @@ export function SourcesView() {
       />
       <PageBody>
         {tab === "health" ? (
-          <SourceHealthView />
+          <HealthView />
         ) : loaded && sources.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nothing indexed yet. Connect Google in{" "}

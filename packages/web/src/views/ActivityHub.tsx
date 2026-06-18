@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Page, PageBody, PageHeader } from "@/components/Page";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "../api.js";
 import { ActivityView } from "./ActivityView.js";
 import { ContradictionsView } from "./ContradictionsView.js";
 import { DigestView } from "./DigestView.js";
-import { IngestMetricsView } from "./IngestMetricsView.js";
 
-type HubTabId = "feed" | "review" | "digest" | "health";
-const TAB_IDS: HubTabId[] = ["feed", "review", "digest", "health"];
+type HubTabId = "feed" | "review" | "digest";
+const TAB_IDS: HubTabId[] = ["feed", "review", "digest"];
 
 // Older deep-links used per-section tabs (inbox/runs/conflicts); fold them into the new ones.
 const TAB_ALIASES: Record<string, HubTabId> = {
@@ -19,13 +18,21 @@ const TAB_ALIASES: Record<string, HubTabId> = {
 };
 
 /**
- * The agent-oversight hub, in four slots: a live Feed of documents landing and
+ * The agent-oversight hub, in three slots: a live Feed of documents landing and
  * the pages the maintainer rewrites in response, a Review queue of duplicates
- * and conflicting claims, the daily Digest, and ingest Health.
+ * and conflicting claims, and the daily Digest. Health moved out to its own
+ * consolidated section at /sources?tab=health — old ?tab=health links redirect.
  */
 export function ActivityHub() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const raw = params.get("tab");
+
+  // Health is now a single section under Sources; send stale deep-links there.
+  useEffect(() => {
+    if (raw === "health") navigate("/sources?tab=health", { replace: true });
+  }, [raw, navigate]);
+
   const tab: HubTabId = TAB_IDS.includes(raw as HubTabId)
     ? (raw as HubTabId)
     : (TAB_ALIASES[raw ?? ""] ?? "feed");
@@ -64,7 +71,6 @@ export function ActivityHub() {
           )}
         </TabsTrigger>
         <TabsTrigger value="digest">Digest</TabsTrigger>
-        <TabsTrigger value="health">Health</TabsTrigger>
       </TabsList>
     </Tabs>
   );
@@ -80,7 +86,6 @@ export function ActivityHub() {
         {tab === "feed" && <ActivityView embedded />}
         {tab === "review" && <ContradictionsView embedded />}
         {tab === "digest" && <DigestView embedded />}
-        {tab === "health" && <IngestMetricsView />}
       </PageBody>
     </Page>
   );
