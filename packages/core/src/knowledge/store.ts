@@ -2226,6 +2226,34 @@ export class KnowledgeStore {
     return true;
   }
 
+  /**
+   * Bulk "retry all" for the dead-letter pile (#98): reset every exhausted job to
+   * pending with a fresh attempt budget, runnable now. Returns how many were
+   * requeued so the caller can wake the executor.
+   */
+  retryAllDeadLetterIngestJobs(): number {
+    return this.db
+      .prepare(
+        `UPDATE ingest_jobs
+         SET state = 'pending', attempts = 0, leased_at = NULL,
+             run_after = datetime('now'), updated_at = datetime('now')
+         WHERE state = 'dead-letter'`,
+      )
+      .run().changes;
+  }
+
+  /**
+   * Discard the dead-letter pile (#98): the user has given up on these jobs.
+   * Deletes them (their `ingest_runs` cascade, mirroring pruneCompletedIngestJobs)
+   * and returns the deleted ids so the caller can drop any spilled staging bytes.
+   */
+  clearDeadLetterIngestJobs(): number[] {
+    const rows = this.db
+      .prepare(`DELETE FROM ingest_jobs WHERE state = 'dead-letter' RETURNING id`)
+      .all() as Array<{ id: number }>;
+    return rows.map((r) => r.id);
+  }
+
   /** Per-queue depth + failure counts for the runtime health surface (#13/#18). */
   ingestQueueDepths(): IngestQueueDepth[] {
     const rows = this.db

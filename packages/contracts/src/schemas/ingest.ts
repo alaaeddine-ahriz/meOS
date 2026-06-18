@@ -83,6 +83,11 @@ export const IngestJobsResponse = z.object({ jobs: z.array(IngestJobSchema) });
 export const RetryJobParams = NumericIdParam;
 export const RetryJobResponse = z.object({ retried: z.boolean() });
 
+/** POST /api/ingest/dead-letter/retry — bulk requeue; count of jobs requeued (#98). */
+export const RetryDeadLetterResponse = z.object({ retried: z.number() });
+/** POST /api/ingest/dead-letter/clear — discard the pile; count of jobs cleared (#98). */
+export const ClearDeadLetterResponse = z.object({ cleared: z.number() });
+
 // --- ingestion observability metrics (#18) ---------------------------
 
 /** Extended per-queue metrics: #13 depth counters + retry/throughput diagnostics. */

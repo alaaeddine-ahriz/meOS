@@ -166,6 +166,35 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     },
   );
 
+  // Bulk dead-letter controls (#98) so a user can unstick or clear the failed
+  // pile from the Health tab without inspecting jobs one by one. Distinct path
+  // prefix from `jobs/:id` so "dead-letter" isn't captured as an :id param.
+  app.post(
+    "/api/ingest/dead-letter/retry",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Retry all dead-letter ingest jobs",
+        response: ingest.RetryDeadLetterResponse,
+      }),
+    },
+    async () =>
+      ingest.RetryDeadLetterResponse.parse({ retried: ctx.durableIngest.retryAllDeadLetter() }),
+  );
+
+  app.post(
+    "/api/ingest/dead-letter/clear",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Clear (discard) all dead-letter ingest jobs",
+        response: ingest.ClearDeadLetterResponse,
+      }),
+    },
+    async () =>
+      ingest.ClearDeadLetterResponse.parse({ cleared: ctx.durableIngest.clearDeadLetter() }),
+  );
+
   // What a single document created/changed in the wiki: its commits, each
   // scoped (via path filtering) to just this document's pages, with the diff.
   app.get<{ Params: { id: string } }>(

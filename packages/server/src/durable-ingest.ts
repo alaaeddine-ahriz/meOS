@@ -224,6 +224,29 @@ export class DurableIngest {
     return true;
   }
 
+  /**
+   * Bulk "retry all" of the dead-letter pile (#98): requeue every exhausted job
+   * and wake the executor. Returns how many were requeued.
+   */
+  retryAllDeadLetter(): number {
+    const count = this.deps.store.retryAllDeadLetterIngestJobs();
+    if (count > 0) {
+      if (this.enqueueOnly) this.notify?.();
+      else setTimeout(() => this.pump(), 0).unref();
+    }
+    return count;
+  }
+
+  /**
+   * Discard the dead-letter pile (#98) and drop the spilled staging bytes of the
+   * deleted jobs. Returns how many were cleared.
+   */
+  clearDeadLetter(): number {
+    const ids = this.deps.store.clearDeadLetterIngestJobs();
+    for (const id of ids) this.discardStaging(id);
+    return ids.length;
+  }
+
   /** Start the periodic sweep: recover stale jobs, re-pump, prune old history. */
   start(): void {
     // Producer-only (app process): the executor + sweep live in the worker host.
