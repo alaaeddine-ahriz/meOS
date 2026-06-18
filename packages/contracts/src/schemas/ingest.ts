@@ -88,6 +88,15 @@ export const RetryDeadLetterResponse = z.object({ retried: z.number() });
 /** POST /api/ingest/dead-letter/clear — discard the pile; count of jobs cleared (#98). */
 export const ClearDeadLetterResponse = z.object({ cleared: z.number() });
 
+/** POST /api/ingest/jobs/:id/cancel — remove a single (non-processing) job (#98). */
+export const CancelJobParams = NumericIdParam;
+export const CancelJobResponse = z.object({ cancelled: z.boolean() });
+/** POST /api/ingest/sources/:id/rebuild — re-extract a source; the new job id (#98). */
+export const RebuildSourceParams = NumericIdParam;
+export const RebuildSourceResponse = z.object({ jobId: z.number() });
+/** POST /api/ingest/{pause,resume} — toggle processing; the resulting state (#98). */
+export const PauseResponse = z.object({ paused: z.boolean() });
+
 // --- ingestion observability metrics (#18) ---------------------------
 
 /** Extended per-queue metrics: #13 depth counters + retry/throughput diagnostics. */
@@ -145,6 +154,8 @@ export const IngestMetricsResponse = z.object({
   costs: z.array(IngestCostMetricSchema),
   /** Backpressure config in effect: the per-pump batch admission cap. */
   backpressure: z.object({ maxBatchesPerPump: z.number() }),
+  /** Whether ingest processing is currently paused (#98). */
+  paused: z.boolean(),
   /** When this snapshot was taken (ISO). */
   generatedAt: z.string(),
 });

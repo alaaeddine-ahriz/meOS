@@ -2254,6 +2254,28 @@ export class KnowledgeStore {
     return rows.map((r) => r.id);
   }
 
+  /**
+   * Cancel a single ingest job (#98): delete it unless it is actively
+   * `processing` (which may be running in another process and can't be safely
+   * interrupted mid-flight). Returns true if a job was removed.
+   */
+  cancelIngestJob(id: number): boolean {
+    return (
+      this.db.prepare(`DELETE FROM ingest_jobs WHERE id = ? AND state != 'processing'`).run(id)
+        .changes > 0
+    );
+  }
+
+  /** Whether ingest processing is paused (#98); persisted so it survives restart. */
+  isIngestPaused(): boolean {
+    return this.getSetting<boolean>("ingest_paused") ?? false;
+  }
+
+  /** Pause/resume ingest processing (#98). The executor checks this before admitting work. */
+  setIngestPaused(paused: boolean): void {
+    this.setSetting("ingest_paused", paused);
+  }
+
   /** Per-queue depth + failure counts for the runtime health surface (#13/#18). */
   ingestQueueDepths(): IngestQueueDepth[] {
     const rows = this.db

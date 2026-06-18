@@ -206,14 +206,23 @@ export class IngestQueueWorker implements Worker {
       avgDurationSeconds: 0,
       oldestQueuedAt: null,
     };
+    // Paused (#98) reads as stopped so the UI shows processing is halted; a
+    // dead-letter pile still surfaces as an error regardless.
+    const paused = this.store.isIngestPaused();
     const status: WorkerHealth["status"] =
-      depth.deadLetter > 0 ? "error" : depth.processing > 0 ? "running" : "idle";
+      depth.deadLetter > 0
+        ? "error"
+        : paused
+          ? "stopped"
+          : depth.processing > 0
+            ? "running"
+            : "idle";
     return {
       name: this.name,
       status,
       detail:
-        `${this.queueKind}: ${depth.processing} processing, ${depth.pending} pending, ` +
-        `${depth.retrying} retrying, ${depth.deadLetter} dead-letter`,
+        `${paused ? "paused — " : ""}${this.queueKind}: ${depth.processing} processing, ` +
+        `${depth.pending} pending, ${depth.retrying} retrying, ${depth.deadLetter} dead-letter`,
       lastError: depth.deadLetter > 0 ? `${depth.deadLetter} job(s) in dead-letter` : null,
       lastRunAt: null,
       queue: {

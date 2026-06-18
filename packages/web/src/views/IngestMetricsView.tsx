@@ -1,7 +1,7 @@
-import { Activity, AlertTriangle, Gauge, RotateCw } from "lucide-react";
+import { Activity, AlertTriangle, Gauge, ListChecks, Pause, Play, RotateCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { api, type IngestMetrics, type RuntimeHealth } from "../api.js";
+import { api, type IngestJob, type IngestMetrics, type RuntimeHealth } from "../api.js";
 import { formatTime } from "../lib/datetime.js";
 
 /**
@@ -19,6 +19,15 @@ const STATUS_DOTS: Record<string, string> = {
   error: "bg-ember",
 };
 
+/** Status dot per durable-job state, for the Jobs list (#98). */
+const JOB_DOTS: Record<string, string> = {
+  pending: "bg-dim",
+  processing: "bg-lamp working-dot",
+  completed: "bg-lamp",
+  failed: "bg-ember",
+  "dead-letter": "bg-ember",
+};
+
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -31,6 +40,7 @@ function Stat({ label, value }: { label: string; value: string | number }) {
 export function IngestMetricsView() {
   const [metrics, setMetrics] = useState<IngestMetrics | null>(null);
   const [health, setHealth] = useState<RuntimeHealth | null>(null);
+  const [jobs, setJobs] = useState<IngestJob[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -44,6 +54,10 @@ export function IngestMetricsView() {
     api
       .getRuntimeHealth()
       .then(setHealth)
+      .catch(() => {});
+    api
+      .listIngestJobs()
+      .then((r) => setJobs(r.jobs))
       .catch(() => {});
   }, []);
 
@@ -141,7 +155,23 @@ export function IngestMetricsView() {
               </button>
             </span>
           )}
-          <span className="ml-auto font-mono text-[11px] text-dim">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => runAction(metrics.paused ? api.resumeIngest : api.pauseIngest)}
+            className="ml-auto flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-[11px] text-paper hover:bg-line/40 disabled:opacity-50"
+          >
+            {metrics.paused ? (
+              <>
+                <Play className="h-3 w-3" /> Resume
+              </>
+            ) : (
+              <>
+                <Pause className="h-3 w-3" /> Pause
+              </>
+            )}
+          </button>
+          <span className="font-mono text-[11px] text-dim">
             backpressure cap: {metrics.backpressure.maxBatchesPerPump}/tick
           </span>
         </h3>
@@ -164,6 +194,78 @@ export function IngestMetricsView() {
             </li>
           ))}
           {metrics.queues.length === 0 && <li className="text-sm text-dim">No queues yet.</li>}
+        </ul>
+      </section>
+
+      {/* Jobs — the durable ledger with per-job controls (#98). */}
+      <section>
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-faded">
+          <ListChecks className="h-4 w-4" /> Jobs
+          {jobs.length > 0 && (
+            <span className="font-mono text-[11px] text-dim">({jobs.length})</span>
+          )}
+        </h3>
+        <ul className="space-y-1.5">
+          {jobs.slice(0, 25).map((j) => {
+            const retryable = j.state === "failed" || j.state === "dead-letter";
+            const cancellable = j.state !== "processing" && j.state !== "completed";
+            return (
+              <li
+                key={j.id}
+                className="flex items-center gap-3 rounded-xl border border-line bg-desk px-4 py-2"
+              >
+                <span
+                  className={cn("h-1.5 w-1.5 shrink-0 rounded-full", JOB_DOTS[j.state] ?? "bg-dim")}
+                  title={j.state}
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-mono text-xs text-paper">
+                    #{j.id} · {j.kind} · {j.stage}
+                    <span className="text-dim"> · {j.state}</span>
+                  </div>
+                  {j.lastError && (
+                    <div className="truncate text-[11px] text-ember">{j.lastError}</div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {retryable && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => runAction(() => api.retryIngestJob(j.id))}
+                      className="rounded-md border border-line px-2 py-0.5 text-[11px] text-paper hover:bg-line/40 disabled:opacity-50"
+                    >
+                      Retry
+                    </button>
+                  )}
+                  {j.sourceId != null && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => runAction(() => api.rebuildSource(j.sourceId!))}
+                      className="rounded-md border border-line px-2 py-0.5 text-[11px] text-paper hover:bg-line/40 disabled:opacity-50"
+                    >
+                      Rebuild
+                    </button>
+                  )}
+                  {cancellable && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => runAction(() => api.cancelIngestJob(j.id))}
+                      className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ember hover:bg-line/40 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+          {jobs.length === 0 && <li className="text-sm text-dim">No jobs yet.</li>}
+          {jobs.length > 25 && (
+            <li className="text-[11px] text-dim">…and {jobs.length - 25} more</li>
+          )}
         </ul>
       </section>
 

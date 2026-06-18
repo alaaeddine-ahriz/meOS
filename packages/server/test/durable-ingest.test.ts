@@ -132,4 +132,42 @@ describe("DurableIngest backpressure + priority (#18)", () => {
 
     durable.stop();
   });
+
+  it("admits nothing while paused, then drains on resume (#98)", () => {
+    const store = new KnowledgeStore(db);
+    const sourceId = store.createSource({ type: "file", title: "Doc", content: "x" });
+    store.createIngestJob({ kind: "file", sourceId });
+    store.setIngestPaused(true);
+
+    const queue = new JobQueue(10);
+    const durable = new DurableIngest({ store, pipeline: blockingPipeline(), queue, stagingDir });
+
+    durable.pump();
+    // Paused: the job stays pending — nothing is admitted onto the executor.
+    let depth = store.ingestQueueMetrics().find((q) => q.queue === "extraction")!;
+    expect(depth.processing).toBe(0);
+    expect(depth.pending).toBe(1);
+
+    durable.resume(); // clears the flag + wakes the executor (synchronous pump)
+    depth = store.ingestQueueMetrics().find((q) => q.queue === "extraction")!;
+    expect(depth.processing).toBe(1);
+    durable.stop();
+  });
+
+  it("cancel removes a job and drops its staging bytes (#98)", () => {
+    const store = new KnowledgeStore(db);
+    const jobId = store.createIngestJob({ kind: "text", payload: { kind: "text", title: "x" } });
+    const staged = path.join(stagingDir, String(jobId));
+    fs.writeFileSync(staged, "bytes");
+
+    const durable = new DurableIngest({
+      store,
+      pipeline: blockingPipeline(),
+      queue: new JobQueue(1),
+      stagingDir,
+    });
+    expect(durable.cancel(jobId)).toBe(true);
+    expect(store.getIngestJob(jobId)).toBeUndefined();
+    expect(fs.existsSync(staged)).toBe(false);
+  });
 });
