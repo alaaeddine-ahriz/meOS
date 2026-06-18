@@ -312,6 +312,97 @@ describe("durable ingest jobs (store)", () => {
   });
 });
 
+describe("atomic claim is multi-process safe (CAS)", () => {
+  // Two OS processes (the app + the forked worker host) open the SAME db file
+  // and both run claimIngestJob. We simulate that with two independent
+  // connections to one on-disk DB. The claim must be a compare-and-swap so a job
+  // is handed to exactly one claimer — the old SELECT-then-UPDATE could let both
+  // connections see the same `pending` row and double-process it.
+  let file: string;
+
+  beforeEach(() => {
+    file = path.join(os.tmpdir(), `meos-claim-${process.pid}-${process.hrtime.bigint()}.db`);
+  });
+
+  afterEach(() => {
+    for (const suffix of ["", "-wal", "-shm"]) {
+      try {
+        fs.rmSync(file + suffix);
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  it("hands a single pending job to exactly one of two connections", () => {
+    const a = openDatabase(file);
+    const b = openDatabase(file);
+    try {
+      const storeA = new KnowledgeStore(a);
+      const storeB = new KnowledgeStore(b);
+      const id = storeA.createIngestJob({ kind: "text" });
+
+      const fromA = storeA.claimIngestJob("extraction");
+      const fromB = storeB.claimIngestJob("extraction");
+
+      // Exactly one connection won the job; the other got nothing.
+      const winners = [fromA, fromB].filter(Boolean);
+      expect(winners).toHaveLength(1);
+      expect(winners[0]!.id).toBe(id);
+      // It was leased once, not twice (a double-claim would bump attempts to 2).
+      expect(storeA.getIngestJob(id)!.attempts).toBe(1);
+      expect(storeA.getIngestRuns(id)).toHaveLength(1);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it("never double-claims when both connections drain a shared queue", () => {
+    const a = openDatabase(file);
+    const b = openDatabase(file);
+    try {
+      const storeA = new KnowledgeStore(a);
+      const storeB = new KnowledgeStore(b);
+      const total = 25;
+      for (let i = 0; i < total; i++) storeA.createIngestJob({ kind: "text" });
+
+      // Interleave claims across the two connections until both come up empty.
+      const claimed: number[] = [];
+      let live = true;
+      while (live) {
+        const x = storeA.claimIngestJob("extraction");
+        const y = storeB.claimIngestJob("extraction");
+        if (x) claimed.push(x.id);
+        if (y) claimed.push(y.id);
+        live = Boolean(x || y);
+      }
+
+      // Every job claimed exactly once — no id appears twice.
+      expect(claimed).toHaveLength(total);
+      expect(new Set(claimed).size).toBe(total);
+      // And each was leased a single time.
+      for (const id of claimed) expect(storeA.getIngestJob(id)!.attempts).toBe(1);
+    } finally {
+      a.close();
+      b.close();
+    }
+  });
+
+  it("re-opening a fully-migrated DB is a no-op (idempotent migrations)", () => {
+    const first = openDatabase(file);
+    expect(first.pragma("user_version", { simple: true })).toBe(migrations.length);
+    first.close();
+    // A second open (e.g. the worker process) must not re-run DDL or throw.
+    const second = openDatabase(file);
+    expect(second.pragma("user_version", { simple: true })).toBe(migrations.length);
+    // busy_timeout is set so a writer that loses the WAL lock waits instead of
+    // throwing SQLITE_BUSY.
+    expect(second.pragma("busy_timeout", { simple: true })).toBeGreaterThan(0);
+    second.close();
+  });
+});
+
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
     expect(migrations.length).toBe(31);

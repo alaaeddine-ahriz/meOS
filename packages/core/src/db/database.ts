@@ -890,14 +890,31 @@ export function openDatabase(file: string): MeosDatabase {
   const db = new Database(file);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // Two processes (the app + the forked worker host) now open this same file
+  // concurrently. WAL already allows one writer alongside readers, but the
+  // default busy handler returns SQLITE_BUSY immediately, and better-sqlite3 is
+  // synchronous so that surfaces as a hard throw. A busy_timeout makes a writer
+  // that loses the lock wait-and-retry instead. synchronous=NORMAL is the
+  // recommended durable setting under WAL (a crash can lose the last commit's
+  // tail, never corrupt the DB) and avoids an fsync per transaction.
+  db.pragma("busy_timeout = 5000");
+  db.pragma("synchronous = NORMAL");
 
-  const version = db.pragma("user_version", { simple: true }) as number;
-  for (let i = version; i < migrations.length; i++) {
+  // Run pending migrations under an IMMEDIATE transaction and re-check the
+  // version INSIDE the write lock. The app process migrates before forking the
+  // worker, so this is normally single-writer; the in-lock re-check is the
+  // backstop for the boot race where two processes open a behind-schema DB at
+  // once — the loser takes the write lock after the winner committed, sees the
+  // bumped user_version, and skips the (already-applied) DDL rather than
+  // colliding with a duplicate CREATE/ALTER.
+  for (let i = db.pragma("user_version", { simple: true }) as number; i < migrations.length; i++) {
+    const target = i;
     const migrate = db.transaction(() => {
-      db.exec(migrations[i]!);
-      db.pragma(`user_version = ${i + 1}`);
+      if ((db.pragma("user_version", { simple: true }) as number) !== target) return;
+      db.exec(migrations[target]!);
+      db.pragma(`user_version = ${target + 1}`);
     });
-    migrate();
+    migrate.immediate();
   }
   return db;
 }

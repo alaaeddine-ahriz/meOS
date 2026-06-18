@@ -188,7 +188,12 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // The durable layer (#13): persists each ingestion unit, recovers crashed
   // jobs, retries failures with backoff, and prunes old completed history. The
   // in-memory queue above is only its concurrency executor.
-  const durableIngest = new DurableIngest({ store, pipeline, queue });
+  const durableIngest = new DurableIngest({
+    store,
+    pipeline,
+    queue,
+    stagingDir: path.join(config.dataDir, "ingest-staging"),
+  });
   const watcher = new FolderWatcher({
     store,
     pipeline,
