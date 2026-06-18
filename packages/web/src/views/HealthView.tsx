@@ -1,8 +1,6 @@
 import {
   AlertTriangle,
-  CalendarDays,
   CheckCircle2,
-  CheckSquare,
   ChevronRight,
   Cpu,
   FolderOpen,
@@ -11,11 +9,11 @@ import {
   Pause,
   Play,
   RotateCw,
-  User,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
+import { GoogleLogo, SERVICE_BRANDS } from "@/components/brand-logos";
 import { cn } from "@/lib/utils";
 import {
   api,
@@ -74,13 +72,6 @@ const STATE_WORDING: Record<string, string> = {
   backfilling: "Catching up on history…",
   failed: "Last sync failed",
   idle: "Not synced yet",
-};
-
-const KIND_ICON: Record<string, LucideIcon> = {
-  contacts: User,
-  calendar: CalendarDays,
-  gmail: Mail,
-  tasks: CheckSquare,
 };
 
 const HEALTH_FALLBACK = { label: "Not connected", dot: "bg-dim", Icon: XCircle, tone: "text-dim" };
@@ -147,12 +138,18 @@ function CountsRow({
 }
 
 function ConnectorCard({ k }: { k: ConnectorHealth }) {
-  const Icon = KIND_ICON[k.kind] ?? Mail;
+  // Reuse the connector brand logos (Gmail, Calendar, Contacts, Tasks) the rest
+  // of the app uses, keyed by the same `google:<kind>` source type.
+  const brand = SERVICE_BRANDS[`google:${k.kind}`];
   return (
-    <div className="rounded-xl border border-line bg-desk px-4 py-3">
+    <div className="rounded-xl border border-line bg-card/40 px-4 py-3">
       <div className="mb-2 flex items-center gap-2.5">
-        <Icon className="size-4 shrink-0 text-dim" />
-        <span className="flex-1 text-sm font-medium text-paper">{k.label}</span>
+        {brand ? (
+          <brand.Logo className="size-4 shrink-0" />
+        ) : (
+          <Mail className="size-4 shrink-0 text-dim" />
+        )}
+        <span className="flex-1 text-sm font-medium text-paper">{brand?.label ?? k.label}</span>
         <HealthBadge health={k.health} />
       </div>
       <p className="mb-2 text-xs text-dim">
@@ -515,10 +512,23 @@ export function HealthView() {
             email and tasks.
           </div>
         ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {source.connectors.kinds.map((k) => (
-              <ConnectorCard key={k.kind} k={k} />
-            ))}
+          <div className="overflow-hidden rounded-xl border border-line bg-desk">
+            {/* The connected account, with its brand mark. */}
+            <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
+              <GoogleLogo className="size-5 shrink-0" />
+              <span className="text-sm font-medium text-paper">Google</span>
+              {source.connectors.accountEmail && (
+                <span className="ml-auto truncate text-xs text-dim">
+                  {source.connectors.accountEmail}
+                </span>
+              )}
+            </div>
+            {/* Its services. */}
+            <div className="grid gap-2 p-3 sm:grid-cols-2">
+              {source.connectors.kinds.map((k) => (
+                <ConnectorCard key={k.kind} k={k} />
+              ))}
+            </div>
           </div>
         )}
       </section>
