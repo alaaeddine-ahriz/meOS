@@ -3,7 +3,7 @@ import path from "node:path";
 import { ensureSchemaDoc } from "./knowledge/schema-doc.js";
 import { ensureProfileDocs } from "./profile/profile-doc.js";
 
-export type LlmProvider = "anthropic" | "openai" | "google" | "local" | "stub";
+export type LlmProvider = "anthropic" | "openai" | "google" | "openrouter" | "local" | "stub";
 
 export interface LlmConfig {
   provider: LlmProvider;
@@ -17,6 +17,15 @@ export interface LlmConfig {
     apiKey?: string;
   };
   google: {
+    model: string;
+    apiKey?: string;
+  };
+  /**
+   * OpenRouter — a single OpenAI-compatible gateway in front of many providers'
+   * models (`anthropic/claude-…`, `openai/gpt-…`, etc.). `model` is the fully
+   * namespaced model slug.
+   */
+  openrouter: {
     model: string;
     apiKey?: string;
   };
@@ -70,6 +79,9 @@ export const defaultConfig: MeosConfig = {
     google: {
       model: "gemini-2.5-pro",
     },
+    openrouter: {
+      model: "anthropic/claude-opus-4-8",
+    },
     local: {
       baseUrl: "http://localhost:1234/v1",
       model: "",
@@ -87,7 +99,14 @@ export const defaultConfig: MeosConfig = {
   },
 };
 
-export const LLM_PROVIDERS: LlmProvider[] = ["anthropic", "openai", "google", "local", "stub"];
+export const LLM_PROVIDERS: LlmProvider[] = [
+  "anthropic",
+  "openai",
+  "google",
+  "openrouter",
+  "local",
+  "stub",
+];
 
 function deepMerge<T>(base: T, override: Partial<T>): T {
   const result = { ...base };
@@ -153,6 +172,7 @@ export function overlayStoredLlmConfig(
       anthropic: { ...config.llm.anthropic, ...stored.anthropic },
       openai: { ...config.llm.openai, ...stored.openai },
       google: { ...config.llm.google, ...stored.google },
+      openrouter: { ...config.llm.openrouter, ...stored.openrouter },
       local: { ...config.llm.local, ...legacy.ollama, ...stored.local },
       maintainer: { ...config.llm.maintainer, ...stored.maintainer },
     };

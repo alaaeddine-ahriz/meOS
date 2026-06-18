@@ -16,13 +16,14 @@ import { routeSchema } from "../route-schema.js";
 
 const tags = ["settings"];
 
-const CLOUD_PROVIDERS = ["anthropic", "openai", "google"] as const;
+const CLOUD_PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
 type CloudProvider = (typeof CLOUD_PROVIDERS)[number];
 
 const ENV_KEYS: Record<CloudProvider, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY"],
 };
 
 function hasKey(ctx: AppContext, provider: CloudProvider): boolean {
@@ -44,6 +45,7 @@ function llmSettingsView(ctx: AppContext) {
       anthropic: { model: llm.anthropic.model, hasKey: hasKey(ctx, "anthropic") },
       openai: { model: llm.openai.model, hasKey: hasKey(ctx, "openai") },
       google: { model: llm.google.model, hasKey: hasKey(ctx, "google") },
+      openrouter: { model: llm.openrouter.model, hasKey: hasKey(ctx, "openrouter") },
       local: { model: llm.local.model, baseUrl: llm.local.baseUrl },
     },
     maintainer: {

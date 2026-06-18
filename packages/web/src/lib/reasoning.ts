@@ -9,6 +9,8 @@ const REASONING_PATTERNS: Partial<Record<LlmProvider, RegExp>> = {
   anthropic: /claude.*(opus|sonnet|haiku)/i,
   openai: /^(o\d|gpt-5|chatgpt-5)/i,
   google: /gemini-(2\.5|3)/i,
+  openrouter:
+    /(claude.*(opus|sonnet|haiku)|gpt-5|chatgpt-5|\bo\d|gemini-(2\.5|3)|deepseek-r|grok-[34]|:thinking|:reasoning)/i,
 };
 
 export function isReasoningModel(provider: LlmProvider, modelId: string | undefined): boolean {

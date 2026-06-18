@@ -8,7 +8,7 @@ import { StubLlmClient } from "./stub.js";
 import type { LlmClient } from "./types.js";
 
 /** Curated model choices per cloud provider, shown in Settings. */
-export const PROVIDER_MODELS: Record<"anthropic" | "openai" | "google", string[]> = {
+export const PROVIDER_MODELS: Record<"anthropic" | "openai" | "google" | "openrouter", string[]> = {
   anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
   openai: ["gpt-5.1", "gpt-5", "gpt-5-mini", "gpt-4.1"],
   google: [
@@ -18,7 +18,32 @@ export const PROVIDER_MODELS: Record<"anthropic" | "openai" | "google", string[]
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
   ],
+  // OpenRouter slugs are `vendor/model`. A small starter set; the live catalogue
+  // (hundreds of models) is fetched in Settings when a key is present.
+  openrouter: [
+    "anthropic/claude-opus-4-8",
+    "anthropic/claude-sonnet-4-6",
+    "openai/gpt-5.1",
+    "google/gemini-2.5-pro",
+    "deepseek/deepseek-r1",
+  ],
 };
+
+/** OpenRouter speaks the OpenAI Chat Completions API at this base. */
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+/**
+ * Build the OpenRouter provider. Its key isn't OpenAI's, so we resolve it
+ * explicitly (config first, then `OPENROUTER_API_KEY`) rather than letting the
+ * OpenAI SDK fall back to `OPENAI_API_KEY`. Models are reached over /chat/completions.
+ */
+function createOpenRouter(apiKey: string | undefined) {
+  return createOpenAI({
+    baseURL: OPENROUTER_BASE_URL,
+    apiKey: apiKey ?? process.env.OPENROUTER_API_KEY,
+    name: "openrouter",
+  });
+}
 
 /**
  * Coerce a local server URL onto its OpenAI-compatible `/v1` surface. Users
@@ -41,6 +66,10 @@ const REASONING_PATTERNS: Partial<Record<LlmProvider, RegExp>> = {
   openai: /^(o\d|gpt-5|chatgpt-5)/i,
   // Gemini 2.5 / 3 expose thinking.
   google: /gemini-(2\.5|3)/i,
+  // Namespaced slugs (`vendor/model`) — match the reasoning families OpenRouter
+  // routes, plus its explicit `:thinking` variants.
+  openrouter:
+    /(claude.*(opus|sonnet|haiku)|gpt-5|chatgpt-5|\bo\d|gemini-(2\.5|3)|deepseek-r|grok-[34]|:thinking|:reasoning)/i,
 };
 
 /**
@@ -64,6 +93,9 @@ function reasoningOptions(provider: LlmProvider, modelId: string): AgentProvider
       return { anthropic: { thinking: { type: "enabled", budgetTokens: THINKING_BUDGET } } };
     case "openai":
       return { openai: { reasoningEffort: "medium", reasoningSummary: "auto" } };
+    // OpenRouter forwards OpenAI-style `reasoning_effort` to the backing model.
+    case "openrouter":
+      return { openai: { reasoningEffort: "medium" } };
     case "google":
       return {
         google: { thinkingConfig: { includeThoughts: true, thinkingBudget: THINKING_BUDGET } },
@@ -90,6 +122,8 @@ function resolveModel(
       return createOpenAI({ apiKey: llm.openai.apiKey })(modelId);
     case "google":
       return createGoogleGenerativeAI({ apiKey: llm.google.apiKey })(modelId);
+    case "openrouter":
+      return createOpenRouter(llm.openrouter.apiKey).chat(modelId);
     case "local":
       return createOpenAI({
         baseURL: normalizeLocalBaseUrl(llm.local.baseUrl),
@@ -157,6 +191,19 @@ export function createLlmClient(config: MeosConfig): LlmClient {
         agentOptions,
       );
     }
+    case "openrouter": {
+      // OpenAI-compatible gateway; `.chat()` forces /chat/completions (OpenRouter
+      // doesn't implement the OpenAI Responses API the default route would use).
+      const provider = createOpenRouter(llm.openrouter.apiKey);
+      return new AiSdkClient(
+        provider.chat(llm.openrouter.model),
+        undefined,
+        undefined,
+        "openrouter",
+        agentModel ?? provider.chat(llm.openrouter.model),
+        agentOptions,
+      );
+    }
     case "local": {
       // Any OpenAI-compatible local server (LM Studio, llama.cpp, Ollama's /v1).
       // The key is unused by local servers but the SDK requires a non-empty one.
@@ -193,6 +240,8 @@ export function extractionModelId(config: MeosConfig): string {
       return llm.openai.model;
     case "google":
       return llm.google.model;
+    case "openrouter":
+      return llm.openrouter.model;
     case "local":
       return llm.local.model || "local";
     case "stub":

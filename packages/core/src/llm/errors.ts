@@ -100,6 +100,8 @@ export function providerLabel(provider: string): string {
       return "OpenAI";
     case "google":
       return "Google Gemini";
+    case "openrouter":
+      return "OpenRouter";
     case "local":
       return "the local model server";
     default:
