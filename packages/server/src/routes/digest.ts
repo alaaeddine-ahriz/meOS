@@ -1,14 +1,7 @@
-import path from "node:path";
 import { digest as digestSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import {
-  applyResolution,
-  loadProfileContext,
-  loadSchema,
-  proposeResolution,
-  runConsolidation,
-} from "@meos/core";
-import { commitWikiChanges, type AppContext } from "../context.js";
+import { applyResolution, proposeResolution } from "@meos/core";
+import { commitWikiChanges, runConsolidationJob, type AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { routeSchema } from "../route-schema.js";
 
@@ -43,25 +36,14 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
       }),
     },
     async (_request, reply) => {
-      ctx.queue.push(
-        async () => {
-          const report = await runConsolidation({
-            store: ctx.store,
-            llm: ctx.llm,
-            wiki: ctx.wiki,
-            embedder: ctx.embedder,
-            schema: loadSchema(ctx.config.dataDir),
-            profile: loadProfileContext(ctx.config.dataDir),
-            digestDir: path.join(ctx.config.dataDir, "digests"),
-          });
-          await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
-            `digests/${report.digestDate}.md`,
-          ]);
-          const { wikiChanges, ...summary } = report;
-          app.log.info({ report: summary }, "consolidation finished");
-        },
-        { exclusive: true },
-      );
+      // Consolidation merges into the graph, so when the runtime is split it must
+      // run in the single writer process: the app forwards it to the worker host.
+      // Single-process (and the worker itself) runs it on the local queue.
+      if (ctx.role === "app") {
+        ctx.workerBridge?.forwardConsolidate();
+      } else {
+        ctx.queue.push(() => runConsolidationJob(ctx), { exclusive: true });
+      }
       return reply.code(202).send(digestSchema.ConsolidateResponse.parse({ started: true }));
     },
   );

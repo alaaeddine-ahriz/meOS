@@ -25,18 +25,37 @@ const log = createLogger("connectors");
  * Driven through the {@link ConnectorRegistry} (#5): kinds and OAuth all come
  * from a resolved {@link Connector}, so this manager names no specific provider.
  */
+/** A connector action forwarded from the app process to the worker host (#94). */
+export type ConnectorForward = (
+  action: "enqueueSync" | "reschedule" | "syncAllEnabled",
+  args?: { provider?: string; kind?: string },
+) => void;
+
 export class ConnectorManager {
   private timers = new Map<string, NodeJS.Timeout>();
   private readonly registry: ConnectorRegistry;
   /** The connectors with a stored account, scheduled on (re)start. */
   private readonly providers: string[];
+  /**
+   * When set (the app process), sync execution lives in the worker host, so the
+   * actions that arm timers / push merge work are forwarded there instead of run
+   * locally — connector merges must share the single writer process. Read-only
+   * ops (listCalendars, gmailFetcher) always run in-process; they only fetch.
+   */
+  private readonly forward?: ConnectorForward;
 
   constructor(
-    private readonly deps: { store: KnowledgeStore; pipeline: IngestionPipeline; queue: JobQueue },
+    private readonly deps: {
+      store: KnowledgeStore;
+      pipeline: IngestionPipeline;
+      queue: JobQueue;
+      forward?: ConnectorForward;
+    },
     registry: ConnectorRegistry = connectorRegistry,
   ) {
     this.registry = registry;
     this.providers = registry.list().map((c) => c.manifest.id);
+    this.forward = deps.forward;
   }
 
   start(): void {
@@ -57,6 +76,7 @@ export class ConnectorManager {
 
   /** Rebuild every timer from the persisted per-kind schedule across all connectors. */
   reschedule(): void {
+    if (this.forward) return this.forward("reschedule");
     this.stop();
     for (const provider of this.providers) {
       const resolved = this.resolve(provider);
@@ -73,6 +93,7 @@ export class ConnectorManager {
 
   /** Queue a sync of one kind now (used by "Sync now" and the timers). */
   enqueueSync(provider: string, kind: string): void {
+    if (this.forward) return this.forward("enqueueSync", { provider, kind });
     // Background connector sync rides below user uploads and watched files (#18),
     // so a large mailbox pull never delays the document the user just dropped in.
     this.deps.queue.push(
@@ -102,6 +123,7 @@ export class ConnectorManager {
 
   /** A nightly delta pass over every enabled kind (wired to onSchedule). */
   syncAllEnabled(): void {
+    if (this.forward) return this.forward("syncAllEnabled");
     for (const provider of this.providers) {
       const resolved = this.resolve(provider);
       if (!resolved) continue;

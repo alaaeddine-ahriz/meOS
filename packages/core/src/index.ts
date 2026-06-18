@@ -117,6 +117,8 @@ export type {
   WikiRunEventKind,
   WikiRunEventRow,
   WikiRunRow,
+  WorkerHealthRecord,
+  WorkerHealthSnapshot,
 } from "./knowledge/store.js";
 export {
   DEFAULT_SCHEMA_MD,
