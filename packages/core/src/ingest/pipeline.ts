@@ -67,6 +67,14 @@ export interface IngestOutcome {
    * `unsupported` — no extractable text.
    */
   status: "done" | "indexed" | "failed" | "unsupported";
+  /**
+   * On `indexed` (extraction failed), the stage it failed at and the underlying
+   * error message, so the durable worker records the real failing stage + error
+   * on the job — surfaced verbatim in the Health view — instead of a generic
+   * "extraction failed" wrapper.
+   */
+  failedStage?: "reading" | "indexing" | "extraction" | "merging";
+  error?: string;
 }
 
 /**
@@ -477,14 +485,22 @@ export class IngestionPipeline {
         // Mark the revision incomplete so it doesn't look fully ingested, and
         // surface a retryable state. The caller (durable worker) re-runs the
         // extraction stage; on success the revision is promoted back to active.
+        const message = error instanceof Error ? error.message : String(error);
         store.setRevisionStatus(revisionId, "incomplete");
         store.updateInboxItem(
           inboxItemId,
           "extract-failed",
-          `searchable — extraction failed: ${error instanceof Error ? error.message : String(error)}`,
+          `searchable — extraction failed: ${message}`,
           sourceId,
         );
-        return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "indexed" };
+        return {
+          inboxItemId,
+          sourceId,
+          sourceRevisionId: revisionId,
+          status: "indexed",
+          failedStage: "extraction",
+          error: message,
+        };
       }
 
       return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "done" };

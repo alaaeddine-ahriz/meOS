@@ -115,6 +115,49 @@ describe("DurableIngest backpressure + priority (#18)", () => {
     expect(fs.existsSync(path.join(stagingDir, String(jobId)))).toBe(false);
   });
 
+  it("records the real failing stage + error on an extraction failure (not a wrapper)", async () => {
+    const store = new KnowledgeStore(db);
+    // maxAttempts: 1 → the single failure dead-letters immediately (no re-pump),
+    // mirroring a job that "gave up after retries".
+    const jobId = store.createIngestJob({
+      kind: "text",
+      payload: { kind: "text", title: "Pasted note" },
+      maxAttempts: 1,
+    });
+    fs.writeFileSync(path.join(stagingDir, String(jobId)), "body", "utf8");
+
+    // Extraction fails after the source is searchable: the pipeline reports the
+    // real stage + underlying error in the outcome.
+    const extractionFailingPipeline = {
+      ingest: async () => ({
+        inboxItemId: 1,
+        status: "indexed" as const,
+        failedStage: "extraction" as const,
+        error: "LLM extraction outage",
+      }),
+      retryExtractionForSource: () => new Promise(() => {}),
+    } as unknown as IngestionPipeline;
+
+    const queue = new JobQueue(1);
+    const durable = new DurableIngest({
+      store,
+      pipeline: extractionFailingPipeline,
+      queue,
+      fsLimit,
+      stagingDir,
+    });
+    durable.pump();
+    await queue.onIdle();
+
+    const job = store.getIngestJob(jobId)!;
+    expect(job.state).toBe("dead-letter");
+    // The job carries the stage that actually broke and the real error log —
+    // what the Health view shows — not the generic "semantic extraction failed".
+    expect(job.stage).toBe("extraction");
+    expect(job.last_error).toBe("LLM extraction outage");
+    expect(job.last_error).not.toContain("semantic extraction failed");
+  });
+
   it("admits the highest-priority pending job first", () => {
     const store = new KnowledgeStore(db);
     const sourceId = store.createSource({ type: "file", title: "Doc", content: "x" });

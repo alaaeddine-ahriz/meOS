@@ -454,9 +454,15 @@ export class DurableIngest {
         // the backstop for any we miss after a crash).
         this.discardStaging(job.id);
       } else if (outcome.status === "indexed") {
-        // Searchable, but extraction failed: record a retryable failure so the
-        // extraction stage re-runs (now keyed by source_id, so no re-read).
-        this.fail(job, new Error("semantic extraction failed (source is searchable)"));
+        // Searchable, but extraction failed: record the REAL failing stage +
+        // error so the Health view shows which step broke and the actual log
+        // (not a generic wrapper), then re-run just the extraction stage (keyed
+        // by source_id, so no re-read).
+        this.deps.store.setIngestJobStage(job.id, outcome.failedStage ?? "extraction");
+        this.fail(
+          job,
+          new Error(outcome.error ?? "semantic extraction failed (source is searchable)"),
+        );
       } else {
         this.fail(job, new Error("ingestion failed"));
       }

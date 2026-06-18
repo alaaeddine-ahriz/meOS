@@ -209,6 +209,10 @@ function ProblemRow({
             {dead ? "gave up after retries" : "will retry"} · {job.attempts}/{job.maxAttempts} tries
             · {formatTime(job.updatedAt)}
           </div>
+          {/* A one-line error preview so the failure is legible without expanding. */}
+          {!open && message && (
+            <div className="mt-1 truncate font-mono text-[11px] text-ember/90">{message}</div>
+          )}
         </div>
         <ChevronRight
           className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")}
@@ -225,10 +229,10 @@ function ProblemRow({
           )}
           <div className="space-y-1">
             <p className="text-[11px] font-medium uppercase tracking-wider text-dim">
-              Error detail
+              Error log · failed at {info.label.toLowerCase()}
             </p>
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-line bg-card px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-faded">
-              {message || "No error detail was recorded."}
+              {message || "No error was recorded."}
             </pre>
           </div>
           <div className="flex flex-wrap gap-1.5">
