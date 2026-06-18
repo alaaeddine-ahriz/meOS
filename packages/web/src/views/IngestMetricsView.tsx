@@ -53,6 +53,22 @@ export function IngestMetricsView() {
     return () => clearInterval(interval);
   }, [refresh]);
 
+  // Bulk dead-letter controls (#98): unstick or discard the failed pile, then
+  // refresh so the counts reflect the action. `busy` guards against double-clicks.
+  const [busy, setBusy] = useState(false);
+  const runAction = useCallback(
+    (action: () => Promise<unknown>) => {
+      setBusy(true);
+      action()
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+        .finally(() => {
+          setBusy(false);
+          refresh();
+        });
+    },
+    [refresh],
+  );
+
   if (error) {
     return (
       <div className="mt-6 rounded-xl border border-line bg-desk px-4 py-3 text-sm text-ember">
@@ -64,6 +80,8 @@ export function IngestMetricsView() {
   if (!metrics) {
     return <div className="mt-6 text-sm text-dim">Loading ingestion metrics…</div>;
   }
+
+  const deadLetterTotal = metrics.queues.reduce((sum, q) => sum + q.deadLetter, 0);
 
   return (
     <div className="mt-6 space-y-8">
@@ -103,6 +121,26 @@ export function IngestMetricsView() {
       <section>
         <h3 className="mb-3 flex items-center gap-2 text-sm font-medium text-faded">
           <Gauge className="h-4 w-4" /> Queues
+          {deadLetterTotal > 0 && (
+            <span className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => runAction(api.retryDeadLetter)}
+                className="rounded-md border border-line px-2 py-0.5 text-[11px] text-paper hover:bg-line/40 disabled:opacity-50"
+              >
+                Retry all dead-letter
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => runAction(api.clearDeadLetter)}
+                className="rounded-md border border-line px-2 py-0.5 text-[11px] text-ember hover:bg-line/40 disabled:opacity-50"
+              >
+                Clear
+              </button>
+            </span>
+          )}
           <span className="ml-auto font-mono text-[11px] text-dim">
             backpressure cap: {metrics.backpressure.maxBatchesPerPump}/tick
           </span>

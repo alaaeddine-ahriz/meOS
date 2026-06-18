@@ -114,7 +114,9 @@ import type {
   RemoveFolderResponse,
   ReprocessMeetingResponse,
   ResetResponse,
+  ClearDeadLetterResponse,
   ResolveContradictionResponse,
+  RetryDeadLetterResponse,
   RetryJobResponse,
   ReviewLinkResponse,
   RunEventsResponse,
@@ -289,6 +291,11 @@ export const api = {
   getRuntimeHealth: () => json<RuntimeHealth>("/api/runtime"),
   retryIngestJob: (id: number) =>
     json<RetryJobResponse>(`/api/ingest/jobs/${id}/retry`, { method: "POST" }),
+  // Bulk dead-letter controls for the Health tab (#98).
+  retryDeadLetter: () =>
+    json<RetryDeadLetterResponse>("/api/ingest/dead-letter/retry", { method: "POST" }),
+  clearDeadLetter: () =>
+    json<ClearDeadLetterResponse>("/api/ingest/dead-letter/clear", { method: "POST" }),
   listFolders: () => json<ListFoldersResponse>("/api/settings/folders"),
   addFolder: (path: string) =>
     json<AddFolderResponse>("/api/settings/folders", {

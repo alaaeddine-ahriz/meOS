@@ -155,6 +155,8 @@ export type BackfillWikiResponse = z.infer<typeof wikiSchemas.BackfillWikiRespon
 export type InboxResponse = z.infer<typeof ingestSchemas.InboxResponse>;
 export type IngestJobsResponse = z.infer<typeof ingestSchemas.IngestJobsResponse>;
 export type RetryJobResponse = z.infer<typeof ingestSchemas.RetryJobResponse>;
+export type RetryDeadLetterResponse = z.infer<typeof ingestSchemas.RetryDeadLetterResponse>;
+export type ClearDeadLetterResponse = z.infer<typeof ingestSchemas.ClearDeadLetterResponse>;
 export type UploadResponse = z.infer<typeof ingestSchemas.UploadResponse>;
 
 export type ListMeetingsResponse = z.infer<typeof meetingsSchemas.ListMeetingsResponse>;

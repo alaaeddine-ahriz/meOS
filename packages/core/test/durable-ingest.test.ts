@@ -132,6 +132,37 @@ describe("durable ingest jobs (store)", () => {
     expect(store.retryIngestJob(999)).toBe(false);
   });
 
+  it("bulk-retries the whole dead-letter pile, resetting attempt budgets (#98)", () => {
+    const store = makeStore();
+    const a = store.createIngestJob({ kind: "text", maxAttempts: 1 });
+    const b = store.createIngestJob({ kind: "text", maxAttempts: 1 });
+    for (const id of [a, b]) {
+      store.claimIngestJob("extraction");
+      store.failIngestJob(id, "boom", 0); // attempts hit max → dead-letter
+    }
+    expect(store.getIngestJob(a)!.state).toBe("dead-letter");
+    expect(store.getIngestJob(b)!.state).toBe("dead-letter");
+
+    expect(store.retryAllDeadLetterIngestJobs()).toBe(2);
+    for (const id of [a, b]) {
+      const job = store.getIngestJob(id)!;
+      expect(job.state).toBe("pending");
+      expect(job.attempts).toBe(0);
+    }
+  });
+
+  it("clears (deletes) the dead-letter pile, returning the ids and sparing others (#98)", () => {
+    const store = makeStore();
+    const dead = store.createIngestJob({ kind: "text", maxAttempts: 1 });
+    store.claimIngestJob("extraction");
+    store.failIngestJob(dead, "boom", 0);
+    const keep = store.createIngestJob({ kind: "text" }); // pending, untouched
+
+    expect(store.clearDeadLetterIngestJobs()).toEqual([dead]);
+    expect(store.getIngestJob(dead)).toBeUndefined();
+    expect(store.getIngestJob(keep)!.state).toBe("pending");
+  });
+
   it("reports per-queue depth and failure counts", () => {
     const store = makeStore();
     const a = store.createIngestJob({ kind: "text" }); // pending
