@@ -70,6 +70,16 @@ export class DurableIngest {
    */
   private readonly stagingDir: string;
 
+  /**
+   * Producer-only mode (#94): in the app process the executor lives in the forked
+   * worker host, so enqueue persists the row + spills bytes but never pumps or
+   * runs the pipeline — it just {@link notify}s the worker to claim. The sweep and
+   * pump are no-ops here. Defaults false (single-process / worker host = executor).
+   */
+  private readonly enqueueOnly: boolean;
+  /** Wake the executor (the worker host) after enqueue/retry; the sweep backstops it. */
+  private readonly notify?: () => void;
+
   constructor(
     private readonly deps: {
       store: KnowledgeStore;
@@ -79,10 +89,16 @@ export class DurableIngest {
       stagingDir: string;
       /** Backpressure cap on jobs admitted per pump pass; defaults to 20. */
       maxBatchesPerPump?: number;
+      /** Persist + spill but never execute; notify the worker host instead (#94). */
+      enqueueOnly?: boolean;
+      /** Called after enqueue/retry to wake the executor process (#94). */
+      notify?: () => void;
     },
   ) {
     this.maxBatchesPerPump = deps.maxBatchesPerPump ?? MAX_BATCHES_PER_PUMP;
     this.stagingDir = deps.stagingDir;
+    this.enqueueOnly = deps.enqueueOnly ?? false;
+    this.notify = deps.notify;
     fs.mkdirSync(this.stagingDir, { recursive: true });
   }
 
@@ -103,6 +119,15 @@ export class DurableIngest {
   /** The active per-pump batch admission cap (backpressure), for the metrics surface (#18). */
   get batchCap(): number {
     return this.maxBatchesPerPump;
+  }
+
+  /**
+   * Drive the queue after new/retried work: in producer-only mode the executor is
+   * another process, so wake it via {@link notify}; otherwise pump locally.
+   */
+  private wake(): void {
+    if (this.enqueueOnly) this.notify?.();
+    else this.pump();
   }
 
   /**
@@ -147,7 +172,7 @@ export class DurableIngest {
       origin: input.origin,
       path: input.path,
     });
-    this.pump();
+    this.wake();
     return jobId;
   }
 
@@ -179,7 +204,7 @@ export class DurableIngest {
       text: input.text,
       origin: input.origin,
     });
-    this.pump();
+    this.wake();
     return jobId;
   }
 
@@ -192,12 +217,17 @@ export class DurableIngest {
    */
   retry(jobId: number): boolean {
     if (!this.deps.store.retryIngestJob(jobId)) return false;
-    setTimeout(() => this.pump(), 0).unref();
+    // In producer-only mode the executor is another process — wake it; otherwise
+    // re-pump locally on the next tick so the job is observably pending first.
+    if (this.enqueueOnly) this.notify?.();
+    else setTimeout(() => this.pump(), 0).unref();
     return true;
   }
 
   /** Start the periodic sweep: recover stale jobs, re-pump, prune old history. */
   start(): void {
+    // Producer-only (app process): the executor + sweep live in the worker host.
+    if (this.enqueueOnly) return;
     this.stopped = false;
     // Startup recovery: any job left `processing` by a previous crash returns to
     // `pending` (grace 0 — nothing is legitimately in flight at boot).
@@ -256,7 +286,7 @@ export class DurableIngest {
    * crash — there is nothing to drain once the store is gone.
    */
   pump(): void {
-    if (this.stopped || !this.deps.store.db.open) return;
+    if (this.enqueueOnly || this.stopped || !this.deps.store.db.open) return;
     let admitted = 0;
     while (admitted < this.maxBatchesPerPump) {
       const job = this.deps.store.claimIngestJob("extraction");

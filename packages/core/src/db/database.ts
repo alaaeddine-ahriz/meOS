@@ -882,6 +882,26 @@ export const migrations: readonly string[] = [
   ALTER TABLE meeting_notes ADD COLUMN linked_calendar_source_id INTEGER
     REFERENCES sources(id) ON DELETE SET NULL;
   `,
+
+  // 32 — cross-process worker health (#94, process isolation).
+  //
+  // Once the heavy background workers run in a forked worker process, their
+  // health (watcher/connectors/scheduler/queues) is no longer readable from the
+  // app process's memory. The worker process upserts a row per worker on a
+  // heartbeat; the app's GET /api/runtime reads these rows (and treats a stale
+  // heartbeat as a down worker). `queue_json` carries the optional QueueDepth
+  // blob for the durable ingest queues; `heartbeat_at` is the staleness clock.
+  `
+  CREATE TABLE IF NOT EXISTS worker_health (
+    name TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    detail TEXT,
+    last_error TEXT,
+    last_run_at TEXT,
+    queue_json TEXT,
+    heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
