@@ -1,5 +1,5 @@
 import { createLogger } from "@meos/core";
-import { createContext, runConsolidationJob } from "./context.js";
+import { createContext, recoverWikiBacklog, runConsolidationJob } from "./context.js";
 import { HEARTBEAT_MS, type WorkerMessage } from "./runtime/process-split.js";
 import { SchedulerWorker } from "./runtime/workers.js";
 import { startScheduler } from "./scheduler.js";
@@ -32,6 +32,12 @@ if (!ctx.git.isInitialized()) {
 const scheduler = startScheduler(ctx);
 ctx.workers.register(new SchedulerWorker(scheduler));
 await ctx.workers.startAll();
+
+// Drain any wiki backlog stranded by the last shutdown (#97): stale flags are
+// durable but their regeneration trigger was in-memory, so a restart would leave
+// them until the next ingest. The worker host owns wiki work, so recover here.
+const staleWiki = recoverWikiBacklog(ctx);
+if (staleWiki > 0) log.info({ stale: staleWiki }, `recovering ${staleWiki} stale wiki page(s)`);
 
 // Heartbeat: publish each worker's health to the DB so the app process can
 // surface it via GET /api/runtime without sharing memory. A stale heartbeat is

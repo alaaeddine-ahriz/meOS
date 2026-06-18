@@ -93,6 +93,26 @@ export interface AppContext {
    * worker roles, where such work runs locally.
    */
   workerBridge?: WorkerBridge;
+  /**
+   * Kick a wiki regeneration of the stale-flagged backlog (coalesced). Exposed so
+   * startup recovery can drain a backlog stranded by a restart (#97); routes that
+   * make pages stale push through the same coalesced pass.
+   */
+  refreshWiki: () => void;
+}
+
+/**
+ * Startup recovery for the wiki backlog (#97). Stale flags live in the DB, but
+ * the regeneration *trigger* is in-memory — so a restart leaves any pages that
+ * were stale (a merge/ingest landed just before shutdown) un-regenerated until
+ * the next ingest happens to fire a refresh. Kick one pass at boot if the backlog
+ * is non-empty. Benefits single-process today and the worker host once split.
+ * Returns the backlog size found.
+ */
+export function recoverWikiBacklog(ctx: Pick<AppContext, "store" | "refreshWiki">): number {
+  const stale = ctx.store.staleEntities().length;
+  if (stale > 0) ctx.refreshWiki();
+  return stale;
 }
 
 /**
@@ -372,5 +392,8 @@ export function createContext(
     connectors,
     workers,
     workerBridge: role === "app" ? bridge : undefined,
+    // Startup recovery + the worker host invoke this only in non-app roles; the
+    // closure coalesces (refreshQueued) so repeated kicks collapse to one pass.
+    refreshWiki: scheduleWikiRefresh,
   };
 }

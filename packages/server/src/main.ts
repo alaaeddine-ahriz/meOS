@@ -1,5 +1,5 @@
 import { createLogger } from "@meos/core";
-import { type AppContext, createContext } from "./context.js";
+import { type AppContext, createContext, recoverWikiBacklog } from "./context.js";
 import { repairSourcePaths } from "./repair.js";
 import { resolveSplitRole, WorkerSupervisor } from "./runtime/process-split.js";
 import { SchedulerWorker } from "./runtime/workers.js";
@@ -47,6 +47,14 @@ if (role === "all") {
   ctx.workers.register(new SchedulerWorker(scheduler));
 }
 await ctx.workers.startAll();
+
+// Single-process: drain any wiki backlog stranded by the last shutdown (#97).
+// In "app" role the worker host owns this; here it would only run wiki work in
+// the UI process.
+if (role === "all") {
+  const stale = recoverWikiBacklog(ctx);
+  if (stale > 0) log.info({ stale }, `recovering ${stale} stale wiki page(s) after restart`);
+}
 
 // Fork the worker host AFTER migrations + git init have run here, so it opens an
 // already-current schema and never races DDL or git init.
