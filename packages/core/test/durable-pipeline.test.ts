@@ -97,6 +97,10 @@ describe("durable pipeline (extraction independence + idempotency)", () => {
     expect(outcome.status).toBe("indexed");
     expect(outcome.sourceId).toBeDefined();
     expect(outcome.sourceRevisionId).toBeDefined();
+    // The outcome carries the REAL failing stage + error (not a generic wrapper)
+    // so the durable worker can surface them on the job in the Health view.
+    expect(outcome.failedStage).toBe("extraction");
+    expect(outcome.error).toBe("LLM extraction outage");
 
     // The search index landed: chunks exist for the source.
     expect(store.chunksForSource(outcome.sourceId!).length).toBeGreaterThan(0);
