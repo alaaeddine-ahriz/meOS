@@ -391,6 +391,30 @@ export interface IngestRecoveryMetrics {
 }
 
 /**
+ * A background worker's health as written by the process that runs it (#94). When
+ * workers run in a forked worker process the app process can't read their
+ * in-memory state, so the worker upserts this snapshot on a heartbeat and the
+ * app reads it back via {@link KnowledgeStore.listWorkerHealth}. `queue` is the
+ * optional durable-queue depth blob (serialized to `queue_json`); the staleness
+ * of `heartbeatAt` tells the reader whether the worker is still alive.
+ */
+export interface WorkerHealthSnapshot {
+  name: string;
+  status: string;
+  detail?: string | null;
+  lastError?: string | null;
+  lastRunAt?: string | null;
+  /** Arbitrary JSON-serializable extra (the ingest queues' QueueDepth). */
+  queue?: unknown;
+}
+
+/** A persisted {@link WorkerHealthSnapshot} plus the heartbeat timestamp. */
+export interface WorkerHealthRecord extends WorkerHealthSnapshot {
+  /** ISO timestamp of the last heartbeat; used to detect a dead worker. */
+  heartbeatAt: string;
+}
+
+/**
  * Per-extraction cost telemetry (#15/#18): the model, prompt version, strategy,
  * token usage, and best-effort estimated cost of cached extractions, grouped by
  * (model, prompt version, strategy). Token usage is currently plumbed-but-zero
@@ -2404,6 +2428,60 @@ export class KnowledgeStore {
       )
       .run(olderThanDays);
     return result.changes;
+  }
+
+  // --- cross-process worker health (#94) ---
+
+  /**
+   * Upsert one worker's health snapshot, stamping the heartbeat to now. Called by
+   * whichever process runs the worker (the forked worker host) so the app process
+   * can surface its health without sharing memory.
+   */
+  upsertWorkerHealth(snapshot: WorkerHealthSnapshot): void {
+    this.db
+      .prepare(
+        `INSERT INTO worker_health (name, status, detail, last_error, last_run_at, queue_json, heartbeat_at)
+         VALUES (@name, @status, @detail, @lastError, @lastRunAt, @queueJson, datetime('now'))
+         ON CONFLICT(name) DO UPDATE SET
+           status = excluded.status, detail = excluded.detail, last_error = excluded.last_error,
+           last_run_at = excluded.last_run_at, queue_json = excluded.queue_json,
+           heartbeat_at = excluded.heartbeat_at`,
+      )
+      .run({
+        name: snapshot.name,
+        status: snapshot.status,
+        detail: snapshot.detail ?? null,
+        lastError: snapshot.lastError ?? null,
+        lastRunAt: snapshot.lastRunAt ?? null,
+        queueJson: snapshot.queue === undefined ? null : JSON.stringify(snapshot.queue),
+      });
+  }
+
+  /** Read every persisted worker-health snapshot (see {@link upsertWorkerHealth}). */
+  listWorkerHealth(): WorkerHealthRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT name, status, detail, last_error, last_run_at, queue_json, heartbeat_at
+         FROM worker_health ORDER BY name`,
+      )
+      .all() as Array<{
+      name: string;
+      status: string;
+      detail: string | null;
+      last_error: string | null;
+      last_run_at: string | null;
+      queue_json: string | null;
+      heartbeat_at: string;
+    }>;
+    return rows.map((r) => ({
+      name: r.name,
+      status: r.status,
+      detail: r.detail,
+      lastError: r.last_error,
+      lastRunAt: r.last_run_at,
+      queue: r.queue_json ? JSON.parse(r.queue_json) : undefined,
+      heartbeatAt: r.heartbeat_at,
+    }));
   }
 
   // --- entities ---

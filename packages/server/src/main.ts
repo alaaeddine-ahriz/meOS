@@ -1,13 +1,32 @@
 import { createLogger } from "@meos/core";
-import { createContext } from "./context.js";
+import { type AppContext, createContext } from "./context.js";
 import { repairSourcePaths } from "./repair.js";
+import { resolveSplitRole, WorkerSupervisor } from "./runtime/process-split.js";
 import { SchedulerWorker } from "./runtime/workers.js";
 import { startScheduler } from "./scheduler.js";
 import { buildServer } from "./server.js";
 
 const log = createLogger("git");
 
-const ctx = createContext();
+// Process isolation (#94): in "app" role the heavy workers run in a forked worker
+// host and this process only serves the UI + enqueues; "all" is today's single
+// process. The role is opt-in (MEOS_WORKER_PROCESS=1) with MEOS_IN_PROCESS_WORKERS
+// as the kill switch — see resolveSplitRole.
+const role = resolveSplitRole();
+
+let supervisor: WorkerSupervisor | undefined;
+let ctx: AppContext;
+if (role === "app") {
+  // Fork the compiled sibling (dist/worker-host.js); under tsx (dev) the entry is
+  // the .ts source and the child must load tsx too.
+  const isTs = import.meta.url.endsWith(".ts");
+  const entryUrl = new URL(isTs ? "./worker-host.ts" : "./worker-host.js", import.meta.url).href;
+  supervisor = new WorkerSupervisor({ entryUrl, isTs });
+  ctx = createContext(undefined, { role: "app", bridge: supervisor });
+} else {
+  ctx = createContext();
+}
+
 const app = await buildServer(ctx);
 repairSourcePaths(ctx.store);
 // Version the knowledge base from the start so every wiki change is committed
@@ -19,19 +38,25 @@ if (!ctx.git.isInitialized()) {
     log.error({ err: error }, "auto-init failed");
   }
 }
-// Start the background workers through the registry, preserving the historical
-// watcher → connectors → scheduler ordering. The watcher + connectors are
-// already registered (in that order) on the context; the scheduler's Cron is
-// built here and registered last, so it starts after the others — exactly as
-// before, just routed through ctx.workers instead of ad-hoc calls.
-const scheduler = startScheduler(ctx);
-ctx.workers.register(new SchedulerWorker(scheduler));
+
+// In single-process mode this process owns the scheduler; in "app" mode the
+// worker host does. Start the registered workers (app: watcher only; all: every
+// worker), preserving the historical watcher → connectors → scheduler ordering.
+if (role === "all") {
+  const scheduler = startScheduler(ctx);
+  ctx.workers.register(new SchedulerWorker(scheduler));
+}
 await ctx.workers.startAll();
+
+// Fork the worker host AFTER migrations + git init have run here, so it opens an
+// already-current schema and never races DDL or git init.
+supervisor?.start();
 
 await app.listen({ port: ctx.config.server.port, host: "127.0.0.1" });
 
 const shutdown = async () => {
-  // Stop in reverse registration order: scheduler → connectors → watcher.
+  // Stop the worker host first, then this process's own workers + server.
+  await supervisor?.stop();
   await ctx.workers.stopAll();
   await app.close();
   ctx.db.close();

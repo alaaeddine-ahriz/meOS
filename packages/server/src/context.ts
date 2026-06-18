@@ -17,6 +17,7 @@ import {
   MeosEvents,
   openDatabase,
   overlayStoredLlmConfig,
+  runConsolidation,
   SwitchableLlmClient,
   Vault,
   WikiWriter,
@@ -31,6 +32,7 @@ import { buildCommitMessage } from "./commit-message.js";
 import { ConnectorManager } from "./connector-manager.js";
 import { DurableIngest } from "./durable-ingest.js";
 import { GitSync } from "./git.js";
+import type { WorkerBridge } from "./runtime/process-split.js";
 import { WorkerRegistry } from "./runtime/worker.js";
 import {
   ConnectorSyncWorker,
@@ -40,6 +42,16 @@ import {
 } from "./runtime/workers.js";
 import { FolderWatcher } from "./watcher.js";
 
+/**
+ * Which slice of the runtime this context drives (#94, process isolation):
+ * - `all`   — single process (today's default): HTTP + every worker.
+ * - `app`   — the UI-facing process: HTTP + enqueue only; heavy work is forwarded
+ *             to the worker host. Producer-only ingest, forwarding connectors,
+ *             no executor/scheduler.
+ * - `worker`— the forked worker host: every heavy worker, no HTTP.
+ */
+export type ContextRole = "all" | "app" | "worker";
+
 /** How many documents may move through parse/embed/extract at once. */
 const INGEST_CONCURRENCY = 3;
 
@@ -48,6 +60,8 @@ const wikiLog = createLogger("wiki");
 const eventsLog = createLogger("events");
 
 export interface AppContext {
+  /** Which slice of the runtime this process drives (#94). */
+  role: ContextRole;
   rootDir: string;
   config: MeosConfig;
   db: MeosDatabase;
@@ -73,6 +87,35 @@ export interface AppContext {
    * through this; the /api/runtime route reads each worker's health.
    */
   workers: WorkerRegistry;
+  /**
+   * In the app process (#94), the handle used to forward merge-producing work to
+   * the worker host (e.g. the consolidate route). Undefined in single-process and
+   * worker roles, where such work runs locally.
+   */
+  workerBridge?: WorkerBridge;
+}
+
+/**
+ * Run a full consolidation pass + commit its wiki/digest changes. Extracted so
+ * both the `/api/jobs/consolidate` route and the worker host run identical logic
+ * (a consolidation merges into the graph, so it must execute in the single writer
+ * process — the route forwards it there when the runtime is split).
+ */
+export async function runConsolidationJob(ctx: AppContext): Promise<void> {
+  const report = await runConsolidation({
+    store: ctx.store,
+    llm: ctx.llm,
+    wiki: ctx.wiki,
+    embedder: ctx.embedder,
+    schema: loadSchema(ctx.config.dataDir),
+    profile: loadProfileContext(ctx.config.dataDir),
+    digestDir: path.join(ctx.config.dataDir, "digests"),
+  });
+  await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
+    `digests/${report.digestDate}.md`,
+  ]);
+  const { wikiChanges: _wikiChanges, ...summary } = report;
+  eventsLog.info({ report: summary }, "consolidation finished");
 }
 
 /**
@@ -111,7 +154,12 @@ export function findRootDir(start = process.cwd()): string {
   }
 }
 
-export function createContext(rootDir = findRootDir()): AppContext {
+export function createContext(
+  rootDir = findRootDir(),
+  opts: { role?: ContextRole; bridge?: WorkerBridge } = {},
+): AppContext {
+  const role = opts.role ?? "all";
+  const bridge = opts.bridge;
   const config = loadConfig(rootDir);
   ensureDataDirs(config);
 
@@ -193,6 +241,11 @@ export function createContext(rootDir = findRootDir()): AppContext {
     pipeline,
     queue,
     stagingDir: path.join(config.dataDir, "ingest-staging"),
+    // In the app process the executor lives in the worker host: persist + spill
+    // the job, then wake the worker (its sweep is the backstop). Other roles run
+    // the executor locally.
+    enqueueOnly: role === "app",
+    notify: role === "app" && bridge ? () => bridge.notifyPump() : undefined,
   });
   const watcher = new FolderWatcher({
     store,
@@ -205,64 +258,102 @@ export function createContext(rootDir = findRootDir()): AppContext {
   // Background sync for connected external accounts. Pushes onto the same ingest
   // queue so connector merges serialise with file ingest. A nightly delta pass
   // also rides the consolidation schedule.
-  const connectors = new ConnectorManager({ store, pipeline, queue });
+  const connectors = new ConnectorManager({
+    store,
+    pipeline,
+    queue,
+    // App process: forward sync execution to the worker host (connector merges
+    // must share the single writer process). Read-only ops stay local.
+    forward:
+      role === "app" && bridge
+        ? (action, args) => bridge.forwardConnector(action, args)
+        : undefined,
+  });
   events.on("onSchedule", () => connectors.syncAllEnabled());
 
   // Light up the compiled-knowledge retrieval stream for pages written before
   // wiki_pages existed (upgrade path): backfill from disk, locally, once. First
   // prune pages that no longer warrant one — connector-only or factless entities
   // (e.g. people pulled from contacts) whose pages predate the reference-only
-  // gating — so the upgrade self-heals without a manual job.
-  queue.push(async () => {
-    const pruned = wiki.pruneConnectorOnlyPages();
-    if (pruned > 0)
-      wikiLog.info({ pruned }, `pruned ${pruned} page(s) for entities without wiki backing`);
-    const filled = await wiki.backfillPages();
-    if (filled > 0)
-      wikiLog.info({ filled }, `backfilled ${filled} page(s) into the retrieval index`);
-  });
+  // gating — so the upgrade self-heals without a manual job. Heavy wiki work, so
+  // the app process leaves it to the worker host.
+  if (role !== "app") {
+    queue.push(async () => {
+      const pruned = wiki.pruneConnectorOnlyPages();
+      if (pruned > 0)
+        wikiLog.info({ pruned }, `pruned ${pruned} page(s) for entities without wiki backing`);
+      const filled = await wiki.backfillPages();
+      if (filled > 0)
+        wikiLog.info({ filled }, `backfilled ${filled} page(s) into the retrieval index`);
+    });
+  }
 
   // When a conversation closes, distil it into a first-class session source so
-  // its reasoning compounds instead of evaporating (crystallization).
-  events.on("onSessionEnd", ({ conversationId }) => {
-    queue.push(async () => {
-      const crystal = await crystallizeSession({
-        store,
-        llm,
-        embedder,
-        conversationId,
-        schema: loadSchema(config.dataDir),
-        profile: loadProfileContext(config.dataDir),
+  // its reasoning compounds instead of evaporating (crystallization). This merges
+  // into the graph, so it must run in the single writer process: the app process
+  // forwards the event to the worker host; everyone else crystallizes locally.
+  if (role === "app") {
+    events.on("onSessionEnd", ({ conversationId }) =>
+      bridge?.forwardEvent("onSessionEnd", { conversationId }),
+    );
+  } else {
+    events.on("onSessionEnd", ({ conversationId }) => {
+      queue.push(async () => {
+        const crystal = await crystallizeSession({
+          store,
+          llm,
+          embedder,
+          conversationId,
+          schema: loadSchema(config.dataDir),
+          profile: loadProfileContext(config.dataDir),
+        });
+        if (crystal) {
+          scheduleWikiRefresh();
+          eventsLog.info(
+            { conversationId, newFacts: crystal.merge.newObservationIds.length },
+            `crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
+          );
+        }
       });
-      if (crystal) {
-        scheduleWikiRefresh();
-        eventsLog.info(
-          { conversationId, newFacts: crystal.merge.newObservationIds.length },
-          `crystallized conversation ${conversationId}: ${crystal.merge.newObservationIds.length} new fact(s)`,
-        );
-      }
     });
-  });
+  }
 
   // The runtime surface: each background component wrapped behind the uniform
-  // Worker interface (see docs/runtime.md). Registered in startup order so the
-  // registry's startAll preserves watcher → connectors; main.ts appends the
-  // SchedulerWorker once it has built the Cron, keeping the historical
-  // watcher → connectors → scheduler ordering. The ingest + wiki queues are
-  // queue-driven (no start/stop of their own), surfaced for health only.
+  // Worker interface (see docs/runtime.md). Which workers are REGISTERED (and so
+  // started/health-reported) depends on the role (#94):
+  //   - all    → every worker in this process (today's behavior).
+  //   - app    → only the watcher, which merely enqueues; it stays in the
+  //              UI-facing process (fs events are light) and its health is read
+  //              in-process. The heavy workers run in the worker host.
+  //   - worker → the heavy executors (durable ingest sweep, embedding/wiki health,
+  //              connector sync). The scheduler Cron is appended by worker-host.ts.
+  // The watcher → connectors → scheduler start ordering is preserved within each
+  // role. The ingest + wiki queues are queue-driven (no start/stop of their own).
   const workers = new WorkerRegistry();
-  workers.register(
-    new WatcherWorker(watcher),
-    new ConnectorSyncWorker(connectors),
-    // The durable extraction queue (#13) owns the persisted-job sweep: startAll
-    // triggers crash recovery + the periodic stale-job/retention timer. The
-    // embedding queue is surfaced for health only (it has no sweep of its own).
-    new IngestQueueWorker("ingest", store, "extraction", durableIngest),
-    new IngestQueueWorker("embedding", store, "embedding"),
-    new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
-  );
+  if (role === "app") {
+    workers.register(new WatcherWorker(watcher));
+  } else if (role === "worker") {
+    workers.register(
+      new ConnectorSyncWorker(connectors),
+      new IngestQueueWorker("ingest", store, "extraction", durableIngest),
+      new IngestQueueWorker("embedding", store, "embedding"),
+      new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
+    );
+  } else {
+    workers.register(
+      new WatcherWorker(watcher),
+      new ConnectorSyncWorker(connectors),
+      // The durable extraction queue (#13) owns the persisted-job sweep: startAll
+      // triggers crash recovery + the periodic stale-job/retention timer. The
+      // embedding queue is surfaced for health only (it has no sweep of its own).
+      new IngestQueueWorker("ingest", store, "extraction", durableIngest),
+      new IngestQueueWorker("embedding", store, "embedding"),
+      new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
+    );
+  }
 
   return {
+    role,
     rootDir,
     config,
     db,
@@ -280,5 +371,6 @@ export function createContext(rootDir = findRootDir()): AppContext {
     activity,
     connectors,
     workers,
+    workerBridge: role === "app" ? bridge : undefined,
   };
 }
