@@ -9,7 +9,7 @@ import {
   type MeosDatabase,
 } from "@meos/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createContext, type AppContext } from "../src/context.js";
+import { createContext, recoverWikiBacklog, type AppContext } from "../src/context.js";
 import { DurableIngest } from "../src/durable-ingest.js";
 import { resolveSplitRole, type WorkerBridge } from "../src/runtime/process-split.js";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
@@ -125,6 +125,32 @@ describe("role-gated context wiring", () => {
     expect(names).toEqual(
       expect.arrayContaining(["watcher", "connectors", "ingest", "embedding", "wiki"]),
     );
+  });
+});
+
+describe("recoverWikiBacklog (#97 wiki-trigger durability)", () => {
+  it("kicks one coalesced refresh when a stale backlog exists", () => {
+    let refreshed = 0;
+    const ctx = {
+      store: { staleEntities: () => [{}, {}] },
+      refreshWiki: () => {
+        refreshed++;
+      },
+    } as unknown as AppContext;
+    expect(recoverWikiBacklog(ctx)).toBe(2);
+    expect(refreshed).toBe(1);
+  });
+
+  it("does nothing when there is no backlog", () => {
+    let refreshed = 0;
+    const ctx = {
+      store: { staleEntities: () => [] },
+      refreshWiki: () => {
+        refreshed++;
+      },
+    } as unknown as AppContext;
+    expect(recoverWikiBacklog(ctx)).toBe(0);
+    expect(refreshed).toBe(0);
   });
 });
 
