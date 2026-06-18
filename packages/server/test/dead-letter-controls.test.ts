@@ -59,3 +59,62 @@ describe("dead-letter bulk controls (#98)", () => {
     expect(clear.json()).toEqual({ cleared: 0 });
   });
 });
+
+describe("per-job controls (#98)", () => {
+  let server: TestServer;
+
+  beforeEach(async () => {
+    server = await buildTestServer();
+  });
+
+  afterEach(async () => {
+    await server.cleanup();
+  });
+
+  it("POST /api/ingest/jobs/:id/cancel removes a pending job; 404 for unknown", async () => {
+    const id = server.ctx.store.createIngestJob({ kind: "text" });
+    const res = await server.app.inject({ method: "POST", url: `/api/ingest/jobs/${id}/cancel` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ cancelled: true });
+    expect(server.ctx.store.getIngestJob(id)).toBeUndefined();
+
+    const missing = await server.app.inject({
+      method: "POST",
+      url: "/api/ingest/jobs/9999/cancel",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("POST /api/ingest/{pause,resume} toggles the persisted flag and metrics", async () => {
+    const paused = await server.app.inject({ method: "POST", url: "/api/ingest/pause" });
+    expect(paused.json()).toEqual({ paused: true });
+    expect(server.ctx.store.isIngestPaused()).toBe(true);
+    const metrics = await server.app.inject({ method: "GET", url: "/api/ingest/metrics" });
+    expect(metrics.json().paused).toBe(true);
+
+    const resumed = await server.app.inject({ method: "POST", url: "/api/ingest/resume" });
+    expect(resumed.json()).toEqual({ paused: false });
+    expect(server.ctx.store.isIngestPaused()).toBe(false);
+  });
+
+  it("POST /api/ingest/sources/:id/rebuild enqueues a job for the source; 404 for unknown", async () => {
+    // Pause so the enqueued rebuild job stays put instead of running the real
+    // pipeline against a non-existent LLM endpoint.
+    server.ctx.store.setIngestPaused(true);
+    const sourceId = server.ctx.store.createSource({ type: "file", title: "Doc", content: "hi" });
+    const res = await server.app.inject({
+      method: "POST",
+      url: `/api/ingest/sources/${sourceId}/rebuild`,
+    });
+    expect(res.statusCode).toBe(200);
+    const jobId = res.json().jobId as number;
+    expect(jobId).toBeGreaterThan(0);
+    expect(server.ctx.store.getIngestJob(jobId)!.source_id).toBe(sourceId);
+
+    const missing = await server.app.inject({
+      method: "POST",
+      url: "/api/ingest/sources/9999/rebuild",
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+});

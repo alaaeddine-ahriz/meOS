@@ -163,6 +163,28 @@ describe("durable ingest jobs (store)", () => {
     expect(store.getIngestJob(keep)!.state).toBe("pending");
   });
 
+  it("cancels a non-processing job but refuses one mid-flight (#98)", () => {
+    const store = makeStore();
+    const pending = store.createIngestJob({ kind: "text" });
+    expect(store.cancelIngestJob(pending)).toBe(true);
+    expect(store.getIngestJob(pending)).toBeUndefined();
+
+    const running = store.createIngestJob({ kind: "text" });
+    store.claimIngestJob("extraction"); // → processing
+    expect(store.getIngestJob(running)!.state).toBe("processing");
+    expect(store.cancelIngestJob(running)).toBe(false);
+    expect(store.getIngestJob(running)!.state).toBe("processing");
+  });
+
+  it("persists the ingest pause flag (#98)", () => {
+    const store = makeStore();
+    expect(store.isIngestPaused()).toBe(false);
+    store.setIngestPaused(true);
+    expect(store.isIngestPaused()).toBe(true);
+    store.setIngestPaused(false);
+    expect(store.isIngestPaused()).toBe(false);
+  });
+
   it("reports per-queue depth and failure counts", () => {
     const store = makeStore();
     const a = store.createIngestJob({ kind: "text" }); // pending

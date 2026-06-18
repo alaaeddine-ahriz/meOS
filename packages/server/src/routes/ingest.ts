@@ -135,6 +135,7 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         // (null) with token usage; it lights up the moment a rate is wired in.
         costs: ctx.store.ingestCostMetrics(),
         backpressure: { maxBatchesPerPump: ctx.durableIngest.batchCap },
+        paused: ctx.store.isIngestPaused(),
         generatedAt: new Date().toISOString(),
       }),
   );
@@ -193,6 +194,80 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
     },
     async () =>
       ingest.ClearDeadLetterResponse.parse({ cleared: ctx.durableIngest.clearDeadLetter() }),
+  );
+
+  // Per-job controls (#98): cancel removes a single non-processing job; rebuild
+  // re-extracts a source from its stored revision; pause/resume gate the executor.
+  app.post<{ Params: { id: string } }>(
+    "/api/ingest/jobs/:id/cancel",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Cancel a single ingest job",
+        params: ingest.CancelJobParams,
+        response: ingest.CancelJobResponse,
+      }),
+    },
+    async (request) => {
+      const { id } = parseOrThrow(ingest.CancelJobParams, request.params, "params");
+      if (!ctx.store.getIngestJob(id)) {
+        throw httpError.notFound("No such ingest job");
+      }
+      const cancelled = ctx.durableIngest.cancel(id);
+      if (!cancelled) {
+        throw httpError.badRequest("Job is processing and can't be cancelled");
+      }
+      return ingest.CancelJobResponse.parse({ cancelled });
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/ingest/sources/:id/rebuild",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Rebuild (re-extract) a source",
+        params: ingest.RebuildSourceParams,
+        response: ingest.RebuildSourceResponse,
+      }),
+    },
+    async (request) => {
+      const { id } = parseOrThrow(ingest.RebuildSourceParams, request.params, "params");
+      if (!ctx.store.getSource(id)) {
+        throw httpError.notFound("No such source");
+      }
+      return ingest.RebuildSourceResponse.parse({ jobId: ctx.durableIngest.rebuildSource(id) });
+    },
+  );
+
+  app.post(
+    "/api/ingest/pause",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Pause ingest processing",
+        response: ingest.PauseResponse,
+      }),
+    },
+    async () => {
+      ctx.durableIngest.pause();
+      return ingest.PauseResponse.parse({ paused: true });
+    },
+  );
+
+  app.post(
+    "/api/ingest/resume",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Resume ingest processing",
+        response: ingest.PauseResponse,
+      }),
+    },
+    async () => {
+      ctx.durableIngest.resume();
+      return ingest.PauseResponse.parse({ paused: false });
+    },
   );
 
   // What a single document created/changed in the wiki: its commits, each

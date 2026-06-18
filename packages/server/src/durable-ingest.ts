@@ -247,6 +247,38 @@ export class DurableIngest {
     return ids.length;
   }
 
+  /**
+   * Cancel a single job (#98): remove it (unless it is actively processing) and
+   * drop its spilled staging bytes. Returns false if nothing was cancellable.
+   */
+  cancel(jobId: number): boolean {
+    if (!this.deps.store.cancelIngestJob(jobId)) return false;
+    this.discardStaging(jobId);
+    return true;
+  }
+
+  /**
+   * Rebuild a source from scratch (#98): enqueue a fresh job keyed to the stored
+   * source so the executor re-extracts from its revision (no re-read/re-chunk),
+   * then wake it. Returns the new job id.
+   */
+  rebuildSource(sourceId: number): number {
+    const jobId = this.deps.store.createIngestJob({ kind: "file", sourceId });
+    this.wake();
+    return jobId;
+  }
+
+  /** Pause ingest processing (#98): the executor admits no new work until resumed. */
+  pause(): void {
+    this.deps.store.setIngestPaused(true);
+  }
+
+  /** Resume ingest processing (#98) and wake the executor to drain the backlog. */
+  resume(): void {
+    this.deps.store.setIngestPaused(false);
+    this.wake();
+  }
+
   /** Start the periodic sweep: recover stale jobs, re-pump, prune old history. */
   start(): void {
     // Producer-only (app process): the executor + sweep live in the worker host.
@@ -310,6 +342,9 @@ export class DurableIngest {
    */
   pump(): void {
     if (this.enqueueOnly || this.stopped || !this.deps.store.db.open) return;
+    // Paused (#98): persist the backlog but admit nothing until resumed. Recovery
+    // + retention still run on the sweep; only admission is gated here.
+    if (this.deps.store.isIngestPaused()) return;
     let admitted = 0;
     while (admitted < this.maxBatchesPerPump) {
       const job = this.deps.store.claimIngestJob("extraction");

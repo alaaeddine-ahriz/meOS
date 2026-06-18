@@ -114,7 +114,10 @@ import type {
   RemoveFolderResponse,
   ReprocessMeetingResponse,
   ResetResponse,
+  CancelJobResponse,
   ClearDeadLetterResponse,
+  PauseResponse,
+  RebuildSourceResponse,
   ResolveContradictionResponse,
   RetryDeadLetterResponse,
   RetryJobResponse,
@@ -296,6 +299,13 @@ export const api = {
     json<RetryDeadLetterResponse>("/api/ingest/dead-letter/retry", { method: "POST" }),
   clearDeadLetter: () =>
     json<ClearDeadLetterResponse>("/api/ingest/dead-letter/clear", { method: "POST" }),
+  // Per-job controls (#98).
+  cancelIngestJob: (id: number) =>
+    json<CancelJobResponse>(`/api/ingest/jobs/${id}/cancel`, { method: "POST" }),
+  rebuildSource: (id: number) =>
+    json<RebuildSourceResponse>(`/api/ingest/sources/${id}/rebuild`, { method: "POST" }),
+  pauseIngest: () => json<PauseResponse>("/api/ingest/pause", { method: "POST" }),
+  resumeIngest: () => json<PauseResponse>("/api/ingest/resume", { method: "POST" }),
   listFolders: () => json<ListFoldersResponse>("/api/settings/folders"),
   addFolder: (path: string) =>
     json<AddFolderResponse>("/api/settings/folders", {
