@@ -99,7 +99,7 @@ describe("durable pipeline (extraction independence + idempotency)", () => {
     expect(outcome.sourceRevisionId).toBeDefined();
     // The outcome carries the REAL failing stage + error (not a generic wrapper)
     // so the durable worker can surface them on the job in the Health view.
-    expect(outcome.failedStage).toBe("extraction");
+    expect(outcome.failedStage).toBe("extracting");
     expect(outcome.error).toBe("LLM extraction outage");
 
     // The search index landed: chunks exist for the source.
@@ -108,8 +108,11 @@ describe("durable pipeline (extraction independence + idempotency)", () => {
     expect(store.listEntities()).toHaveLength(0);
     // The revision is parked incomplete so it doesn't look fully ingested.
     expect(store.getRevision(outcome.sourceRevisionId!)!.status).toBe("incomplete");
-    // The inbox reflects the searchable-but-extraction-failed state.
-    expect(store.listInbox()[0]!.status).toBe("extract-failed");
+    // The inbox reflects the searchable-but-extraction-failed state, and records
+    // both the failing step and the underlying error for the Activity feed.
+    const inbox = store.listInbox()[0]!;
+    expect(inbox.status).toBe("extract-failed");
+    expect(inbox.detail).toBe("while extracting: LLM extraction outage");
   });
 
   it("retries just the extraction stage from the stored revision, idempotently", async () => {

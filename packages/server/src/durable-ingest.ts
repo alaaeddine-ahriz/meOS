@@ -458,7 +458,7 @@ export class DurableIngest {
         // error so the Health view shows which step broke and the actual log
         // (not a generic wrapper), then re-run just the extraction stage (keyed
         // by source_id, so no re-read).
-        this.deps.store.setIngestJobStage(job.id, outcome.failedStage ?? "extraction");
+        this.deps.store.setIngestJobStage(job.id, outcome.failedStage ?? "extracting");
         this.fail(
           job,
           new Error(outcome.error ?? "semantic extraction failed (source is searchable)"),

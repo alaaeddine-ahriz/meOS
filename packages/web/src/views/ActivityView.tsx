@@ -368,15 +368,46 @@ function failureSummary(item: InboxItem): string {
   }
 }
 
+/** Plain-language name for each pipeline step the ingest can fail in. */
+const STEP_LABEL = {
+  reading: "Reading the document",
+  indexing: "Indexing for search",
+  extracting: "Extracting knowledge",
+  merging: "Merging into the wiki",
+};
+
+/**
+ * The pipeline records failures as "while <step>: <message>". Pull the step and
+ * the clean message apart; fall back to deriving the step from the status for
+ * details written before steps were recorded.
+ */
+function parseFailure(item: InboxItem): { stepLabel: string | null; message: string } {
+  const detail = item.detail ?? "";
+  const tagged = /^while (reading|indexing|extracting|merging):\s*([\s\S]*)$/i.exec(detail);
+  if (tagged) {
+    // The regex group is one of the four known steps, so the lookup always hits.
+    const step = tagged[1]!.toLowerCase() as keyof typeof STEP_LABEL;
+    return { stepLabel: STEP_LABEL[step], message: tagged[2]!.trim() };
+  }
+  // Legacy details: strip the old prefix and guess the step from the status.
+  const message = detail.replace(/^searchable — extraction failed:\s*/i, "").trim();
+  const fallback = item.status === "extract-failed" ? STEP_LABEL.extracting : STEP_LABEL.reading;
+  return { stepLabel: message ? fallback : null, message };
+}
+
 /** The reason a document failed, revealed when its row is expanded. User-friendly
- * summary up top, the raw error kept underneath for debugging. */
+ * summary up top, the failing step and raw error underneath for debugging. */
 function DocFailureDetail({ item }: { item: InboxItem }) {
-  // `detail` already carries the underlying error (set by the ingest pipeline);
-  // strip the redundant "searchable — extraction failed:" prefix we add upstream.
-  const raw = (item.detail ?? "").replace(/^searchable — extraction failed:\s*/i, "").trim();
+  const { stepLabel, message } = parseFailure(item);
   return (
     <div className="mb-2 ml-6 space-y-2 border-l border-border pl-4 py-2">
       <p className="text-[13px] text-muted-foreground">{failureSummary(item)}</p>
+      {stepLabel && (
+        <p className="text-[12px] text-muted-foreground">
+          <span className="text-foreground/70">Failed at:</span>{" "}
+          <span className="font-medium text-foreground">{stepLabel}</span>
+        </p>
+      )}
       {item.path && (
         <p className="text-[12px] text-muted-foreground">
           <span className="text-foreground/70">File:</span>{" "}
@@ -388,7 +419,7 @@ function DocFailureDetail({ item }: { item: InboxItem }) {
           Error detail
         </p>
         <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-md border border-border bg-card px-2.5 py-1.5 font-mono text-[11px] leading-relaxed text-muted-foreground">
-          {raw || "No error detail was recorded."}
+          {message || "No error detail was recorded."}
         </pre>
       </div>
     </div>

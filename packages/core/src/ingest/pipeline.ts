@@ -68,12 +68,12 @@ export interface IngestOutcome {
    */
   status: "done" | "indexed" | "failed" | "unsupported";
   /**
-   * On `indexed` (extraction failed), the stage it failed at and the underlying
+   * On `indexed` (extraction failed), the step it failed at and the underlying
    * error message, so the durable worker records the real failing stage + error
    * on the job — surfaced verbatim in the Health view — instead of a generic
    * "extraction failed" wrapper.
    */
-  failedStage?: "reading" | "indexing" | "extraction" | "merging";
+  failedStage?: IngestStep;
   error?: string;
 }
 
@@ -86,6 +86,40 @@ export type PostMergeHook = (context: {
   sourceId: number;
   merge: MergeResult;
 }) => Promise<string | void>;
+
+/**
+ * The pipeline step a document was in when it failed. Recorded into the inbox
+ * item's detail (as a `while <step>:` prefix) so the Activity feed can tell the
+ * user — and a developer debugging — exactly where ingestion broke.
+ */
+export type IngestStep = "reading" | "indexing" | "extracting" | "merging";
+
+/** An error tagged with the {@link IngestStep} it occurred in, so the failing
+ * step survives propagation out of {@link IngestionPipeline.extractAndMerge}. */
+class StepError extends Error {
+  constructor(
+    readonly step: IngestStep,
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "StepError";
+  }
+
+  /** Run `fn`, tagging any thrown error with `step` (an already-tagged error
+   * keeps its original, more specific step). */
+  static async tag<T>(step: IngestStep, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (error) {
+      throw error instanceof StepError ? error : new StepError(step, error);
+    }
+  }
+}
+
+/** Format a failure detail so the Activity feed can recover the step + message. */
+function stepDetail(step: IngestStep, error: unknown): string {
+  return `while ${step}: ${error instanceof Error ? error.message : String(error)}`;
+}
 
 export class IngestionPipeline {
   /**
@@ -359,6 +393,10 @@ export class IngestionPipeline {
     const title = input.kind === "file" ? input.filename : input.title;
     const inboxItemId = existingInboxItemId ?? store.createInboxItem(title);
 
+    // The step we're currently in, so a failure in the outer try (which spans
+    // reading the file and committing the search index) can name where it broke.
+    let step: IngestStep = "reading";
+
     try {
       store.updateInboxItem(inboxItemId, "parsing");
       let parsed: { title: string; text: string; blocks?: Block[] } | null;
@@ -438,6 +476,7 @@ export class IngestionPipeline {
       // normalized text. Chunks carry section/page/span metadata for citations.
       // This is the SEARCH/INDEX commit — it lands independently of extraction
       // (#13), so a source is searchable even if the LLM extraction later fails.
+      step = "indexing";
       const blocks = parsed.blocks?.length ? parsed.blocks : blocksFromText(parsed.text);
       const chunks = chunkBlocks(blocks);
       const vectors = await embedder.embed(chunks.map((c) => c.text));
@@ -485,12 +524,14 @@ export class IngestionPipeline {
         // Mark the revision incomplete so it doesn't look fully ingested, and
         // surface a retryable state. The caller (durable worker) re-runs the
         // extraction stage; on success the revision is promoted back to active.
+        // The source is searchable, so the step is always extracting/merging.
+        const failedStep: IngestStep = error instanceof StepError ? error.step : "extracting";
         const message = error instanceof Error ? error.message : String(error);
         store.setRevisionStatus(revisionId, "incomplete");
         store.updateInboxItem(
           inboxItemId,
           "extract-failed",
-          `searchable — extraction failed: ${message}`,
+          stepDetail(failedStep, error),
           sourceId,
         );
         return {
@@ -498,18 +539,18 @@ export class IngestionPipeline {
           sourceId,
           sourceRevisionId: revisionId,
           status: "indexed",
-          failedStage: "extraction",
+          // Carry the precise failing step + real error onto the durable job so
+          // the Health view shows which stage broke and the actual log (#108).
+          failedStage: failedStep,
           error: message,
         };
       }
 
       return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "done" };
     } catch (error) {
-      store.updateInboxItem(
-        inboxItemId,
-        "failed",
-        error instanceof Error ? error.message : String(error),
-      );
+      // The outer try only ever fails before the source is searchable, so `step`
+      // is reading or indexing here.
+      store.updateInboxItem(inboxItemId, "failed", stepDetail(step, error));
       return { inboxItemId, status: "failed" };
     }
   }
@@ -639,36 +680,40 @@ export class IngestionPipeline {
     // #15: size-gated extraction. Small documents keep the single-pass fast path;
     // large ones are extracted section-by-section (cached per revision + section
     // hash + version tuple) and deterministically reduced before the merge seam.
-    const { extraction } = await extractKnowledgeMapReduce(this.deps.llm, parsed, {
-      store,
-      sourceRevisionId: revisionId,
-      modelId: this.deps.extractionModelId ?? "unknown",
-      schemaMd: schema,
-      profileContext: profile,
-      // Knowledge focus (#86): bias extraction toward enabled types/kinds. Unset
-      // prefs resolve to all-enabled, so this is a no-op for an unconfigured install.
-      preferences: store.getKnowledgePreferences(),
-    });
+    const { extraction } = await StepError.tag("extracting", () =>
+      extractKnowledgeMapReduce(this.deps.llm, parsed, {
+        store,
+        sourceRevisionId: revisionId,
+        modelId: this.deps.extractionModelId ?? "unknown",
+        schemaMd: schema,
+        profileContext: profile,
+        // Knowledge focus (#86): bias extraction toward enabled types/kinds. Unset
+        // prefs resolve to all-enabled, so this is a no-op for an unconfigured install.
+        preferences: store.getKnowledgePreferences(),
+      }),
+    );
 
     if (inboxItemId) store.updateInboxItem(inboxItemId, "merging");
-    const { merge, postMergeNote } = await this.withMergeLock(async () => {
-      const merge = await mergeExtraction(
-        store,
-        embedder,
-        extraction,
-        sourceId,
-        parsed.text,
-        revisionId,
-      );
-      // Credit this document for the pages it made stale; consumed when the
-      // wiki regenerates and the resulting commit is attributed back to it.
-      for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
-      // A re-ingest may leave facts behind that now hang off the just-superseded
-      // revision — flag their pages so the wiki reflects the outdated provenance.
-      for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
-      const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
-      return { merge, postMergeNote };
-    });
+    const { merge, postMergeNote } = await StepError.tag("merging", () =>
+      this.withMergeLock(async () => {
+        const merge = await mergeExtraction(
+          store,
+          embedder,
+          extraction,
+          sourceId,
+          parsed.text,
+          revisionId,
+        );
+        // Credit this document for the pages it made stale; consumed when the
+        // wiki regenerates and the resulting commit is attributed back to it.
+        for (const id of merge.staleEntityIds) store.recordStaleSource(id, sourceId);
+        // A re-ingest may leave facts behind that now hang off the just-superseded
+        // revision — flag their pages so the wiki reflects the outdated provenance.
+        for (const id of store.entityIdsWithStaleBackedFacts()) store.markWikiStale(id);
+        const postMergeNote = await this.deps.postMerge?.({ sourceId, merge });
+        return { merge, postMergeNote };
+      }),
+    );
 
     // A retried extraction on a previously-incomplete revision: promote it back
     // to active now that its facts have landed.

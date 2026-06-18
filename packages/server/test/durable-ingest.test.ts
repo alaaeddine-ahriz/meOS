@@ -132,7 +132,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
       ingest: async () => ({
         inboxItemId: 1,
         status: "indexed" as const,
-        failedStage: "extraction" as const,
+        failedStage: "extracting" as const,
         error: "LLM extraction outage",
       }),
       retryExtractionForSource: () => new Promise(() => {}),
@@ -153,7 +153,7 @@ describe("DurableIngest backpressure + priority (#18)", () => {
     expect(job.state).toBe("dead-letter");
     // The job carries the stage that actually broke and the real error log —
     // what the Health view shows — not the generic "semantic extraction failed".
-    expect(job.stage).toBe("extraction");
+    expect(job.stage).toBe("extracting");
     expect(job.last_error).toBe("LLM extraction outage");
     expect(job.last_error).not.toContain("semantic extraction failed");
   });
