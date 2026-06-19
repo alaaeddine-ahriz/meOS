@@ -11,6 +11,7 @@ import type { KnowledgeStore } from "../knowledge/store.js";
 import { mergeExtraction, type MergeResult } from "../knowledge/merge.js";
 import { MEETING_SOURCE_TYPE } from "../knowledge/visibility.js";
 import type { LlmClient } from "../llm/types.js";
+import { llmErrorKindOf, type LlmErrorKind } from "../llm/errors.js";
 import { createLogger } from "../logger.js";
 import type { WikiWriter } from "../wiki/writer.js";
 import { chunkBlocks } from "./chunk.js";
@@ -75,6 +76,12 @@ export interface IngestOutcome {
    */
   failedStage?: IngestStep;
   error?: string;
+  /**
+   * When the failure was an LLM-provider fault (out of credits, bad key, unknown
+   * model, …), its classification — so the durable worker can recognise a
+   * provider-wide outage and hold the whole batch instead of retrying every file.
+   */
+  errorKind?: LlmErrorKind;
 }
 
 /**
@@ -101,7 +108,10 @@ class StepError extends Error {
     readonly step: IngestStep,
     cause: unknown,
   ) {
-    super(cause instanceof Error ? cause.message : String(cause));
+    // Preserve the original error as `cause` (not just its message) so a provider
+    // classification underneath — e.g. an `LlmError` with kind "credits" — still
+    // survives propagation out of the pipeline and can trip the ingest hold.
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
     this.name = "StepError";
   }
 
@@ -425,6 +435,44 @@ export class IngestionPipeline {
         return { inboxItemId, status: "unsupported" };
       }
 
+      // Logical-source identity (#16): a watched/uploaded file (or keyed text,
+      // e.g. a meeting note) re-ingested at a known path advances the SAME
+      // source's revision history instead of forking a fresh source row — so an
+      // edit supersedes the prior version's facts rather than accumulating
+      // duplicates. New paths (and all unkeyed pasted text) open a new source.
+      // Resolve identity + hash the normalized text ONCE, up front — before any
+      // LLM work below — so an unchanged re-ingest can bail out for free.
+      const sourcePath = input.kind === "file" ? (input.path ?? input.filename) : input.path;
+      const existing = sourcePath ? store.findSourceByPath(sourcePath) : undefined;
+      const contentHash = createHash("sha256").update(parsed.text).digest("hex");
+
+      // Hash-unchanged short-circuit: if this exact content is already the
+      // source's ACTIVE (fully ingested + indexed + extracted) revision, there is
+      // nothing to redo — skip the whole expensive re-index/re-extract/wiki pass.
+      // Compute is the costly resource here, so re-reading unchanged bytes (a
+      // metadata-only touch, a re-upload, a rebuild) returns immediately. A prior
+      // revision parked `incomplete` (extraction previously failed) is NOT active,
+      // so it still reprocesses — that's the retry we want. The watcher/connector
+      // skip unchanged inputs upstream; this makes the guarantee hold for the
+      // remaining callers (uploads, pastes at a known path, manual rebuilds) too.
+      if (existing) {
+        const active = store.activeRevision(existing.id);
+        if (active && active.content_hash === contentHash) {
+          store.updateInboxItem(
+            inboxItemId,
+            "done",
+            "Unchanged since last index — skipped reprocessing.",
+            existing.id,
+          );
+          return {
+            inboxItemId,
+            sourceId: existing.id,
+            sourceRevisionId: active.id,
+            status: "done",
+          };
+        }
+      }
+
       // Meeting auto-detection (#85). A GENERIC file/text ingest is screened for
       // meeting shape; on a confident hit it is routed into the existing meeting
       // machinery (#26) — meeting source type, meeting extraction lens, and an
@@ -442,13 +490,6 @@ export class IngestionPipeline {
           ? input.extractionLens
           : undefined;
 
-      // Logical-source identity (#16): a watched/uploaded file (or keyed text,
-      // e.g. a meeting note) re-ingested at a known path advances the SAME
-      // source's revision history instead of forking a fresh source row — so an
-      // edit supersedes the prior version's facts rather than accumulating
-      // duplicates. New paths (and all unkeyed pasted text) open a new source.
-      const sourcePath = input.kind === "file" ? (input.path ?? input.filename) : input.path;
-      const existing = sourcePath ? store.findSourceByPath(sourcePath) : undefined;
       let sourceId: number;
       if (existing) {
         sourceId = existing.id;
@@ -466,7 +507,7 @@ export class IngestionPipeline {
       // superseded here, so the facts it backed become flag-able as outdated.
       const revisionId = store.createSourceRevision({
         sourceId,
-        contentHash: createHash("sha256").update(parsed.text).digest("hex"),
+        contentHash,
         normalizedContent: parsed.text,
       });
       store.updateInboxItem(inboxItemId, "parsing", undefined, sourceId);
@@ -543,15 +584,26 @@ export class IngestionPipeline {
           // the Health view shows which stage broke and the actual log (#108).
           failedStage: failedStep,
           error: message,
+          // ...and the provider classification (if any), so a provider-wide
+          // outage holds the batch instead of retrying every file (#circuit).
+          errorKind: llmErrorKindOf(error),
         };
       }
 
       return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "done" };
     } catch (error) {
       // The outer try only ever fails before the source is searchable, so `step`
-      // is reading or indexing here.
+      // is reading or indexing here. Carry the message + any provider kind so the
+      // durable worker can surface the real error and hold the batch when the
+      // provider itself is down (e.g. an image OCR call hitting an expired key).
       store.updateInboxItem(inboxItemId, "failed", stepDetail(step, error));
-      return { inboxItemId, status: "failed" };
+      return {
+        inboxItemId,
+        status: "failed",
+        failedStage: step,
+        error: error instanceof Error ? error.message : String(error),
+        errorKind: llmErrorKindOf(error),
+      };
     }
   }
 

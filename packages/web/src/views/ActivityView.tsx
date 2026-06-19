@@ -30,6 +30,7 @@ import {
   type WikiRunEventKind,
 } from "../api.js";
 import { epochOf, formatTime } from "../lib/datetime.js";
+import { explainError } from "../lib/explain-error.js";
 import { useInbox } from "../lib/inbox-context.js";
 
 /** One rendered step of a transcript. Reasoning/text accrete deltas; tools are discrete. */
@@ -399,9 +400,18 @@ function parseFailure(item: InboxItem): { stepLabel: string | null; message: str
  * summary up top, the failing step and raw error underneath for debugging. */
 function DocFailureDetail({ item }: { item: InboxItem }) {
   const { stepLabel, message } = parseFailure(item);
+  // When the raw error maps to a known cause (e.g. the AI provider is out of
+  // credit), show the plain-English explanation + fix above the technical log.
+  const explained = explainError(message);
   return (
     <div className="mb-2 ml-6 space-y-2 border-l border-border pl-4 py-2">
       <p className="text-[13px] text-muted-foreground">{failureSummary(item)}</p>
+      {explained && explained.severity !== "error" && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
+          <p className="text-[12px] font-medium text-foreground">{explained.title}</p>
+          {explained.fix && <p className="mt-0.5 text-[12px] text-amber-500">{explained.fix}</p>}
+        </div>
+      )}
       {stepLabel && (
         <p className="text-[12px] text-muted-foreground">
           <span className="text-foreground/70">Failed at:</span>{" "}

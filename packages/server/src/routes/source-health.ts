@@ -134,7 +134,10 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
       const pending = queues.reduce((n, q) => n + q.pending, 0);
       const failed = queues.reduce((n, q) => n + q.failed, 0);
       const deadLetter = queues.reduce((n, q) => n + q.deadLetter, 0);
-      const pipelineHealth = deadLetter > 0 ? "degraded" : failed > 0 ? "degraded" : "healthy";
+      // The provider hold (#circuit) is the dominant signal when present — the
+      // pipeline isn't really "healthy", it's stopped waiting on the provider.
+      const providerHold = ctx.store.getIngestHold();
+      const pipelineHealth = providerHold || deadLetter > 0 || failed > 0 ? "degraded" : "healthy";
 
       // --- Running jobs + recent failures (from the durable ledger) ---
       const jobs = ctx.store.listIngestJobs();
@@ -170,6 +173,7 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
         runningJobs,
         recentFailures,
         skippedTypes: ctx.store.inboxSkippedTypes(),
+        providerHold,
         generatedAt: new Date().toISOString(),
       });
     },

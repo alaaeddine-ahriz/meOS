@@ -280,6 +280,18 @@ export type IngestQueueKind = "extraction" | "embedding";
 export type IngestJobState = "pending" | "processing" | "completed" | "failed" | "dead-letter";
 
 /**
+ * The automatic "provider hold" on ingest: set when the intelligence provider
+ * itself is unusable (no credits, rejected key, unknown model) so the executor
+ * stops the whole batch with one actionable reason instead of failing every file
+ * the same way. `kind` is the {@link LlmErrorKind}; `since` is an ISO timestamp.
+ */
+export interface IngestHold {
+  reason: string;
+  kind: string;
+  since: string;
+}
+
+/**
  * Work-type priority classes for the durable extraction queue (#18). Mirrors the
  * in-memory {@link JobQueue}'s ladder so the two scheduling paths agree: a
  * user-uploaded note outranks a watched file, which outranks a connector sync,
@@ -2274,6 +2286,58 @@ export class KnowledgeStore {
   /** Pause/resume ingest processing (#98). The executor checks this before admitting work. */
   setIngestPaused(paused: boolean): void {
     this.setSetting("ingest_paused", paused);
+  }
+
+  /**
+   * The automatic provider hold, or null when not held. Set when ingest detects
+   * the intelligence provider is unusable (out of credits, bad key, unknown
+   * model); read by the executor (to stop admitting work) and the Health view
+   * (to show one actionable banner). Persisted so it survives a restart.
+   */
+  getIngestHold(): IngestHold | null {
+    return this.getSetting<IngestHold>("ingest_hold") ?? null;
+  }
+
+  /**
+   * Engage the provider hold with a user-facing reason + classification. First
+   * trip wins: if a hold is already in place we keep its original reason/since,
+   * so a cascade of already-in-flight failures can't overwrite the first (most
+   * relevant) message with a duplicate.
+   */
+  setIngestHold(reason: string, kind: string): void {
+    if (this.getIngestHold()) return;
+    this.setSetting("ingest_hold", { reason, kind, since: new Date().toISOString() });
+  }
+
+  /** Clear the provider hold (provider recovered, manual resume, or config change). */
+  clearIngestHold(): void {
+    this.setSetting("ingest_hold", null);
+  }
+
+  /**
+   * Requeue a job that failed only because the provider was down: return it to
+   * `pending` WITHOUT spending a retry attempt (undo the increment `claimIngestJob`
+   * applied), so once the hold clears the job runs again with its full budget and
+   * never wrongly dead-letters over an outage no retry could have fixed. Closes
+   * the open run row for this attempt. Admission stays gated by the hold, so the
+   * job won't actually re-run until the provider recovers.
+   */
+  holdIngestJob(id: number, error: string): void {
+    const tx = this.db.transaction(() => {
+      const job = this.getIngestJob(id);
+      if (!job) return;
+      this.finishRun(id, job.attempts, "failed", error);
+      this.db
+        .prepare(
+          `UPDATE ingest_jobs
+           SET state = 'pending', leased_at = NULL, last_error = ?,
+               attempts = MAX(0, attempts - 1), run_after = datetime('now'),
+               updated_at = datetime('now')
+           WHERE id = ?`,
+        )
+        .run(error, id);
+    });
+    tx();
   }
 
   /** Per-queue depth + failure counts for the runtime health surface (#13/#18). */
