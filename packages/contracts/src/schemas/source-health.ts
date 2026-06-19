@@ -109,6 +109,21 @@ export const SkippedTypeSchema = z.object({
   count: z.number(),
 });
 
+/**
+ * The automatic provider hold (#circuit): set when ingestion pauses itself
+ * because the intelligence provider is unusable (out of credits, rejected key,
+ * unknown model). Lets the dashboard show ONE actionable banner instead of the
+ * same error repeated on every file.
+ */
+export const ProviderHoldSchema = z.object({
+  /** A ready-to-show, already-friendly reason (e.g. "…out of credits or quota…"). */
+  reason: z.string(),
+  /** The error classification: "auth" | "credits" | "model" (an LlmErrorKind). */
+  kind: z.string(),
+  /** ISO timestamp the hold engaged. */
+  since: z.string(),
+});
+
 /** GET /api/source-health — the whole dashboard payload (#87). */
 export const SourceHealthResponse = z.object({
   localFolders: LocalFoldersHealthSchema,
@@ -120,6 +135,12 @@ export const SourceHealthResponse = z.object({
   recentFailures: z.array(RecentFailureSchema),
   /** Unsupported/skipped file types meOS has encountered. */
   skippedTypes: z.array(SkippedTypeSchema),
+  /**
+   * Set when ingestion has auto-paused itself because the AI provider isn't
+   * working (#circuit); null when the provider is fine. The single most important
+   * thing to surface — it explains why nothing is being read and how to fix it.
+   */
+  providerHold: ProviderHoldSchema.nullable(),
   /** When this snapshot was taken (ISO). */
   generatedAt: z.string(),
 });
@@ -133,4 +154,5 @@ export type RunningJob = z.infer<typeof RunningJobSchema>;
 export type RecentFailure = z.infer<typeof RecentFailureSchema>;
 export type PipelineHealth = z.infer<typeof PipelineHealthSchema>;
 export type SkippedType = z.infer<typeof SkippedTypeSchema>;
+export type ProviderHold = z.infer<typeof ProviderHoldSchema>;
 export type SourceHealth = z.infer<typeof SourceHealthResponse>;

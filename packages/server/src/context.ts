@@ -281,6 +281,21 @@ export function createContext(
     // the executor locally.
     enqueueOnly: role === "app",
     notify: role === "app" && bridge ? () => bridge.notifyPump() : undefined,
+    // Auto-recovery probe for the provider hold (#circuit): a 1-token completion
+    // that exercises auth + credits + model. Only the role that runs the executor
+    // needs it (the app process forwards execution to the worker host), so it's
+    // skipped under `enqueueOnly`.
+    probe:
+      role === "app"
+        ? undefined
+        : async () => {
+            try {
+              await llm.complete({ messages: [{ role: "user", content: "ping" }], maxTokens: 1 });
+              return true;
+            } catch {
+              return false;
+            }
+          },
   });
   const watcher = new FolderWatcher({
     store,

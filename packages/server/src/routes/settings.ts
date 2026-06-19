@@ -195,6 +195,10 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       } catch (error) {
         throw httpError.badRequest(error instanceof Error ? error.message : String(error));
       }
+      // The provider/model/key just changed — clear any ingest hold the old,
+      // broken provider tripped (#circuit) so a stalled backlog drains on the new
+      // one immediately rather than waiting for the recovery probe.
+      ctx.durableIngest.clearProviderHold();
       // Persisted in the DB — never write near source files: the dev server
       // watches the tree and a config write would restart it mid-request.
       ctx.store.setSetting("llm", llm);

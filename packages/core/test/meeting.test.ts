@@ -142,12 +142,19 @@ describe("meeting notes (#26)", () => {
     }
   });
 
-  it("reprocess opens a new revision and re-extracts", async () => {
+  it("reprocess of an edited note opens a new revision; an unchanged one is skipped", async () => {
     const { store, pipeline } = makePipeline();
     const { sourceId } = await processMeetingNote({ store, pipeline }, input);
     expect(store.revisionsForSource(sourceId)).toHaveLength(1);
 
-    const { outcome } = await processMeetingNote({ store, pipeline }, input, sourceId);
+    // Re-ingesting byte-identical content is now a no-op (hash-unchanged guard) —
+    // no redundant re-extraction, so the revision history is untouched.
+    await processMeetingNote({ store, pipeline }, input, sourceId);
+    expect(store.revisionsForSource(sourceId)).toHaveLength(1);
+
+    // An actual edit advances the revision history and re-extracts.
+    const edited = { ...input, content: `${input.content} We also agreed to revisit scope in Q4.` };
+    const { outcome } = await processMeetingNote({ store, pipeline }, edited, sourceId);
     expect(outcome.sourceId).toBe(sourceId);
     const revs = store.revisionsForSource(sourceId);
     expect(revs).toHaveLength(2);
@@ -161,7 +168,10 @@ describe("meeting notes (#26)", () => {
     const link = store.meetingLinkSuggestions(sourceId).find((l) => l.entity_name === "Dana Lee")!;
     expect(store.reviewMeetingLinkSuggestion(link.id, "accepted")).toBe(true);
 
-    await processMeetingNote({ store, pipeline }, input, sourceId);
+    // A genuine reprocess (edited content) re-runs extraction + link suggestion;
+    // the user's accepted decision must survive it.
+    const edited = { ...input, content: `${input.content} Dana also owns the comms plan.` };
+    await processMeetingNote({ store, pipeline }, edited, sourceId);
     const after = store.meetingLinkSuggestions(sourceId).find((l) => l.entity_name === "Dana Lee")!;
     expect(after.status).toBe("accepted");
   });

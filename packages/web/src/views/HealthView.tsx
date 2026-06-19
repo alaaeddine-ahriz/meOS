@@ -1,4 +1,5 @@
 import {
+  AlertOctagon,
   AlertTriangle,
   CheckCircle2,
   ChevronRight,
@@ -23,7 +24,8 @@ import {
   type RuntimeHealth,
   type SourceHealth,
 } from "../api.js";
-import { formatTime } from "../lib/datetime.js";
+import { formatRelative, formatTime } from "../lib/datetime.js";
+import { explainError } from "../lib/explain-error.js";
 import {
   ENGINE_META,
   engineStatus,
@@ -154,15 +156,24 @@ function ConnectorCard({ k }: { k: ConnectorHealth }) {
       </div>
       <p className="mb-2 text-xs text-dim">
         {k.enabled ? (STATE_WORDING[k.state] ?? k.state) : "Turned off"}
-        {k.lastSuccessAt && <> · last synced {formatTime(k.lastSuccessAt)}</>}
+        {k.lastSuccessAt && <> · last synced {formatRelative(k.lastSuccessAt)}</>}
       </p>
       <CountsRow counts={k.counts} />
-      {k.lastError && (
-        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-ember">
-          <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-          <span className="break-words">{k.lastError}</span>
-        </p>
-      )}
+      {k.lastError &&
+        (() => {
+          // Translate the raw sync error to plain English; keep the original as a
+          // hover tooltip for anyone who wants the literal provider text.
+          const explained = explainError(k.lastError);
+          return (
+            <p
+              className="mt-2 flex items-start gap-1.5 text-[11px] text-ember"
+              title={k.lastError ?? undefined}
+            >
+              <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+              <span className="break-words">{explained?.title ?? k.lastError}</span>
+            </p>
+          );
+        })()}
     </div>
   );
 }
@@ -181,6 +192,8 @@ function ProblemRow({
   const [open, setOpen] = useState(false);
   const { step, message } = parseFailure(job.lastError);
   const info = stepLabel(step ?? job.stage);
+  // Plain-English version of the raw error; the raw text stays in the log below.
+  const explained = explainError(message);
   const dead = job.state === "dead-letter";
   return (
     <li className="overflow-hidden rounded-xl border border-line bg-desk">
@@ -204,11 +217,12 @@ function ProblemRow({
           </div>
           <div className="mt-0.5 text-[11px] text-dim">
             {dead ? "gave up after retries" : "will retry"} · {job.attempts}/{job.maxAttempts} tries
-            · {formatTime(job.updatedAt)}
+            · {formatRelative(job.updatedAt)}
           </div>
-          {/* A one-line error preview so the failure is legible without expanding. */}
-          {!open && message && (
-            <div className="mt-1 truncate font-mono text-[11px] text-ember/90">{message}</div>
+          {/* A one-line, plain-English preview so the failure is legible without
+              expanding (the raw error lives in the log when expanded). */}
+          {!open && explained && (
+            <div className="mt-1 truncate text-[11px] text-ember/90">{explained.title}</div>
           )}
         </div>
         <ChevronRight
@@ -217,6 +231,14 @@ function ProblemRow({
       </button>
       {open && (
         <div className="space-y-3 border-t border-line px-4 py-3">
+          {/* Plain-English explanation + a suggested fix, ahead of the raw log. */}
+          {explained && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-2.5 py-2">
+              <p className="text-[12px] font-medium text-paper">{explained.title}</p>
+              <p className="mt-0.5 text-[12px] text-faded">{explained.detail}</p>
+              {explained.fix && <p className="mt-1 text-[12px] text-amber-400">{explained.fix}</p>}
+            </div>
+          )}
           {info.blurb && <p className="text-[13px] text-faded">{info.blurb}</p>}
           {job.sourceId != null && (
             <p className="text-[12px] text-dim">
@@ -262,6 +284,121 @@ function ProblemRow({
               Cancel
             </button>
           </div>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * The single, prominent banner shown when ingestion has auto-paused because the
+ * AI provider isn't working (#circuit). It replaces what would otherwise be one
+ * identical failure card per file — one cause, one explanation, one fix. meOS
+ * resumes on its own once the provider works again; "Retry now" forces it.
+ */
+function ProviderHoldBanner({
+  hold,
+  busy,
+  onResume,
+}: {
+  hold: NonNullable<SourceHealth["providerHold"]>;
+  busy: boolean;
+  onResume: () => void;
+}) {
+  const explained = explainError(hold.reason);
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-ember/50 bg-ember/5 px-4 py-3.5">
+      <AlertOctagon className="mt-0.5 size-5 shrink-0 text-ember" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-paper">
+          {explained?.title ?? "AI provider isn’t working"} — reading is paused
+        </p>
+        <p className="mt-0.5 text-[13px] text-faded">{hold.reason}</p>
+        <p className="mt-1.5 text-[11px] text-dim">
+          Paused {formatRelative(hold.since)} · meOS will resume on its own once the provider works
+          again.
+        </p>
+      </div>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={onResume}
+        className="flex shrink-0 items-center gap-1 rounded-md border border-line px-2.5 py-1 text-[11px] text-paper hover:bg-line/40 disabled:opacity-50"
+      >
+        <Play className="size-3" /> Retry now
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Group failing jobs by their plain-English cause (+ failing step) so a burst of
+ * identical failures collapses into one actionable row instead of N. First-seen
+ * order is preserved. The circuit-breaker already keeps provider outages OUT of
+ * this list (those jobs stay pending under the hold), so this mainly tidies up
+ * repeated document/parse failures.
+ */
+function groupFailures(
+  jobs: IngestJob[],
+): Array<{ key: string; title: string; jobs: IngestJob[] }> {
+  const groups = new Map<string, { key: string; title: string; jobs: IngestJob[] }>();
+  for (const job of jobs) {
+    const { step, message } = parseFailure(job.lastError);
+    const title = explainError(message)?.title ?? "Failed";
+    const key = `${step ?? job.stage}::${title}`;
+    const group = groups.get(key) ?? { key, title, jobs: [] };
+    group.jobs.push(job);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+/** A collapsed group of identical failures: one cause, a count, and a suggested
+ * fix; expand to act on the individual jobs. */
+function FailureGroup({
+  group,
+  busy,
+  onAction,
+}: {
+  group: { key: string; title: string; jobs: IngestJob[] };
+  busy: boolean;
+  onAction: (action: () => Promise<unknown>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const explained = explainError(parseFailure(group.jobs[0]!.lastError).message);
+  return (
+    <li className="overflow-hidden rounded-xl border border-line bg-desk">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-card/40"
+      >
+        <XCircle className="size-4 shrink-0 text-ember" />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-paper">{group.title}</span>
+            <span className="shrink-0 rounded-full border border-ember/40 px-1.5 py-0.5 text-[10px] font-medium text-ember">
+              {group.jobs.length} items
+            </span>
+          </div>
+          {explained?.detail && (
+            <div className="mt-0.5 text-[11px] text-dim">{explained.detail}</div>
+          )}
+        </div>
+        <ChevronRight
+          className={cn("size-4 shrink-0 text-dim transition-transform", open && "rotate-90")}
+        />
+      </button>
+      {open && (
+        <div className="border-t border-line">
+          {explained?.fix && (
+            <p className="px-4 pt-3 text-[12px] text-amber-400">{explained.fix}</p>
+          )}
+          <ul className="space-y-2 p-3">
+            {group.jobs.map((job) => (
+              <ProblemRow key={job.id} job={job} busy={busy} onAction={onAction} />
+            ))}
+          </ul>
         </div>
       )}
     </li>
@@ -354,8 +491,15 @@ export function HealthView() {
 
   return (
     <div className="mt-6 space-y-8">
-      {/* Status hero — the one-line verdict. */}
-      {attentionCount > 0 ? (
+      {/* Status hero — the one-line verdict. A provider hold is THE thing to know,
+          so when present it stands in for the generic hero. */}
+      {source.providerHold ? (
+        <ProviderHoldBanner
+          hold={source.providerHold}
+          busy={busy}
+          onResume={() => runAction(api.resumeIngest)}
+        />
+      ) : attentionCount > 0 ? (
         <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3">
           <AlertTriangle className="size-5 shrink-0 text-amber-500" />
           <div>
@@ -486,7 +630,7 @@ export function HealthView() {
                   source.localFolders.folders.length === 1 ? "" : "s"
                 }`}
             {source.localFolders.lastIndexedAt && (
-              <> · last indexed {formatTime(source.localFolders.lastIndexedAt)}</>
+              <> · last indexed {formatRelative(source.localFolders.lastIndexedAt)}</>
             )}
           </p>
           <CountsRow counts={source.localFolders.counts} />
@@ -571,9 +715,18 @@ export function HealthView() {
           </p>
         ) : (
           <ul className="space-y-2">
-            {failingJobs.map((job) => (
-              <ProblemRow key={job.id} job={job} busy={busy} onAction={runAction} />
-            ))}
+            {groupFailures(failingJobs).map((group) =>
+              group.jobs.length === 1 ? (
+                <ProblemRow
+                  key={group.jobs[0]!.id}
+                  job={group.jobs[0]!}
+                  busy={busy}
+                  onAction={runAction}
+                />
+              ) : (
+                <FailureGroup key={group.key} group={group} busy={busy} onAction={runAction} />
+              ),
+            )}
           </ul>
         )}
       </section>

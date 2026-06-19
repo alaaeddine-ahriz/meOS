@@ -209,8 +209,12 @@ export class IngestQueueWorker implements Worker {
     // Paused (#98) reads as stopped so the UI shows processing is halted; a
     // dead-letter pile still surfaces as an error regardless.
     const paused = this.store.isIngestPaused();
+    // Provider hold (#circuit): the AI provider is down and ingestion stopped
+    // itself. Surface it as an error carrying the actionable reason, ahead of the
+    // dead-letter signal, so the engine badge explains *why* nothing is moving.
+    const hold = this.store.getIngestHold();
     const status: WorkerHealth["status"] =
-      depth.deadLetter > 0
+      hold || depth.deadLetter > 0
         ? "error"
         : paused
           ? "stopped"
@@ -220,10 +224,15 @@ export class IngestQueueWorker implements Worker {
     return {
       name: this.name,
       status,
-      detail:
-        `${paused ? "paused — " : ""}${this.queueKind}: ${depth.processing} processing, ` +
-        `${depth.pending} pending, ${depth.retrying} retrying, ${depth.deadLetter} dead-letter`,
-      lastError: depth.deadLetter > 0 ? `${depth.deadLetter} job(s) in dead-letter` : null,
+      detail: hold
+        ? `holding — ${hold.reason}`
+        : `${paused ? "paused — " : ""}${this.queueKind}: ${depth.processing} processing, ` +
+          `${depth.pending} pending, ${depth.retrying} retrying, ${depth.deadLetter} dead-letter`,
+      lastError: hold
+        ? hold.reason
+        : depth.deadLetter > 0
+          ? `${depth.deadLetter} job(s) in dead-letter`
+          : null,
       lastRunAt: null,
       queue: {
         pending: depth.pending,

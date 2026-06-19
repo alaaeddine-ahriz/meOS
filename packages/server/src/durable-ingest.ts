@@ -3,9 +3,13 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   IngestPriority,
+  LlmError,
+  isProviderFatal,
+  llmErrorKindOf,
   type IngestInput,
   type IngestJobRow,
   type IngestionPipeline,
+  type IngestOutcome,
   type JobQueue,
   type KnowledgeStore,
   type Semaphore,
@@ -97,6 +101,14 @@ export class DurableIngest {
       enqueueOnly?: boolean;
       /** Called after enqueue/retry to wake the executor process (#94). */
       notify?: () => void;
+      /**
+       * A cheap "is the intelligence provider working?" check, used to auto-clear
+       * a provider hold (#circuit) once the user has fixed their key / added
+       * credits. Resolves true when a minimal provider call succeeds. Omitted in
+       * tests / producer-only mode, where the hold clears on manual resume or a
+       * Settings change instead.
+       */
+      probe?: () => Promise<boolean>;
     },
   ) {
     this.maxBatchesPerPump = deps.maxBatchesPerPump ?? MAX_BATCHES_PER_PUMP;
@@ -277,9 +289,24 @@ export class DurableIngest {
     this.deps.store.setIngestPaused(true);
   }
 
-  /** Resume ingest processing (#98) and wake the executor to drain the backlog. */
+  /** Resume ingest processing (#98) and wake the executor to drain the backlog.
+   * Also clears any automatic provider hold — the user is explicitly choosing to
+   * try again (e.g. after adding credits), so we drop the hold and let the next
+   * batch run; if the provider is still down it simply trips the hold again. */
   resume(): void {
     this.deps.store.setIngestPaused(false);
+    this.deps.store.clearIngestHold();
+    this.wake();
+  }
+
+  /**
+   * The intelligence provider's configuration changed (Settings swapped the
+   * provider/model/key): clear any automatic hold and wake the executor so a
+   * backlog held by the old, broken provider drains immediately on the new one.
+   */
+  clearProviderHold(): void {
+    if (!this.deps.store.getIngestHold()) return;
+    this.deps.store.clearIngestHold();
     this.wake();
   }
 
@@ -297,9 +324,37 @@ export class DurableIngest {
       this.deps.store.recoverStaleIngestJobs(STALE_GRACE_SECONDS);
       this.deps.store.pruneCompletedIngestJobs(RETENTION_DAYS);
       this.pruneStagingFiles();
+      // Provider hold auto-recovery (#circuit): while held, cheaply re-check the
+      // provider; if it works again, clear the hold so this same tick's pump
+      // drains the backlog the outage stalled. Fire-and-forget — a slow probe
+      // must not block the sweep.
+      void this.maybeRecoverFromHold();
       this.pump();
     }, SWEEP_INTERVAL_MS);
     this.timer.unref();
+  }
+
+  /**
+   * While a provider hold is in place, run the cheap provider probe; on success
+   * clear the hold and pump so a backlog stalled by an outage resumes on its own
+   * — the user adds credits / fixes the key and ingestion picks back up within a
+   * sweep, no manual resume needed. A manual pause is respected (we don't auto-
+   * resume something the user deliberately stopped). Best-effort: any probe error
+   * keeps the hold, to be retried next sweep.
+   */
+  private async maybeRecoverFromHold(): Promise<void> {
+    if (this.enqueueOnly || this.stopped || !this.deps.probe) return;
+    if (!this.deps.store.db.open) return;
+    if (!this.deps.store.getIngestHold()) return;
+    if (this.deps.store.isIngestPaused()) return;
+    try {
+      if (await this.deps.probe()) {
+        this.deps.store.clearIngestHold();
+        this.pump();
+      }
+    } catch {
+      /* provider still unreachable — keep holding, retry next sweep */
+    }
   }
 
   /**
@@ -349,6 +404,12 @@ export class DurableIngest {
     // Paused (#98): persist the backlog but admit nothing until resumed. Recovery
     // + retention still run on the sweep; only admission is gated here.
     if (this.deps.store.isIngestPaused()) return;
+    // Provider hold (#circuit): the intelligence provider is down (out of credits,
+    // bad key, unknown model). Admitting more extraction work would just reproduce
+    // the same failure on every file, so we hold the batch until the provider
+    // recovers — detected by the sweep's probe, a Settings change, or a manual
+    // resume. The held backlog stays `pending` and runs intact once cleared.
+    if (this.deps.store.getIngestHold()) return;
     let admitted = 0;
     while (admitted < this.maxBatchesPerPump) {
       const job = this.deps.store.claimIngestJob("extraction");
@@ -461,18 +522,42 @@ export class DurableIngest {
         this.deps.store.setIngestJobStage(job.id, outcome.failedStage ?? "extracting");
         this.fail(
           job,
-          new Error(outcome.error ?? "semantic extraction failed (source is searchable)"),
+          this.outcomeError(outcome, "semantic extraction failed (source is searchable)"),
         );
       } else {
-        this.fail(job, new Error("ingestion failed"));
+        if (outcome.failedStage) this.deps.store.setIngestJobStage(job.id, outcome.failedStage);
+        this.fail(job, this.outcomeError(outcome, "ingestion failed"));
       }
     } catch (error) {
       this.fail(job, error);
     }
   }
 
+  /**
+   * Rebuild a throwable error from a pipeline outcome, preserving the provider
+   * classification (#circuit) when there was one: a typed {@link LlmError} so
+   * {@link fail} can recognise a provider outage and hold the whole batch,
+   * otherwise a plain Error carrying the real failing-stage message.
+   */
+  private outcomeError(outcome: IngestOutcome, fallback: string): Error {
+    const message = outcome.error ?? fallback;
+    return outcome.errorKind ? new LlmError(message, outcome.errorKind) : new Error(message);
+  }
+
   private fail(job: IngestJobRow, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
+    // Provider outage (#circuit): a fatal LLM-provider fault — no credits, a
+    // rejected key, an unknown model — is global and non-retryable. Retrying
+    // would reproduce the identical error on every remaining file and dead-letter
+    // the whole backlog for an outage no retry could fix. Instead, engage one
+    // batch-wide hold (a single message the user can act on) and requeue THIS job
+    // WITHOUT spending a retry, so it resumes intact once the provider recovers.
+    const kind = llmErrorKindOf(error);
+    if (kind && isProviderFatal(kind)) {
+      this.deps.store.setIngestHold(message, kind);
+      this.deps.store.holdIngestJob(job.id, message);
+      return;
+    }
     const state = this.deps.store.failIngestJob(job.id, message);
     if (state === "pending") {
       // Re-pump after the backoff window elapses so the retry actually fires

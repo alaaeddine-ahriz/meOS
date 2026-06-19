@@ -219,6 +219,47 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   );
 }
 
+/**
+ * Provider failures that no amount of per-document retrying can fix, because the
+ * fault is the provider/account itself rather than the document: a missing or
+ * rejected key (`auth`), an exhausted balance/quota (`credits`), or a model the
+ * provider doesn't know (`model`). When ingest hits one of these it stops the
+ * whole batch (a circuit-breaker "hold") instead of reproducing the identical
+ * error on every remaining file and burning each one's retry budget.
+ *
+ * Deliberately excludes `rate_limit`, `server`, `timeout`, and `connection`:
+ * those are transient and are exactly what the per-job backoff is for. A
+ * `bad_request`/`bad_response` is document-specific, so it dead-letters that one
+ * file rather than halting everything.
+ */
+export const PROVIDER_FATAL_KINDS: ReadonlySet<LlmErrorKind> = new Set<LlmErrorKind>([
+  "auth",
+  "credits",
+  "model",
+]);
+
+/** Whether a failure means the provider itself is unusable (see {@link PROVIDER_FATAL_KINDS}). */
+export function isProviderFatal(kind: LlmErrorKind): boolean {
+  return PROVIDER_FATAL_KINDS.has(kind);
+}
+
+/**
+ * Recover the {@link LlmErrorKind} from any thrown value, walking the `cause`
+ * chain so an error wrapped on its way up (e.g. the pipeline's `StepError`, which
+ * preserves its cause) still reveals the underlying provider classification.
+ * Returns undefined when no {@link LlmError} is in the chain — i.e. an ordinary
+ * document/parse failure, not a provider outage. The walk is depth-bounded so a
+ * pathological self-referential `cause` can't loop forever.
+ */
+export function llmErrorKindOf(error: unknown): LlmErrorKind | undefined {
+  let current: unknown = error;
+  for (let depth = 0; current != null && depth < 10; depth++) {
+    if (current instanceof LlmError) return current.kind;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 /** Classify an HTTP-level provider error from its status code and body text. */
 function classifyApiError(
   error: APICallError,
