@@ -516,7 +516,11 @@ export interface IndexedSourceContentRow {
   content: string | null;
 }
 
-/** A connected external account (one row per provider). Carries OAuth secrets. */
+/**
+ * A connected external account (one row per provider). Carries OAuth secrets for
+ * oauth2 connectors; a basic-auth connector instead stores its declared connect
+ * form (host/username/password …) as a JSON object in `auth_config`.
+ */
 export interface ConnectorAccountRow {
   id: number;
   provider: string;
@@ -527,6 +531,8 @@ export interface ConnectorAccountRow {
   scopes: string | null;
   client_id: string | null;
   client_secret: string | null;
+  /** Basic-auth credentials as a JSON object string, or null for OAuth accounts. */
+  auth_config: string | null;
   status: string;
   created_at: string;
 }
@@ -4019,14 +4025,20 @@ export class KnowledgeStore {
     scopes?: string | null;
     clientId?: string | null;
     clientSecret?: string | null;
+    /**
+     * Basic-auth credentials as a JSON object string (host/username/password …).
+     * COALESCE-merged like the OAuth secrets, and treated as a connect signal:
+     * an account with auth_config set reads as connected even with no token.
+     */
+    authConfig?: string | null;
   }): number {
     // Update only the columns provided so re-saving credentials never clobbers
     // tokens (and re-connecting never clobbers stored credentials).
     this.db
       .prepare(
         `INSERT INTO connector_accounts
-           (provider, account_email, access_token, refresh_token, expiry, scopes, client_id, client_secret, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'connected')
+           (provider, account_email, access_token, refresh_token, expiry, scopes, client_id, client_secret, auth_config, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'connected')
          ON CONFLICT(provider) DO UPDATE SET
            account_email = COALESCE(excluded.account_email, account_email),
            access_token  = COALESCE(excluded.access_token, access_token),
@@ -4035,7 +4047,10 @@ export class KnowledgeStore {
            scopes        = COALESCE(excluded.scopes, scopes),
            client_id     = COALESCE(excluded.client_id, client_id),
            client_secret = COALESCE(excluded.client_secret, client_secret),
-           status        = CASE WHEN excluded.access_token IS NOT NULL THEN 'connected' ELSE status END`,
+           auth_config   = COALESCE(excluded.auth_config, auth_config),
+           status        = CASE
+             WHEN excluded.access_token IS NOT NULL OR excluded.auth_config IS NOT NULL
+             THEN 'connected' ELSE status END`,
       )
       .run(
         input.provider,
@@ -4046,6 +4061,7 @@ export class KnowledgeStore {
         input.scopes ?? null,
         input.clientId ?? null,
         input.clientSecret ?? null,
+        input.authConfig ?? null,
       );
     return (this.getConnectorAccount(input.provider) as ConnectorAccountRow).id;
   }
@@ -4054,10 +4070,25 @@ export class KnowledgeStore {
     return this.db
       .prepare(
         `SELECT id, provider, account_email, access_token, refresh_token, expiry, scopes,
-                client_id, client_secret, status, created_at
+                client_id, client_secret, auth_config, status, created_at
          FROM connector_accounts WHERE provider = ?`,
       )
       .get(provider) as ConnectorAccountRow | undefined;
+  }
+
+  /**
+   * The parsed basic-auth credentials for a provider (host/username/password …),
+   * or undefined when the account has none (an OAuth account, or no account). The
+   * inverse of {@link upsertConnectorAccount}'s `authConfig` round-trip.
+   */
+  getConnectorAuthConfig(provider: string): Record<string, string> | undefined {
+    const account = this.getConnectorAccount(provider);
+    if (!account?.auth_config) return undefined;
+    try {
+      return JSON.parse(account.auth_config) as Record<string, string>;
+    } catch {
+      return undefined;
+    }
   }
 
   updateConnectorTokens(

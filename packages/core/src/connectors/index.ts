@@ -35,6 +35,8 @@ export type {
 export { kindManifest } from "./framework.js";
 export { ConnectorRegistry, connectorRegistry } from "./registry.js";
 export { GoogleConnector, GOOGLE_MANIFEST, googleConnector } from "./google/connector.js";
+export { createImapClient, ImapConnector, IMAP_MANIFEST, imapConnector } from "./imap/connector.js";
+export type { ImapClient, ImapClientFactory } from "./imap/connector.js";
 export {
   buildAuthUrl,
   createPkcePair,
@@ -50,6 +52,8 @@ export { completeTask, createTask, fetchTasksDelta, listTaskLists } from "./goog
 export { mapContact } from "./map/contacts.js";
 export { mapCalendarEvent } from "./map/calendar.js";
 export { mapGmailMessage } from "./map/gmail.js";
+export { mapEmailMessage } from "./map/email.js";
+export type { EmailAddress, EmailMessageMeta } from "./map/email.js";
 export { mapTask } from "./map/tasks.js";
 export { ensureAccessToken, syncConnector } from "./sync.js";
 export type { SyncDeps, SyncResult } from "./sync.js";

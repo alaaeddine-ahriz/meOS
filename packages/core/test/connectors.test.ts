@@ -923,7 +923,7 @@ describe("connector coverage state + structured sync metrics (#88)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(32);
+    expect(migrations.length).toBe(33);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -952,6 +952,7 @@ describe("migration 23 (connector materialization)", () => {
       db.exec(`DROP INDEX IF EXISTS idx_ingest_jobs_claim;`);
       db.exec(`ALTER TABLE ingest_jobs DROP COLUMN priority;`);
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
+      db.exec(`ALTER TABLE connector_accounts DROP COLUMN auth_config;`);
       db.pragma("user_version = 22");
       db.close();
 
@@ -991,7 +992,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(32);
+    expect(migrations.length).toBe(33);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1036,6 +1037,7 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
       db.exec(`DROP INDEX IF EXISTS idx_meeting_links_source;`);
       db.exec(`DROP TABLE IF EXISTS meeting_link_suggestions;`);
       db.exec(`DROP TABLE IF EXISTS meeting_notes;`);
+      db.exec(`ALTER TABLE connector_accounts DROP COLUMN auth_config;`);
       db.pragma("user_version = 24");
       // The old shape rejects a non-Google kind — the bug migration 25 fixes.
       expect(() =>

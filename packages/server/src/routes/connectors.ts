@@ -48,16 +48,14 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   };
 
   /**
-   * Resolve a connector AND its OAuth surface for the OAuth flow, narrowing past
-   * the optional `oauth` field. Basic-auth connectors don't ship a connect flow
-   * here yet (no basic-auth connector exists), so they 400 with a clear message.
+   * Resolve a connector AND its OAuth surface for the OAuth-only flow (consent
+   * start + callback), narrowing past the optional `oauth` field. Basic-auth
+   * connectors have no hosted consent flow — they persist credentials directly via
+   * PUT /credentials — so the OAuth routes 400 for them with a clear message.
    */
   const requireOAuth = (provider: string) => {
     const connector = requireConnector(provider);
     if (connector.manifest.auth.kind !== "oauth2" || !connector.oauth) {
-      // TODO(connector-platform): when a basic-auth connector ships, branch here on
-      // `auth.kind === "basic"` to persist the declared `fields` as credentials.
-      // Not built yet — no basic-auth connector exists, so leaving it untested.
       throw httpError.badRequest(`${provider} is not an OAuth connector`);
     }
     return { connector, oauth: connector.oauth };
@@ -121,11 +119,29 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     return base;
   };
 
+  /**
+   * Whether a basic-auth account has every REQUIRED field present in its stored
+   * auth config — the basic-auth analogue of "has client id + secret". Drives both
+   * `connected` and `hasCredentials` for a basic connector (there's no token step).
+   */
+  const basicAuthSatisfied = (connector: Connector): boolean => {
+    if (connector.manifest.auth.kind !== "basic") return false;
+    const stored = ctx.store.getConnectorAuthConfig(connector.manifest.id);
+    if (!stored) return false;
+    return connector.manifest.auth.fields
+      .filter((f) => f.required)
+      .every((f) => Boolean(stored[f.key]?.trim()));
+  };
+
   /** The live status block for one connector (an entry in the providers array). */
   const providerStatusFor = (connector: Connector) => {
     const provider = connector.manifest.id;
     const account = ctx.store.getConnectorAccount(provider);
-    const connected = Boolean(account?.refresh_token || account?.access_token);
+    const isBasic = connector.manifest.auth.kind === "basic";
+    const basicReady = isBasic && basicAuthSatisfied(connector);
+    const connected = isBasic
+      ? basicReady
+      : Boolean(account?.refresh_token || account?.access_token);
     const kinds = connector.manifest.kinds.map((manifest) => {
       const kind = manifest.kind;
       const state = account ? ctx.store.getSyncState(account.id, kind) : undefined;
@@ -143,8 +159,11 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     return {
       provider,
       connected,
-      accountEmail: account?.account_email ?? null,
-      hasCredentials: Boolean(account?.client_id && account?.client_secret),
+      // A basic connector surfaces the IMAP username as its account email when set.
+      accountEmail:
+        account?.account_email ??
+        (isBasic ? (ctx.store.getConnectorAuthConfig(provider)?.username ?? null) : null),
+      hasCredentials: isBasic ? basicReady : Boolean(account?.client_id && account?.client_secret),
       kinds,
     };
   };
@@ -166,20 +185,57 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     async () => connectorsSchema.ConnectorStatusSchema.parse(statusView()),
   );
 
-  // Save the user's OAuth client id/secret (no tokens yet).
-  app.put<{ Params: { provider: string }; Body: { clientId?: string; clientSecret?: string } }>(
+  // Save the connector's credentials, branching on its auth model: an OAuth
+  // connector gets its client id/secret; a basic-auth one (IMAP …) gets its declared
+  // `fields` form persisted as an auth-config JSON object. No JSON-Schema body on the
+  // route — the shape differs per auth kind, so each branch validates its own body.
+  app.put<{ Params: { provider: string }; Body: unknown }>(
     "/api/connectors/:provider/credentials",
     {
       schema: routeSchema({
         tags,
-        summary: "Save a connector's OAuth credentials",
-        body: connectorsSchema.GoogleCredentialsBody,
+        summary: "Save a connector's credentials",
         response: connectorsSchema.ConnectorStatusSchema,
       }),
     },
     async (request) => {
       const provider = request.params.provider;
-      requireOAuth(provider);
+      const connector = requireConnector(provider);
+
+      if (connector.manifest.auth.kind === "basic") {
+        // Validate the submitted fields against the manifest: every `required` field
+        // must be present and non-empty. Store the lot as a JSON auth-config object.
+        const body = parseOrThrow(connectorsSchema.BasicCredentialsBody, request.body, "body");
+        const fields = connector.manifest.auth.fields;
+        const values: Record<string, string> = {};
+        for (const field of fields) {
+          const value = body[field.key]?.trim() ?? "";
+          if (field.required && !value) {
+            throw httpError.validation(`${field.label} is required`);
+          }
+          if (value) values[field.key] = value;
+        }
+        // Best-effort connection check (e.g. open + close an IMAP session). A failure
+        // is surfaced as a warning, not a hard error — we don't block storing valid
+        // credentials on a transient outage. (Status carries no warning field today.)
+        if (connector.testConnection) {
+          try {
+            const result = await connector.testConnection(values);
+            if (!result.ok) {
+              app.log.warn(
+                { provider, error: result.error },
+                `${provider} credential test failed; saving anyway`,
+              );
+            }
+          } catch (err) {
+            app.log.warn({ provider, err }, `${provider} credential test threw; saving anyway`);
+          }
+        }
+        ctx.store.upsertConnectorAccount({ provider, authConfig: JSON.stringify(values) });
+        return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+      }
+
+      // OAuth: client id/secret only (no tokens yet — those come from the consent flow).
       const body = parseOrThrow(connectorsSchema.GoogleCredentialsBody, request.body, "body");
       const clientId = body.clientId.trim();
       const clientSecret = body.clientSecret.trim();
@@ -530,9 +586,13 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     },
     async (request) => {
       const provider = request.params.provider;
-      const { oauth } = requireOAuth(provider);
+      const connector = requireConnector(provider);
       const account = ctx.store.getConnectorAccount(provider);
-      if (account?.access_token) await oauth.revokeToken(account.access_token);
+      // OAuth connectors best-effort revoke their token upstream; basic-auth ones
+      // hold no revocable token, so disconnect is just forgetting the local account.
+      if (connector.manifest.auth.kind === "oauth2" && connector.oauth && account?.access_token) {
+        await connector.oauth.revokeToken(account.access_token);
+      }
       ctx.store.deleteConnectorAccount(provider);
       ctx.connectors.reschedule();
       return connectorsSchema.DisconnectResponse.parse({ disconnected: true });

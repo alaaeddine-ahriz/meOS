@@ -57,6 +57,16 @@ export async function ensureAccessToken(
 const contentHash = (item: unknown): string =>
   crypto.createHash("sha256").update(JSON.stringify(item)).digest("hex");
 
+/** Parse a basic-auth account's stored JSON credentials, or undefined when absent/bad. */
+function parseAuthConfig(raw: string | null): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as Record<string, string>;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Sync one kind for one account through the connector framework: refresh the
  * token, ask the connector for a NORMALIZED delta, and for each changed item
@@ -79,7 +89,20 @@ export async function syncConnector(
   if (!manifest) {
     throw new Error(`${connector.manifest.displayName} does not support kind: ${kind}`);
   }
-  const accessToken = await ensureAccessToken(store, account, connector);
+  // The auth model decides what the connector carries into its fetch: an OAuth
+  // connector gets a live access token; a basic-auth one gets its stored
+  // credentials (host/username/password …) with an empty token. Everything after
+  // this — dedup, materialize, cursor persistence — is identical for both.
+  let accessToken = "";
+  let authConfig: Record<string, string> | undefined;
+  if (connector.manifest.auth.kind === "basic") {
+    authConfig = parseAuthConfig(account.auth_config);
+    if (!authConfig) {
+      throw new Error(`${connector.manifest.displayName} account has no stored credentials.`);
+    }
+  } else {
+    accessToken = await ensureAccessToken(store, account, connector);
+  }
   const state = store.getSyncState(account.id, kind);
   const config = store.getSyncConfig(account.id, kind);
 
@@ -94,14 +117,14 @@ export async function syncConnector(
     // an `error` status the UI can surface, rather than bubbling out unrecorded and
     // leaving the kind looking enabled-but-never-synced.
     let delta = await connector.fetchDelta(
-      { accessToken, config },
+      { accessToken, authConfig, config },
       kind,
       state?.sync_token ?? null,
     );
     if (delta.fullResync) {
       // Saved cursor expired — clear it and re-pull from scratch (config preserved).
       store.setSyncState(account.id, kind, { syncToken: null });
-      delta = await connector.fetchDelta({ accessToken, config }, kind, null);
+      delta = await connector.fetchDelta({ accessToken, authConfig, config }, kind, null);
     }
     result.hasMore = Boolean(delta.hasMore);
 
