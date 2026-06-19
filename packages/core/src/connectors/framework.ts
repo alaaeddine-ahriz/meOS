@@ -94,10 +94,20 @@ export interface KindManifest {
   blurb?: string;
   /**
    * Privacy default for items of this kind. `true` (the connector default) keeps
-   * derived content off the wiki and off portable artifacts (sync/export) — see
-   * `defaultVisibilityForType`. Set `false` for kinds whose data is freely shareable.
+   * derived content off portable artifacts (sync/export) — it stays on-device —
+   * see `defaultVisibilityForType`. Set `false` for kinds whose data is freely
+   * shareable. Note: private content still feeds the *local* wiki; to keep a kind
+   * out of the wiki, mark it {@link directory}.
    */
   private?: boolean;
+  /**
+   * Whether this kind is a directory/identity source — an address book that only
+   * records that entities *exist* (e.g. contacts), as opposed to content that
+   * *names* entities in context (events, emails, tasks). Directory items keep an
+   * entity searchable but never, by themselves, warrant a wiki page; the entity
+   * earns a page once a content source mentions it. Independent of {@link private}.
+   */
+  directory?: boolean;
   /** Optional capabilities that drive the settings UI without naming the kind. */
   capabilities?: KindCapabilities;
 }

@@ -23,19 +23,34 @@ describe("source visibility — per-type defaults", () => {
     });
   });
 
-  it("keeps connector sources out of the wiki and off sync/export by default", async () => {
+  it("keeps connector content on-device but lets it feed the local wiki", async () => {
     const { store } = await setup();
-    for (const type of ["google:contacts", "google:calendar", "google:gmail"]) {
+    // Content connectors (calendar/gmail/tasks) name entities in context, so they
+    // ARE wiki-eligible (any source that names it earns a page) — but they stay
+    // private: searchable/answerable + local wiki, yet never leave the device.
+    for (const type of ["google:calendar", "google:gmail", "google:tasks"]) {
       const id = store.createSource({ type, title: type, content: "..." });
       const v = store.sourceVisibility(id);
-      // Connector data is searchable/answerable but a reference only: never woven
-      // into page prose (wiki) and never leaves the device (sync/export).
-      expect(v.searchable).toBe(true);
-      expect(v.answerable).toBe(true);
-      expect(v.wikiEligible).toBe(false);
-      expect(v.syncable).toBe(false);
-      expect(v.exportable).toBe(false);
+      expect(v.searchable, `${type} searchable`).toBe(true);
+      expect(v.answerable, `${type} answerable`).toBe(true);
+      expect(v.wikiEligible, `${type} wikiEligible`).toBe(true);
+      expect(v.syncable, `${type} syncable`).toBe(false);
+      expect(v.exportable, `${type} exportable`).toBe(false);
     }
+  });
+
+  it("keeps directory connectors (contacts) out of the wiki", async () => {
+    const { store } = await setup();
+    // An address book records that a person exists; it does not author content
+    // about them. A bare contact stays searchable but earns no page until a
+    // content source names them.
+    const id = store.createSource({ type: "google:contacts", title: "Contacts", content: "..." });
+    const v = store.sourceVisibility(id);
+    expect(v.searchable).toBe(true);
+    expect(v.answerable).toBe(true);
+    expect(v.wikiEligible).toBe(false);
+    expect(v.syncable).toBe(false);
+    expect(v.exportable).toBe(false);
   });
 
   it("keeps profile-context docs out of the wiki and out of sync/export", async () => {

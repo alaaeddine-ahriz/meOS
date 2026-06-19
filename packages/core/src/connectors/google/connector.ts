@@ -60,6 +60,11 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       logo: "google-contacts",
       noun: { one: "contact", many: "contacts" },
       blurb: "The people you know, as entities in your graph.",
+      // An address book records that people exist; it doesn't author content about
+      // them. A contact stays searchable but earns no page until a calendar event,
+      // email, or note names them. Calendar/Gmail/Tasks below are content, so they
+      // are wiki-eligible (private — local wiki only — but not directory).
+      directory: true,
     },
     {
       kind: "calendar",

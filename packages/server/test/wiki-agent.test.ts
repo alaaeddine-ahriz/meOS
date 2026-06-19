@@ -121,6 +121,44 @@ describe("POST /api/wiki/agent/write + commit", () => {
     expect(secondParsed.committed).toEqual([]);
     expect(secondParsed.skipped.find((s) => s.slug === entity.slug)?.reason).toBe("unchanged");
   });
+
+  it("rejects a write to a non-page-worthy entity (a bare contact) with 400", async () => {
+    const { store } = server.ctx;
+    // A person known only from a directory connector (contacts) is not page-worthy:
+    // the agent is held to the same gate as the in-app maintainer, so it cannot mint
+    // an orphan stub the index/graph would never surface.
+    const entity = store.createEntity({ type: "person", name: "Directory Only" });
+    const src = store.createSource({
+      type: "google:contacts",
+      title: "Directory Only",
+      content: "contact",
+    });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Directory Only is a contact.",
+      sourceId: src,
+    });
+    expect(store.entityWarrantsWikiPage(entity.id)).toBe(false);
+
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/write",
+      payload: { slug: entity.slug, body: "Some prose the agent tried to mint." },
+    });
+    expect(res.statusCode).toBe(400);
+    // Nothing was staged.
+    expect(server.ctx.wiki.readPage(store.getEntity(entity.id)!)).toBeNull();
+
+    // An explicit commit of that slug is reported as skipped, never reconciled.
+    const commit = await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/commit",
+      payload: { slugs: [entity.slug] },
+    });
+    const parsed = wikiAgent.AgentCommitResponse.parse(commit.json());
+    expect(parsed.committed).toEqual([]);
+    expect(parsed.skipped.find((s) => s.slug === entity.slug)?.reason).toBe("not-page-worthy");
+  });
 });
 
 describe("GET/PUT /api/wiki/agent/mode", () => {

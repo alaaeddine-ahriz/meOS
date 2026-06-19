@@ -176,6 +176,16 @@ export function registerWikiAgentRoutes(app: FastifyInstance, ctx: AppContext): 
       const { slug, body } = parseOrThrow(wikiAgent.AgentWriteBody, request.body, "body");
       const entity = ctx.store.getEntityBySlug(slug);
       if (!entity) throw httpError.notFound("No such entity");
+      // The agent is a first-class peer to the in-app maintainer, held to the same
+      // gate: only entities that warrant a page (some source NAMES them — see
+      // entityWarrantsWikiPage) can be written. This stops the agent minting orphan
+      // stubs for bare contacts that the wiki index/graph would never surface.
+      if (!ctx.store.entityWarrantsWikiPage(entity.id))
+        throw httpError.badRequest(
+          `"${entity.name}" does not warrant a wiki page: no content source names it ` +
+            `(it is known only as a directory/connector reference). It stays searchable ` +
+            `and will earn a page automatically once a note, event, or email mentions it.`,
+        );
       const path = ctx.wiki.stageBody(entity, body);
       return wikiAgent.AgentWriteResponse.parse({
         slug,
@@ -206,16 +216,22 @@ export function registerWikiAgentRoutes(app: FastifyInstance, ctx: AppContext): 
         "body",
       );
       const missing: string[] = [];
-      const entities =
-        slugs && slugs.length > 0
-          ? entitiesForSlugs(slugs, missing)
-          : ctx.store.staleEntities().filter((e) => ctx.store.entityWarrantsWikiPage(e.id));
+      const explicit = slugs !== undefined && slugs.length > 0;
+      const resolved = explicit ? entitiesForSlugs(slugs, missing) : ctx.store.staleEntities();
+      // Same gate as write/queue: a non-page-worthy entity (no source NAMES it) is
+      // never committed. For an explicit slug we report it as skipped so the agent
+      // sees why; the no-slug drain just filters it out silently (it would never
+      // have been queued anyway).
+      const entities = resolved.filter((e) => ctx.store.entityWarrantsWikiPage(e.id));
+      const notWorthy = explicit
+        ? resolved.filter((e) => !ctx.store.entityWarrantsWikiPage(e.id))
+        : [];
 
       const committed: Array<{ slug: string; kind: "created" | "updated"; quality: number }> = [];
-      const skipped: Array<{ slug: string; reason: string }> = missing.map((slug) => ({
-        slug,
-        reason: "not-found",
-      }));
+      const skipped: Array<{ slug: string; reason: string }> = [
+        ...missing.map((slug) => ({ slug, reason: "not-found" })),
+        ...notWorthy.map((e) => ({ slug: e.slug, reason: "not-page-worthy" })),
+      ];
       const changes = [];
       for (const entity of entities) {
         const result = await ctx.wiki.reconcileFromDisk(entity, { authoredBy: "agent" });

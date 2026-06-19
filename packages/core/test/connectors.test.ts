@@ -923,7 +923,7 @@ describe("connector coverage state + structured sync metrics (#88)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(35);
+    expect(migrations.length).toBe(36);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -994,7 +994,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(35);
+    expect(migrations.length).toBe(36);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1076,7 +1076,7 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
   });
 });
 
-describe("connectors complement the wiki as references, not pages", () => {
+describe("content connectors name entities (pages); directory connectors stay references", () => {
   function setup() {
     const db = openDatabase(":memory:");
     const store = new KnowledgeStore(db);
@@ -1208,6 +1208,49 @@ describe("connectors complement the wiki as references, not pages", () => {
     await wiki.regenerateStale();
     expect(store.getEntity(person.id)!.wiki_stale).toBe(0);
     expect(wiki.readPage(store.getEntity(person.id)!)).toBeNull();
+
+    cleanup();
+  });
+
+  it("an entity named only by a content connector (a calendar event) earns a page", async () => {
+    const { store, pipeline, cleanup } = setup();
+    // No contact, no document — the ONLY mention of this place is a calendar event.
+    // A calendar source is a content connector (private, on-device) and now names
+    // entities into the local wiki, so the place warrants a page (any source that
+    // names it). This is the Casablanca case.
+    await pipeline.ingestExtraction({
+      type: "google:calendar",
+      title: "Flight AT 721 to Casablanca",
+      content: "Flight AT 721 to Casablanca",
+      path: "https://calendar.google.com/event/abc",
+      extraction: {
+        entities: [{ name: "Casablanca", type: "place", aliases: [], summary: "A city." }],
+        relationships: [],
+        observations: [
+          {
+            entity: "Casablanca",
+            claim: "Traveled to Casablanca on flight AT 721.",
+            kind: "fact",
+            sourceQuote: "Flight AT 721 to Casablanca",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+        ],
+      },
+    });
+
+    const place = store.findEntityByName("Casablanca")!;
+    // Content-connector backing → page-worthy, so it surfaces in the index + graph.
+    expect(store.entityWarrantsWikiPage(place.id)).toBe(true);
+    expect(store.wikiPageEntityIds().has(place.id)).toBe(true);
+    // The calendar source stays on-device — wiki-eligible but never synced/exported.
+    const calendar = store.sourcesForEntity(place.id).find((s) => s.type === "google:calendar")!;
+    const v = store.sourceVisibility(calendar.id);
+    expect(v.wikiEligible).toBe(true);
+    expect(v.syncable).toBe(false);
+    expect(v.exportable).toBe(false);
 
     cleanup();
   });
@@ -1397,18 +1440,21 @@ describe("connector manifest hygiene — scales without drift", () => {
     }
   });
 
-  it("private-by-default kinds inherit off-wiki/off-sync visibility from the registry", () => {
+  it("private-by-default kinds inherit off-sync visibility from the registry", () => {
     // Proves register() injected each built-in connector's privacy defaults — a new
-    // connector's data stays off the wiki + off portable artifacts with no extra wiring.
+    // connector's data stays off portable artifacts with no extra wiring. Private is
+    // now decoupled from the wiki: private content feeds the LOCAL wiki, and only
+    // directory/identity kinds (contacts) are additionally kept off it.
     for (const connector of connectorRegistry.list()) {
       for (const k of connector.manifest.kinds) {
         if (k.private === false) continue;
         const v = defaultVisibilityForType(k.sourceType);
-        expect(v.wikiEligible, `${k.sourceType} wikiEligible`).toBe(false);
+        // Off portable artifacts, but still usable locally (searchable + answerable).
         expect(v.syncable, `${k.sourceType} syncable`).toBe(false);
         expect(v.exportable, `${k.sourceType} exportable`).toBe(false);
-        // Still usable locally — searchable + answerable.
         expect(v.searchable && v.answerable, `${k.sourceType} searchable+answerable`).toBe(true);
+        // Content connectors feed the local wiki; directory/identity kinds do not.
+        expect(v.wikiEligible, `${k.sourceType} wikiEligible`).toBe(k.directory !== true);
       }
     }
   });
