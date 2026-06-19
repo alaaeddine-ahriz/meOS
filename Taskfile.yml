@@ -1,0 +1,161 @@
+# Taskfile for meOS — https://taskfile.dev
+#
+# Install go-task once:   brew install go-task/tap/go-task
+# Then:                   task            # list everything
+#                         task dev        # run the app
+#                         task check      # the full pre-merge gate
+#
+# Most tasks depend on `install`, which re-runs `pnpm install` ONLY when a package
+# manifest or the lockfile changed (fingerprinted via `sources`). That makes
+# `task dev` self-healing after a `git pull` that adds a dependency — the exact
+# "Cannot find module" failure you get from a stale node_modules.
+
+version: "3"
+
+vars:
+  LIBS: "--filter @meos/core --filter @meos/contracts"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  setup:
+    desc: Install dependencies unconditionally (fresh clone, or to repair node_modules)
+    cmds:
+      - pnpm install
+
+  install:
+    desc: Install dependencies if a manifest or the lockfile changed
+    internal: true
+    sources:
+      - pnpm-lock.yaml
+      - package.json
+      - packages/*/package.json
+    cmds:
+      - pnpm install
+
+  dev:
+    desc: Run the app in watch mode (core + contracts build, then server + web)
+    deps: [install]
+    cmds:
+      - pnpm dev
+
+  build:
+    desc: Build every package
+    deps: [install]
+    cmds:
+      - pnpm -r build
+
+  build:libs:
+    desc: Build the core + contracts libraries the app depends on
+    deps: [install]
+    cmds:
+      - pnpm {{.LIBS}} build
+
+  typecheck:
+    desc: Typecheck every package
+    deps: [install]
+    cmds:
+      - pnpm -r typecheck
+
+  test:
+    desc: Run the full test suite (core + server)
+    deps: [install]
+    cmds:
+      - pnpm test
+
+  test:unit:
+    desc: Run the core unit tests
+    deps: [install]
+    cmds:
+      - pnpm test:unit
+
+  test:integration:
+    desc: Run the server integration tests
+    deps: [install]
+    cmds:
+      - pnpm test:integration
+
+  test:e2e:
+    desc: Run the end-to-end ingest + smoke tests
+    deps: [install]
+    cmds:
+      - pnpm test:e2e
+
+  test:coverage:
+    desc: Run tests with coverage
+    deps: [install]
+    cmds:
+      - pnpm test:coverage
+
+  lint:
+    desc: Lint all sources (ESLint)
+    deps: [install]
+    cmds:
+      - pnpm lint
+
+  format:
+    desc: Format the repo with Prettier
+    cmds:
+      - pnpm format
+
+  format:check:
+    desc: Check formatting without writing changes
+    cmds:
+      - pnpm format:check
+
+  boundaries:
+    desc: Check module boundaries + import cycles (dependency-cruiser)
+    deps: [install]
+    cmds:
+      - pnpm boundaries
+
+  bench:
+    desc: Run the retrieval benchmarks
+    deps: [install]
+    cmds:
+      - pnpm bench
+
+  check:
+    desc: The full pre-merge gate — typecheck + test + lint + boundaries
+    deps: [install]
+    cmds:
+      - task: typecheck
+      - task: test
+      - task: lint
+      - task: boundaries
+
+  connector:new:
+    desc: "Scaffold a new connector — usage: task connector:new -- <id>"
+    cmds:
+      - pnpm connector:new {{.CLI_ARGS}}
+
+  desktop:
+    desc: Run the desktop (Tauri) shell in dev
+    deps: [install]
+    cmds:
+      - pnpm desktop
+
+  desktop:build:
+    desc: Bundle the desktop app
+    deps: [install]
+    cmds:
+      - pnpm desktop:build
+
+  dev:container:
+    desc: Run the dev stack in Docker
+    cmds:
+      - pnpm dev:container
+
+  audit:
+    desc: Audit production dependencies for known vulnerabilities
+    cmds:
+      - pnpm audit
+
+  clean:
+    desc: Remove build output + the go-task fingerprint cache
+    cmds:
+      - rm -rf packages/*/dist .task

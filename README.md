@@ -18,6 +18,23 @@ pnpm build
 node packages/server/dist/main.js     # serves API + UI on :4321
 ```
 
+### Tasks (go-task)
+
+A [`Taskfile.yml`](Taskfile.yml) wraps every common command behind
+[go-task](https://taskfile.dev) (`brew install go-task/tap/go-task`):
+
+```sh
+task                          # list all tasks
+task dev                      # run the app
+task check                    # full pre-merge gate: typecheck + test + lint + boundaries
+task connector:new -- notion  # scaffold a new connector
+```
+
+`task dev` (and most tasks) depend on an `install` step that re-runs `pnpm install`
+**only when a manifest or the lockfile changed** — so a `git pull` that adds a
+dependency never leaves you with a stale `node_modules` (the `Cannot find module …`
+build error). Run `task setup` to force a clean install.
+
 ## Run in a container
 
 Prefer not to install Node and native build tools? Start the server + web dev
