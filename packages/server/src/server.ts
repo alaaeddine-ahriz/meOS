@@ -10,6 +10,7 @@ import type { AppContext } from "./context.js";
 import { registerErrorHandler } from "./errors.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerActivityRoutes } from "./routes/activity.js";
+import { registerAgentToolRoutes } from "./routes/agent-tools.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { registerConnectorCatalogRoute } from "./routes/connector-catalog.js";
@@ -80,6 +81,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerMeetingRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
   registerWikiAgentRoutes(app, ctx);
+  registerAgentToolRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerActivityRoutes(app, ctx);

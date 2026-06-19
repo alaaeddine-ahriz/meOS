@@ -112,3 +112,30 @@ export function getExtractContext(sourceId: number): Promise<unknown> {
 export function postFacts(sourceId: number, extraction: unknown): Promise<unknown> {
   return request("POST", "/api/wiki/agent/facts", { sourceId, extraction });
 }
+
+// --- Connector agent tools (agent mode) -------------------------------
+// Live tools from the user's connected services (Google calendar/tasks/email/
+// contacts, …), executed server-side against the account's already-authorized
+// OAuth. The MCP server advertises these and proxies calls back to meOS.
+
+/** One connector tool's transport-neutral shape: name, prose, JSON-Schema inputs. */
+export interface ConnectorToolDescriptor {
+  name: string;
+  description: string;
+  /** JSON Schema for the tool's arguments. */
+  inputSchema: Record<string, unknown>;
+}
+
+export function getConnectorTools(): Promise<{
+  tools: ConnectorToolDescriptor[];
+  hints: string[];
+}> {
+  return request("GET", "/api/agent/connector-tools");
+}
+
+export function invokeConnectorTool(
+  name: string,
+  args: unknown,
+): Promise<{ result: string; isError: boolean }> {
+  return request("POST", `/api/agent/connector-tools/${encodeURIComponent(name)}`, args);
+}

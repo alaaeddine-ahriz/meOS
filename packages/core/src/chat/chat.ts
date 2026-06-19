@@ -1,6 +1,6 @@
 import type { ToolSet } from "ai";
+import { buildConnectorAgentTools } from "../connectors/agent-tools.js";
 import { connectorRegistry, type ConnectorRegistry } from "../connectors/registry.js";
-import { ensureAccessToken } from "../connectors/sync.js";
 import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
 import type { KnowledgeStore, SourceRef, SubgraphEdge, SubgraphNode } from "../knowledge/store.js";
@@ -69,33 +69,11 @@ export class ChatService {
    * costs no network (the token is minted lazily inside the tool's `execute`).
    */
   private connectorTools(): { tools: ToolSet; hints: string[] } {
-    const tools: ToolSet = {};
-    const hints: string[] = [];
-    for (const connector of this.connectors.list()) {
-      if (!connector.agentTools) continue;
-      const account = this.store.getConnectorAccount(connector.manifest.id);
-      if (!account || !(account.refresh_token || account.access_token)) continue;
-      const enabledKinds = new Set(
-        this.store
-          .listSyncState(account.id)
-          .filter((s) => s.enabled)
-          .map((s) => s.kind),
-      );
-      const contributed = connector.agentTools({
-        store: this.store,
-        embedder: this.embedder,
-        enabledKinds,
-        getAccessToken: async () => {
-          const fresh = this.store.getConnectorAccount(connector.manifest.id);
-          if (!fresh) throw new Error(`${connector.manifest.displayName} is no longer connected.`);
-          return ensureAccessToken(this.store, fresh, connector);
-        },
-      });
-      if (Object.keys(contributed).length === 0) continue;
-      Object.assign(tools, contributed);
-      if (connector.promptHint) hints.push(connector.promptHint);
-    }
-    return { tools, hints };
+    return buildConnectorAgentTools({
+      store: this.store,
+      embedder: this.embedder,
+      connectors: this.connectors,
+    });
   }
 
   /**

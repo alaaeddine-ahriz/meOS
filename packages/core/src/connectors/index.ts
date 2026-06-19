@@ -63,3 +63,5 @@ export type { EmailAddress, EmailMessageMeta } from "./map/email.js";
 export { mapTask } from "./map/tasks.js";
 export { ensureAccessToken, syncConnector } from "./sync.js";
 export type { SyncDeps, SyncResult } from "./sync.js";
+export { buildConnectorAgentTools, connectorToolDescriptors } from "./agent-tools.js";
+export type { ConnectorAgentTools, ConnectorToolDescriptor } from "./agent-tools.js";
