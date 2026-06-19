@@ -60,7 +60,13 @@ export type {
 } from "./schemas/meetings.js";
 export type { StaleFact, StaleFacts, RevisionStatus } from "./schemas/stale-facts.js";
 export type { NoteMeta, NoteContents } from "./schemas/vault.js";
-export type { Conversation, Message, ChatEvent, LlmErrorKind } from "./schemas/chat.js";
+export type {
+  Conversation,
+  Message,
+  ChatEvent,
+  LlmErrorKind,
+  CodingAgentSummary,
+} from "./schemas/chat.js";
 export type { WikiRun, WikiRunEvent, WikiRunEventKind, ActivityEvent } from "./schemas/activity.js";
 export type {
   ResolutionAction,

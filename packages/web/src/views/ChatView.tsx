@@ -13,6 +13,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   streamChat,
+  type CodingAgentSummary,
   type EntitySummary,
   type GraphLink,
   type GraphNode,
@@ -89,18 +90,24 @@ const SLASH_COMMANDS: Array<{ command: string; description: string }> = [
   { command: "/profile", description: "Tell MeOS what to change about your profile" },
 ];
 
-// Models the in-chat coding agent (Claude Code) can run with. Full model IDs,
-// not the bare `opus`/`sonnet`/`haiku` aliases: the installed CLI (v1.0.61) does
-// NOT resolve those aliases — it forwards them verbatim and the API 404s
-// ("model: haiku"). Verified end-to-end against the real CLI. Bump when newer
-// snapshots ship.
-const AGENT_MODELS: ReadonlyArray<{ value: string; label: string }> = [
-  { value: "claude-opus-4-8", label: "Opus" },
-  { value: "claude-sonnet-4-6", label: "Sonnet" },
-  { value: "claude-haiku-4-5", label: "Haiku" },
-];
-const DEFAULT_AGENT_MODEL = "claude-sonnet-4-6";
-const AGENT_MODEL_STORAGE_KEY = "meos.agentModel";
+// Which coding agent (Claude Code, Codex, Cursor, …) and model agent-mode runs
+// with. The available agents — and the models each offers — are discovered from
+// the server (`/api/coding-agents`, which probes PATH), so the picker only ever
+// lists agents this machine can actually run. The chosen agent + a per-agent
+// model are persisted so the choice survives a reload.
+const AGENT_ID_STORAGE_KEY = "meos.agentId";
+const agentModelKey = (agentId: string) => `meos.agentModel.${agentId}`;
+
+/** The persisted-or-default model for an agent (a stored value only if still offered). */
+function resolveAgentModel(agent: CodingAgentSummary): string {
+  try {
+    const stored = localStorage.getItem(agentModelKey(agent.id));
+    if (stored && agent.models.some((m) => m.value === stored)) return stored;
+  } catch {
+    // private mode / storage disabled — fall through to the agent's default
+  }
+  return agent.defaultModel;
+}
 
 // A `/profile` reply embeds the change as a diff between these markers (see the
 // server's profile-command). The chat renders it as a real diff + an action.
@@ -272,26 +279,63 @@ export function ChatView() {
   // agent mode lives here (not in Composer) so it stays on across the empty→
   // conversation transition, where a fresh Composer instance is mounted
   const [agentMode, setAgentMode] = useState(false);
-  // the model the coding agent runs with — persisted so the choice survives a
-  // reload, and kept here (like agentMode) so it spans the Composer remount
-  const [agentModel, setAgentModel] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(AGENT_MODEL_STORAGE_KEY);
-      // Only trust a persisted value that's still a known alias — a stale or
-      // hand-edited one would blank the picker and be sent as an unknown --model.
-      if (stored && AGENT_MODELS.some((m) => m.value === stored)) return stored;
-    } catch {
-      // private mode / storage disabled — fall through to the default
-    }
-    return DEFAULT_AGENT_MODEL;
-  });
+  // the coding agents installed on this machine, discovered from the server, plus
+  // the selected agent + its model — all kept here (like agentMode) so they span
+  // the Composer remount. Empty until the first fetch resolves.
+  const [agents, setAgents] = useState<CodingAgentSummary[]>([]);
+  const [agentId, setAgentId] = useState<string>("");
+  const [agentModel, setAgentModel] = useState<string>("");
+  // Discover all supported agents once, then settle on the persisted-or-first
+  // INSTALLED agent and its persisted-or-default model. Not-installed agents are
+  // still listed (greyed out), but never auto-selected.
   useEffect(() => {
+    let cancelled = false;
+    api
+      .listCodingAgents()
+      .then(({ agents: all }) => {
+        if (cancelled) return;
+        setAgents(all);
+        const installed = all.filter((a) => a.installed);
+        if (installed.length === 0) return; // picker shows the install hint
+        let storedId: string | null = null;
+        try {
+          storedId = localStorage.getItem(AGENT_ID_STORAGE_KEY);
+        } catch {
+          // storage disabled — fall back to the first installed agent
+        }
+        const chosen = installed.find((a) => a.id === storedId) ?? installed[0]!;
+        setAgentId(chosen.id);
+        setAgentModel(resolveAgentModel(chosen));
+      })
+      .catch(() => {
+        // server unreachable / older server without the route — leave the list
+        // empty; the picker shows a "no agents" hint and the toggle is inert.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Switch agent: remember it, and load that agent's persisted-or-default model.
+  // Ignore not-installed agents (they're shown greyed out, not selectable).
+  const handleAgentIdChange = (id: string) => {
+    const agent = agents.find((a) => a.id === id);
+    if (!agent || !agent.installed) return;
+    setAgentId(id);
+    setAgentModel(resolveAgentModel(agent));
     try {
-      localStorage.setItem(AGENT_MODEL_STORAGE_KEY, agentModel);
+      localStorage.setItem(AGENT_ID_STORAGE_KEY, id);
     } catch {
-      // private mode / storage disabled — the in-memory choice still applies
+      // storage disabled — the in-memory choice still applies
     }
-  }, [agentModel]);
+  };
+  const handleAgentModelChange = (model: string) => {
+    setAgentModel(model);
+    try {
+      if (agentId) localStorage.setItem(agentModelKey(agentId), model);
+    } catch {
+      // storage disabled — the in-memory choice still applies
+    }
+  };
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
@@ -389,7 +433,7 @@ export function ChatView() {
 
   const busy = status === "submitted" || status === "streaming";
 
-  const send = async (text: string, agent?: boolean, model?: string) => {
+  const send = async (text: string, agent?: boolean, model?: string, runAgentId?: string) => {
     const assistantIndex = messages.length + 1;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -413,6 +457,7 @@ export function ChatView() {
         agent,
         model,
         controller.signal,
+        runAgentId,
       )) {
         if (event.type !== "start" && event.type !== "done" && event.type !== "error") {
           produced = true;
@@ -544,8 +589,11 @@ export function ChatView() {
                 entities={entities}
                 agentMode={agentMode}
                 onAgentModeChange={setAgentMode}
+                agents={agents}
+                agentId={agentId}
+                onAgentIdChange={handleAgentIdChange}
                 agentModel={agentModel}
-                onAgentModelChange={setAgentModel}
+                onAgentModelChange={handleAgentModelChange}
               />
             </div>
 
@@ -644,7 +692,7 @@ export function ChatView() {
                               ) : trace && trace.length > 0 ? null : (
                                 <Shimmer className="text-sm" duration={1.6}>
                                   {agentTurns.get(index)
-                                    ? "Running Claude Code…"
+                                    ? `Running ${agents.find((a) => a.id === agentId)?.label ?? "the coding agent"}…`
                                     : "Consulting the knowledge base…"}
                                 </Shimmer>
                               )}
@@ -674,8 +722,11 @@ export function ChatView() {
                 entities={entities}
                 agentMode={agentMode}
                 onAgentModeChange={setAgentMode}
+                agents={agents}
+                agentId={agentId}
+                onAgentIdChange={handleAgentIdChange}
                 agentModel={agentModel}
-                onAgentModelChange={setAgentModel}
+                onAgentModelChange={handleAgentModelChange}
               />
             </div>
           </div>
@@ -841,22 +892,30 @@ function Composer({
   entities,
   agentMode,
   onAgentModeChange,
+  agents,
+  agentId,
+  onAgentIdChange,
   agentModel,
   onAgentModelChange,
 }: {
   status: ChatStatus;
   busy: boolean;
-  onSend: (text: string, agent?: boolean, model?: string) => void;
+  onSend: (text: string, agent?: boolean, model?: string, agentId?: string) => void;
   onStop: () => void;
   entities: EntitySummary[];
-  // Agent mode routes the turn to the local coding agent (Claude Code) instead
-  // of the knowledge-base assistant. Owned by ChatView so it stays sticky.
+  // Agent mode routes the turn to a local coding agent (Claude Code, Codex, …)
+  // instead of the knowledge-base assistant. Owned by ChatView so it stays sticky.
   agentMode: boolean;
   onAgentModeChange: (on: boolean) => void;
-  // The model the coding agent runs with (an alias: opus | sonnet | haiku).
+  // The coding agents installed on this machine, the selected one, and its model.
+  agents: CodingAgentSummary[];
+  agentId: string;
+  onAgentIdChange: (id: string) => void;
   agentModel: string;
   onAgentModelChange: (model: string) => void;
 }) {
+  const activeAgent = agents.find((a) => a.id === agentId);
+  const hasInstalledAgent = agents.some((a) => a.installed);
   const [wikiRefs, setWikiRefs] = useState<EntitySummary[]>([]);
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
   const [wikiPickerOpen, setWikiPickerOpen] = useState(false);
@@ -938,7 +997,12 @@ function Composer({
     if (wikiRefs.length > 0) parts.push(wikiRefs.map((e) => `[[${e.name}]]`).join(" "));
     for (const file of fileRefs) parts.push(`<file name="${file.name}">\n${file.text}\n</file>`);
     if (text) parts.push(text);
-    onSend(parts.join("\n\n"), agentMode, agentMode ? agentModel : undefined);
+    onSend(
+      parts.join("\n\n"),
+      agentMode,
+      agentMode ? agentModel : undefined,
+      agentMode ? agentId : undefined,
+    );
     setWikiRefs([]);
     setFileRefs([]);
   };
@@ -1019,7 +1083,7 @@ function Composer({
               onKeyDown={onCommandKeyDown}
               placeholder={
                 agentMode
-                  ? "Tell Claude Code what to build, edit, or run…"
+                  ? `Tell ${activeAgent?.label ?? "the agent"} what to build, edit, or run…`
                   : "Ask your second brain…  (type / for commands)"
               }
               className="min-h-12 text-[15px] text-paper placeholder:text-dim"
@@ -1047,7 +1111,7 @@ function Composer({
                 size="sm"
                 onClick={() => onAgentModeChange(!agentMode)}
                 aria-pressed={agentMode}
-                title="Run the local coding agent (Claude Code) for this turn"
+                title="Run a local coding agent (Claude Code, Codex, …) for this turn"
                 className={cn(
                   "h-7 gap-1.5 rounded-lg px-2 text-[12px] font-medium",
                   agentMode
@@ -1058,27 +1122,65 @@ function Composer({
                 <Terminal className="size-3.5" />
                 Agent
               </Button>
-              {agentMode && (
-                <PromptInputSelect value={agentModel} onValueChange={onAgentModelChange}>
-                  <PromptInputSelectTrigger
-                    title="Model the agent runs with"
-                    className="h-7 gap-1 rounded-lg px-2 text-[12px] text-dim hover:text-paper"
-                  >
-                    <PromptInputSelectValue />
-                  </PromptInputSelectTrigger>
-                  <PromptInputSelectContent className="border-line bg-desk">
-                    {AGENT_MODELS.map((model) => (
-                      <PromptInputSelectItem
-                        key={model.value}
-                        value={model.value}
-                        className="text-[13px] text-paper"
+              {agentMode &&
+                (agents.length === 0 ? (
+                  <span className="px-1 text-[12px] text-dim">No coding agents found</span>
+                ) : (
+                  <>
+                    {/* All supported agents: installed ones selectable, the rest
+                        greyed out with an install hint so the user sees what's available. */}
+                    <PromptInputSelect value={agentId} onValueChange={onAgentIdChange}>
+                      <PromptInputSelectTrigger
+                        title="Which coding agent to run"
+                        className="h-7 gap-1 rounded-lg px-2 text-[12px] text-dim hover:text-paper"
                       >
-                        {model.label}
-                      </PromptInputSelectItem>
-                    ))}
-                  </PromptInputSelectContent>
-                </PromptInputSelect>
-              )}
+                        {hasInstalledAgent ? (
+                          <PromptInputSelectValue />
+                        ) : (
+                          <span className="text-dim">No agents installed</span>
+                        )}
+                      </PromptInputSelectTrigger>
+                      <PromptInputSelectContent className="border-line bg-desk">
+                        {agents.map((agent) => (
+                          <PromptInputSelectItem
+                            key={agent.id}
+                            value={agent.id}
+                            disabled={!agent.installed}
+                            title={agent.installed ? undefined : agent.installHint}
+                            className={cn(
+                              "text-[13px]",
+                              agent.installed ? "text-paper" : "text-dim opacity-60",
+                            )}
+                          >
+                            {agent.label}
+                            {!agent.installed && " · not installed"}
+                          </PromptInputSelectItem>
+                        ))}
+                      </PromptInputSelectContent>
+                    </PromptInputSelect>
+                    {activeAgent?.installed && activeAgent.models.length > 0 && (
+                      <PromptInputSelect value={agentModel} onValueChange={onAgentModelChange}>
+                        <PromptInputSelectTrigger
+                          title="Model the agent runs with"
+                          className="h-7 gap-1 rounded-lg px-2 text-[12px] text-dim hover:text-paper"
+                        >
+                          <PromptInputSelectValue />
+                        </PromptInputSelectTrigger>
+                        <PromptInputSelectContent className="border-line bg-desk">
+                          {activeAgent.models.map((model) => (
+                            <PromptInputSelectItem
+                              key={model.value}
+                              value={model.value}
+                              className="text-[13px] text-paper"
+                            >
+                              {model.label}
+                            </PromptInputSelectItem>
+                          ))}
+                        </PromptInputSelectContent>
+                      </PromptInputSelect>
+                    )}
+                  </>
+                ))}
             </PromptInputTools>
             <PromptInputSubmit
               status={status}

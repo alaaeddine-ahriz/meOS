@@ -88,6 +88,7 @@ import type {
   AuditResponse,
   AuthStartResponse,
   BackfillWikiResponse,
+  CodingAgentSummary,
   ConsolidateResponse,
   ContradictionsResponse,
   CreateConversationResponse,
@@ -168,6 +169,7 @@ export type {
   TaskList,
   DiffFile,
   DuplicateProposal,
+  CodingAgentSummary,
   EntitySummary,
   GitCommit,
   GitCommitDetail,
@@ -292,6 +294,9 @@ async function json<T>(input: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Coding agents installed on this machine (Claude Code, Codex, Cursor, …) —
+  // drives the chat's agent-mode picker.
+  listCodingAgents: () => json<{ agents: CodingAgentSummary[] }>("/api/coding-agents"),
   listEntities: () => json<ListEntitiesResponse>("/api/wiki"),
   listSources: () => json<ListSourcesResponse>("/api/sources"),
   getSource: (id: number) => json<SourceDetailResponse>(`/api/sources/${id}`),
@@ -630,11 +635,12 @@ export async function* streamChat(
   agent?: boolean,
   model?: string,
   signal?: AbortSignal,
+  agentId?: string,
 ): AsyncGenerator<ChatEvent> {
   const response = await fetch(API_BASE + "/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, conversationId, agent, model }),
+    body: JSON.stringify({ message, conversationId, agent, agentId, model }),
     signal,
   });
   if (!response.ok || !response.body) {
