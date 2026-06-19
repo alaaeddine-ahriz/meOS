@@ -17,15 +17,38 @@ describe("GET /api/connectors", () => {
     const res = await server.app.inject({ method: "GET", url: "/api/connectors" });
     expect(res.statusCode).toBe(200);
     const parsed = connectors.ConnectorStatusSchema.parse(res.json());
-    expect(parsed.google.connected).toBe(false);
-    expect(parsed.google.hasCredentials).toBe(false);
+    const g = parsed.providers.find((p) => p.provider === "google")!;
+    expect(g.connected).toBe(false);
+    expect(g.hasCredentials).toBe(false);
     // Every known kind is reported, defaulted to disabled.
-    expect(parsed.google.kinds.map((k) => k.kind).sort()).toEqual([
-      "calendar",
-      "contacts",
-      "gmail",
-      "tasks",
-    ]);
+    expect(g.kinds.map((k) => k.kind).sort()).toEqual(["calendar", "contacts", "gmail", "tasks"]);
+  });
+});
+
+describe("GET /api/connectors/catalog", () => {
+  it("projects the registry into a secret-free catalog the UI renders from", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/connectors/catalog" });
+    expect(res.statusCode).toBe(200);
+    const catalog = connectors.ConnectorCatalogSchema.parse(res.json());
+
+    const google = catalog.connectors.find((c) => c.id === "google");
+    expect(google).toBeDefined();
+    expect(google!.logo).toBe("google");
+    expect(google!.auth.kind).toBe("oauth2");
+    // The catalog carries no secrets — only identity, branding, kinds, capabilities.
+    expect(JSON.stringify(google)).not.toMatch(/client_secret|access_token/);
+
+    // Every kind is fully resolved: logo, noun, and the private-by-default flag.
+    const gmail = google!.kinds.find((k) => k.kind === "gmail");
+    expect(gmail).toMatchObject({
+      sourceType: "google:gmail",
+      logo: "gmail",
+      noun: { one: "email", many: "emails" },
+      private: true,
+    });
+    expect(gmail!.capabilities).toMatchObject({ coverageWindow: true, labelFilters: true });
+    const tasks = google!.kinds.find((k) => k.kind === "tasks");
+    expect(tasks!.capabilities).toMatchObject({ writeable: true });
   });
 });
 
@@ -49,7 +72,8 @@ describe("PUT /api/connectors/google/credentials", () => {
     });
     expect(res.statusCode).toBe(200);
     const parsed = connectors.ConnectorStatusSchema.parse(res.json());
-    expect(parsed.google.hasCredentials).toBe(true);
+    const g = parsed.providers.find((p) => p.provider === "google")!;
+    expect(g.hasCredentials).toBe(true);
   });
 });
 
@@ -120,7 +144,8 @@ describe("connector coverage in status (#68/#88)", () => {
     // the status view reports the additive coverage info per kind.
     const res = await server.app.inject({ method: "GET", url: "/api/connectors" });
     const parsed = connectors.ConnectorStatusSchema.parse(res.json());
-    const gmail = parsed.google.kinds.find((k) => k.kind === "gmail");
+    const g = parsed.providers.find((p) => p.provider === "google")!;
+    const gmail = g.kinds.find((k) => k.kind === "gmail");
     // Coverage is optional in the contract; when present it defaults sensibly.
     if (gmail?.coverage) {
       expect(gmail.coverage.coverageWindow ?? "recent").toBe("recent");
@@ -138,7 +163,8 @@ describe("connector coverage in status (#68/#88)", () => {
     });
     expect(res.statusCode).toBe(200);
     const parsed = connectors.ConnectorStatusSchema.parse(res.json());
-    const gmail = parsed.google.kinds.find((k) => k.kind === "gmail");
+    const g = parsed.providers.find((p) => p.provider === "google")!;
+    const gmail = g.kinds.find((k) => k.kind === "gmail");
     expect(gmail?.coverage?.includeLabels).toEqual(["Work"]);
     expect(gmail?.coverage?.excludeLabels).toEqual(["Promotions"]);
   });
@@ -151,7 +177,8 @@ describe("connector coverage in status (#68/#88)", () => {
     });
     expect(res.statusCode).toBe(200);
     const parsed = connectors.ConnectorStatusSchema.parse(res.json());
-    const tasks = parsed.google.kinds.find((k) => k.kind === "tasks");
+    const g = parsed.providers.find((p) => p.provider === "google")!;
+    const tasks = g.kinds.find((k) => k.kind === "tasks");
     expect(tasks?.coverage?.enabledTaskLists).toEqual(["list-a"]);
   });
 

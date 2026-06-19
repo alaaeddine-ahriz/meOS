@@ -26,8 +26,9 @@ import type {
   OAuthProvider,
   SyncContext,
 } from "../src/connectors/framework.js";
-import { ConnectorRegistry } from "../src/connectors/registry.js";
+import { connectorRegistry, ConnectorRegistry } from "../src/connectors/registry.js";
 import { syncConnector } from "../src/connectors/sync.js";
+import { defaultVisibilityForType } from "../src/knowledge/visibility.js";
 import { deriveCoverageState } from "../src/connectors/types.js";
 
 const self: SelfIdentity = { name: "Ada Lovelace", email: "ada@example.com" };
@@ -1356,5 +1357,53 @@ describe("connector index vs wiki mode", () => {
     });
     expect(refreshes()).toBeGreaterThan(0);
     cleanup();
+  });
+});
+
+describe("connector manifest hygiene — scales without drift", () => {
+  // The catalog + all views derive from these manifests, so incomplete or colliding
+  // metadata is the class of bug behind the old "tasks chip had no icon" drift. This
+  // guard fails the moment a registered connector declares an incomplete/duplicate kind.
+  it("every registered connector + kind declares complete, unique catalog metadata", () => {
+    const seenSourceTypes = new Set<string>();
+    for (const connector of connectorRegistry.list()) {
+      const m = connector.manifest;
+      expect(m.id, "connector id").toBeTruthy();
+      expect(m.displayName, `${m.id} displayName`).toBeTruthy();
+      expect(m.logo, `${m.id} logo id`).toBeTruthy();
+      expect(m.kinds.length, `${m.id} has at least one kind`).toBeGreaterThan(0);
+      // OAuth connectors must expose an OAuth surface; basic ones must declare fields.
+      if (m.auth.kind === "oauth2") expect(connector.oauth, `${m.id} oauth surface`).toBeDefined();
+      else expect(m.auth.fields.length, `${m.id} basic auth fields`).toBeGreaterThan(0);
+      for (const k of m.kinds) {
+        expect(k.displayName, `${m.id}.${k.kind} displayName`).toBeTruthy();
+        // A logo id always resolves (the kind's, falling back to the connector's).
+        expect(k.logo ?? m.logo, `${m.id}.${k.kind} logo id`).toBeTruthy();
+        // sourceType is "<provider>:<kind>" and globally unique — one chip/visibility key.
+        expect(k.sourceType, `${m.id}.${k.kind} sourceType shape`).toMatch(
+          /^[a-z0-9-]+:[a-z0-9-]+$/,
+        );
+        expect(seenSourceTypes.has(k.sourceType), `duplicate sourceType ${k.sourceType}`).toBe(
+          false,
+        );
+        seenSourceTypes.add(k.sourceType);
+      }
+    }
+  });
+
+  it("private-by-default kinds inherit off-wiki/off-sync visibility from the registry", () => {
+    // Proves register() injected each built-in connector's privacy defaults — a new
+    // connector's data stays off the wiki + off portable artifacts with no extra wiring.
+    for (const connector of connectorRegistry.list()) {
+      for (const k of connector.manifest.kinds) {
+        if (k.private === false) continue;
+        const v = defaultVisibilityForType(k.sourceType);
+        expect(v.wikiEligible, `${k.sourceType} wikiEligible`).toBe(false);
+        expect(v.syncable, `${k.sourceType} syncable`).toBe(false);
+        expect(v.exportable, `${k.sourceType} exportable`).toBe(false);
+        // Still usable locally — searchable + answerable.
+        expect(v.searchable && v.answerable, `${k.sourceType} searchable+answerable`).toBe(true);
+      }
+    }
   });
 });

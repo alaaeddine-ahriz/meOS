@@ -59,13 +59,28 @@ export const ConnectorHealthSchema = z.object({
   lastError: z.string().nullable(),
 });
 
-/** The connectors category (#87): the connected account + its per-kind health. */
-export const ConnectorsHealthSchema = z.object({
-  /** Whether a Google account is connected at all. */
+/** One connected (or connectable) provider account's health (#87). */
+export const ConnectorAccountHealthSchema = z.object({
+  /** The provider id, matching a catalog connector (e.g. "google"). */
+  provider: z.string(),
+  /** The provider's display name, so the UI labels it without the catalog. */
+  displayName: z.string(),
+  /** Whether this provider's account is connected at all. */
   connected: z.boolean(),
   accountEmail: z.string().nullable(),
   health: HealthLabelSchema,
   kinds: z.array(ConnectorHealthSchema),
+});
+
+/**
+ * The connectors category (#87): per-provider account health. Multi-provider — an
+ * ARRAY of accounts (one per registered connector), plus an aggregate health for the
+ * section header. The web app iterates `providers` and joins each to the catalog.
+ */
+export const ConnectorsHealthSchema = z.object({
+  /** Aggregate health across every connected provider (for the section header). */
+  health: HealthLabelSchema,
+  providers: z.array(ConnectorAccountHealthSchema),
 });
 
 /** A job currently being processed (#87) — the "currently syncing/indexing" view. */
@@ -149,6 +164,7 @@ export type HealthLabel = z.infer<typeof HealthLabelSchema>;
 export type SourceCounts = z.infer<typeof SourceCountsSchema>;
 export type LocalFoldersHealth = z.infer<typeof LocalFoldersHealthSchema>;
 export type ConnectorHealth = z.infer<typeof ConnectorHealthSchema>;
+export type ConnectorAccountHealth = z.infer<typeof ConnectorAccountHealthSchema>;
 export type ConnectorsHealth = z.infer<typeof ConnectorsHealthSchema>;
 export type RunningJob = z.infer<typeof RunningJobSchema>;
 export type RecentFailure = z.infer<typeof RecentFailureSchema>;

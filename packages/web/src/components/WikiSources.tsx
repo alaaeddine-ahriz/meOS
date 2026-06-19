@@ -1,6 +1,6 @@
 import { FileText, Plug } from "lucide-react";
 import type { ComponentType } from "react";
-import { SERVICE_BRANDS, SERVICE_ORDER } from "@/components/brand-logos";
+import { type ConnectorCatalogApi, useConnectorCatalog } from "@/hooks/use-connector-catalog";
 import {
   Dialog,
   DialogContent,
@@ -45,9 +45,10 @@ type Chip =
 /**
  * Collapse a flat source list into display chips: one chip per connector service
  * (carrying all its references), and one chip per file. Connectors lead, in the
- * canonical service order, then files in their given order.
+ * catalog's global kind order, then files in their given order. Service labels +
+ * logos come from the connector catalog (so e.g. `google:tasks` resolves).
  */
-function buildChips(sources: SourceRef[]): Chip[] {
+function buildChips(sources: SourceRef[], catalog: ConnectorCatalogApi): Chip[] {
   const byService = new Map<string, SourceRef[]>();
   const files: SourceRef[] = [];
   for (const source of sources) {
@@ -58,18 +59,14 @@ function buildChips(sources: SourceRef[]): Chip[] {
     }
   }
 
-  const orderOf = (type: string) => {
-    const i = SERVICE_ORDER.indexOf(type as (typeof SERVICE_ORDER)[number]);
-    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
-  };
-
   const chips: Chip[] = [...byService.entries()]
-    .sort(([a], [b]) => orderOf(a) - orderOf(b))
-    .map(([type, refs]) => ({
+    .map(([type, refs]) => ({ type, refs, brand: catalog.brandForSourceType(type) }))
+    .sort((a, b) => a.brand.order - b.brand.order)
+    .map(({ type, refs, brand }) => ({
       kind: "connector" as const,
       key: type,
-      label: SERVICE_BRANDS[type]?.label ?? type,
-      Logo: SERVICE_BRANDS[type]?.Logo ?? null,
+      label: brand.label,
+      Logo: brand.Logo,
       refs,
     }));
   for (const source of files) {
@@ -202,8 +199,9 @@ function AllSourcesDialog({ chips, hiddenCount }: { chips: Chip[]; hiddenCount: 
  * an "and N others" link that opens the full list in a dialog.
  */
 export function WikiSources({ sources }: { sources: SourceRef[] }) {
+  const catalog = useConnectorCatalog();
   if (sources.length === 0) return null;
-  const chips = buildChips(sources);
+  const chips = buildChips(sources, catalog);
   const visible = chips.slice(0, MAX_VISIBLE);
   const hiddenCount = chips.length - visible.length;
 

@@ -26,14 +26,12 @@ import {
 import { type ComponentType, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   AnthropicLogo,
-  GmailLogo,
-  GoogleCalendarLogo,
-  GoogleContactsLogo,
+  brandLogo,
   GoogleLogo,
-  GoogleTasksLogo,
   OpenAILogo,
   OpenRouterLogo,
 } from "@/components/brand-logos";
+import { useConnectorCatalog } from "@/hooks/use-connector-catalog";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "@/components/DiffView";
 import {
@@ -63,6 +61,8 @@ import {
 import { cn } from "@/lib/utils";
 import {
   api,
+  type CatalogConnector,
+  type CatalogKind,
   type CloudProvider,
   type ConnectorKind,
   type ConnectorStatus,
@@ -73,6 +73,7 @@ import {
   type LlmProvider,
   type LlmSettings,
   type ObservationKindName,
+  type ProviderStatus,
   type WatchedFolder,
 } from "../api.js";
 
@@ -1063,34 +1064,6 @@ function FoldersSection() {
 
 type BrandLogo = ComponentType<{ className?: string }>;
 
-const KIND_META: Record<
-  ConnectorKind,
-  { label: string; Logo: BrandLogo; blurb: string; writeNotice?: string }
-> = {
-  contacts: {
-    label: "Contacts",
-    Logo: GoogleContactsLogo,
-    blurb: "People, with email and phone (kept private).",
-  },
-  calendar: {
-    label: "Calendar",
-    Logo: GoogleCalendarLogo,
-    blurb: "Events and who you met with.",
-  },
-  gmail: { label: "Gmail", Logo: GmailLogo, blurb: "Who you correspond with (metadata only)." },
-  tasks: {
-    label: "Tasks",
-    Logo: GoogleTasksLogo,
-    blurb: "Your to-dos from Google Tasks, by list.",
-    // This is meOS's only read/write connector — make the capability explicit.
-    writeNotice: "Read & write — meOS can create tasks in your Google Tasks.",
-  },
-};
-
-/** The services to show as cards, in display order. Drives the card list so all
- * cards render even before connecting, regardless of what kinds a server reports. */
-const KIND_ORDER: ConnectorKind[] = ["contacts", "calendar", "gmail", "tasks"];
-
 /** The coverage windows offered in the UI, ordered narrowest → broadest (#68). */
 const COVERAGE_WINDOWS: Array<{ value: string; label: string }> = [
   { value: "recent", label: "Recent" },
@@ -1176,21 +1149,17 @@ function LabelFilterControl({
   );
 }
 
+/**
+ * The Connectors settings panel: one block per catalog connector, rendered from
+ * the server-driven catalog joined to its live {@link ProviderStatus}. No
+ * Google-specific branching — a connector's auth model, kinds, and per-kind
+ * capabilities (coverage window, label filters, sub-resource pickers) come from
+ * the catalog, so a newly-registered connector appears with no UI change.
+ */
 function ConnectorsSection() {
+  const catalog = useConnectorCatalog();
   const [status, setStatus] = useState<ConnectorStatus | null>(null);
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [busy, setBusy] = useState<null | "creds" | "connect">(null);
   const [error, setError] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
-  // Which service's inline settings panel is expanded (one at a time).
-  const [openKind, setOpenKind] = useState<ConnectorKind | null>(null);
-  // The user's Google calendars, loaded lazily when Calendar is connected (#68).
-  const [calendars, setCalendars] = useState<
-    Array<{ id: string; summary: string; primary: boolean }>
-  >([]);
-  // The user's Google Tasks lists, for the per-list selection UI (#88).
-  const [taskLists, setTaskLists] = useState<Array<{ id: string; title: string }>>([]);
 
   const refresh = () =>
     api
@@ -1202,68 +1171,154 @@ function ConnectorsSection() {
     refresh();
   }, []);
 
-  const google = status?.google;
+  return (
+    <section className="flex flex-col gap-5">
+      {!catalog.loaded && !status ? (
+        <p className="text-sm text-dim">Loading connectors…</p>
+      ) : catalog.connectors.length === 0 ? (
+        <p className="text-sm text-dim">No connectors are available.</p>
+      ) : (
+        catalog.connectors.map((connector) => (
+          <ConnectorProviderBlock
+            key={connector.id}
+            connector={connector}
+            provider={status?.providers.find((p) => p.provider === connector.id)}
+            onStatus={setStatus}
+            refresh={refresh}
+            onError={setError}
+          />
+        ))
+      )}
 
-  // Task creation lives in the API (`api.createGoogleTask`) for a future agent
-  // tool; it is intentionally no longer wired to any UI here.
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
+    </section>
+  );
+}
 
-  // Load the calendar list once Google is connected so the multi-calendar picker
-  // has options (#68). Best-effort — a failure just leaves the picker empty.
+/**
+ * One connector's settings block: account connection (OAuth or basic
+ * credentials), account-wide sync controls, then a switch + inline settings per
+ * kind. Everything is driven by the catalog `connector` and the live
+ * `provider` status, so the same component renders every connector.
+ */
+function ConnectorProviderBlock({
+  connector,
+  provider,
+  onStatus,
+  refresh,
+  onError,
+}: {
+  connector: CatalogConnector;
+  provider?: ProviderStatus;
+  onStatus: (status: ConnectorStatus) => void;
+  refresh: () => Promise<void> | void;
+  onError: (message: string | null) => void;
+}) {
+  const providerId = connector.id;
+  const isOAuth = connector.auth.kind === "oauth2";
+  // OAuth credentials (the user's own client) — only used for oauth2 connectors.
+  const [clientId, setClientId] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
+  // Basic-auth field values, keyed by the catalog field key.
+  const [basicFields, setBasicFields] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<null | "creds" | "connect">(null);
+  const [showHelp, setShowHelp] = useState(false);
+  // Which kind's inline settings panel is expanded (one at a time).
+  const [openKind, setOpenKind] = useState<string | null>(null);
+  // The provider's calendars / task lists, loaded lazily when connected (#68).
+  const [calendars, setCalendars] = useState<
+    Array<{ id: string; summary: string; primary: boolean }>
+  >([]);
+  const [taskLists, setTaskLists] = useState<Array<{ id: string; title: string }>>([]);
+
+  const connected = provider?.connected ?? false;
+  const hasCredentials = provider?.hasCredentials ?? false;
+
+  // Whether any kind exposes a calendar / task-list sub-resource picker, so we
+  // only fetch those lists when a kind actually needs them.
+  const wantsCalendars = connector.kinds.some((k) => k.capabilities.subResources === "calendars");
+  const wantsTaskLists = connector.kinds.some((k) => k.capabilities.subResources === "taskLists");
+
+  // Load the calendar / task lists once connected so the pickers have options
+  // (#68). Best-effort — a failure just leaves a picker empty.
   useEffect(() => {
-    if (!google?.connected) return;
-    api
-      .listGoogleCalendars()
-      .then((r) => setCalendars(r.calendars))
-      .catch(() => {});
-    api
-      .listGoogleTaskLists()
-      .then((r) => setTaskLists(r.lists))
-      .catch(() => {});
-  }, [google?.connected]);
+    if (!connected) return;
+    if (wantsCalendars) {
+      api
+        .listCalendars(providerId)
+        .then((r) => setCalendars(r.calendars))
+        .catch(() => {});
+    }
+    if (wantsTaskLists) {
+      api
+        .listTaskLists(providerId)
+        .then((r) => setTaskLists(r.lists))
+        .catch(() => {});
+    }
+  }, [connected, providerId, wantsCalendars, wantsTaskLists]);
 
-  const saveCredentials = async () => {
-    if (!clientId.trim() || !clientSecret.trim()) return;
+  const saveCredentials = async (fields: Record<string, string>) => {
     setBusy("creds");
-    setError(null);
+    onError(null);
     try {
-      setStatus(await api.saveGoogleCredentials(clientId.trim(), clientSecret.trim()));
-      setClientSecret("");
+      onStatus(await api.saveCredentials(providerId, fields));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   };
 
+  const saveOAuthCredentials = async () => {
+    if (!clientId.trim() || !clientSecret.trim()) return;
+    await saveCredentials({ clientId: clientId.trim(), clientSecret: clientSecret.trim() });
+    setClientSecret("");
+  };
+
+  const saveBasicCredentials = async () => {
+    if (connector.auth.kind !== "basic") return;
+    const missing = connector.auth.fields.some(
+      (f) => f.required && !(basicFields[f.key] ?? "").trim(),
+    );
+    if (missing) return;
+    await saveCredentials(basicFields);
+    setBasicFields({});
+  };
+
   const connect = async () => {
     setBusy("connect");
-    setError(null);
+    onError(null);
     try {
-      const { url } = await api.startGoogleAuth();
+      const { url } = await api.startAuth(providerId);
       await openExternal(url);
       // Poll until the loopback callback records tokens (or the user gives up).
       const started = Date.now();
       const poll = setInterval(async () => {
         const next = await api.getConnectors().catch(() => null);
-        if (next?.google.connected || Date.now() - started > 3 * 60_000) {
+        const me = next?.providers.find((p) => p.provider === providerId);
+        if (me?.connected || Date.now() - started > 3 * 60_000) {
           clearInterval(poll);
-          if (next) setStatus(next);
+          if (next) onStatus(next);
           setBusy(null);
         }
       }, 2000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
       setBusy(null);
     }
   };
 
   const disconnect = async () => {
-    setError(null);
+    onError(null);
     try {
-      await api.disconnectGoogle();
-      refresh();
+      await api.disconnect(providerId);
+      void refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -1282,192 +1337,215 @@ function ConnectorsSection() {
       reset?: boolean;
     },
   ) => {
-    setError(null);
+    onError(null);
     try {
-      setStatus(await api.configureConnectorKind(kind, config));
+      onStatus(await api.configureConnectorKind(providerId, kind, config));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const syncNow = async (kind: ConnectorKind) => {
-    setError(null);
+    onError(null);
     try {
-      await api.syncConnectorKind(kind);
+      await api.syncConnectorKind(providerId, kind);
       // Status (last-synced) updates a moment after the queued sync runs.
       setTimeout(refresh, 2500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  // Reset & re-import (#88): clear the cursor + backfill and pull the whole window
-  // from scratch. Used when coverage looks wrong/partial and the user wants a fresh,
-  // complete re-index.
+  // Reset & re-import (#88): clear the cursor + backfill and pull the whole
+  // window from scratch.
   const resetKind = async (kind: ConnectorKind) => {
-    setError(null);
+    onError(null);
     try {
-      setStatus(await api.configureConnectorKind(kind, { reset: true }));
+      onStatus(await api.configureConnectorKind(providerId, kind, { reset: true }));
       setTimeout(refresh, 2500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      onError(e instanceof Error ? e.message : String(e));
     }
   };
 
   // Sync delay and coverage are account-wide in the UI, so a change fans out to
-  // every kind Google exposes (coverage only to the kinds that actually use it).
-  const coverageKind = (kind: ConnectorKind) => kind === "gmail" || kind === "calendar";
+  // every kind (coverage only to the kinds whose capabilities use it).
+  const supportsCoverage = (kind: string) =>
+    connector.kinds.find((k) => k.kind === kind)?.capabilities.coverageWindow ?? false;
   const configureAll = async (
     config: Parameters<typeof configure>[1],
-    predicate: (kind: ConnectorKind) => boolean = () => true,
+    predicate: (kind: string) => boolean = () => true,
   ) => {
-    for (const k of google?.kinds ?? []) {
+    for (const k of provider?.kinds ?? []) {
       if (predicate(k.kind)) await configure(k.kind, config);
     }
   };
   const syncAll = () => {
-    for (const k of google?.kinds ?? []) if (k.enabled) void syncNow(k.kind);
+    for (const k of provider?.kinds ?? []) if (k.enabled) void syncNow(k.kind);
   };
 
-  // Display order: the canonical list first, then any extra kinds the server
-  // reports — so a newly-registered Google service shows up with no UI change.
-  const serviceKinds: ConnectorKind[] = [
-    ...KIND_ORDER,
-    ...(google?.kinds ?? []).map((k) => k.kind).filter((kind) => !KIND_ORDER.includes(kind)),
-  ];
-  const metaFor = (kind: ConnectorKind) =>
-    KIND_META[kind] ?? {
-      label: kind.charAt(0).toUpperCase() + kind.slice(1),
-      Logo: GoogleLogo,
-      blurb: "",
-      writeNotice: undefined as string | undefined,
-    };
+  // The kinds to render, in catalog order, then any extra kinds the server
+  // reports that the catalog doesn't know about (so nothing is hidden).
+  const catalogKinds = connector.kinds.map((k) => k.kind);
+  const extraKinds = (provider?.kinds ?? [])
+    .map((k) => k.kind)
+    .filter((kind) => !catalogKinds.includes(kind));
+  const kindMetaFor = (kind: string): CatalogKind | undefined =>
+    connector.kinds.find((k) => k.kind === kind);
 
   // The account-wide defaults the common controls bind to.
-  const commonInterval = google?.kinds[0]?.intervalMinutes ?? 60;
+  const commonInterval =
+    provider?.kinds[0]?.intervalMinutes ?? connector.kinds[0]?.defaultIntervalMinutes ?? 60;
   const commonCoverage =
-    google?.kinds.find((k) => coverageKind(k.kind))?.coverage?.coverageWindow ?? "recent";
+    provider?.kinds.find((k) => supportsCoverage(k.kind))?.coverage?.coverageWindow ?? "recent";
+
+  const ProviderLogo = brandLogo(connector.logo);
+  // The Google connector ships a step-by-step OAuth help dialog; other oauth2
+  // connectors simply don't offer "Show me how".
+  const hasHelp = isOAuth && providerId === "google";
 
   return (
-    <section className="flex flex-col gap-5">
-      {/* One provider block for Google: account connection up top, account-wide
-          sync controls, then a switch per service. The service list is driven by
-          what the connector reports, so new Google services appear on their own. */}
-      <div className="overflow-hidden rounded-xl border border-line bg-card/40">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <GoogleLogo className="size-6 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-medium text-paper">Google</div>
-            <div className="flex items-center gap-1.5 text-[12px] text-dim">
-              <span
-                className={cn(
-                  "size-1.5 rounded-full",
-                  google?.connected ? "bg-emerald-500" : "bg-dim",
-                )}
-              />
-              {google?.connected
-                ? google.accountEmail
-                  ? `Connected — ${google.accountEmail}`
-                  : "Connected"
-                : "Not connected"}
-            </div>
+    <div className="overflow-hidden rounded-xl border border-line bg-card/40">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <ProviderLogo className="size-6 shrink-0" />
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] font-medium text-paper">{connector.displayName}</div>
+          <div className="flex items-center gap-1.5 text-[12px] text-dim">
+            <span
+              className={cn("size-1.5 rounded-full", connected ? "bg-emerald-500" : "bg-dim")}
+            />
+            {connected
+              ? provider?.accountEmail
+                ? `Connected — ${provider.accountEmail}`
+                : "Connected"
+              : "Not connected"}
           </div>
-          {google?.connected ? (
-            <Button
-              variant="outline"
-              onClick={() => void disconnect()}
-              className={actionButtonClass}
-            >
-              Disconnect
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowHelp(true)}
-              className="text-dim hover:text-paper"
-            >
-              Show me how
-            </Button>
+          {!connected && connector.summary && (
+            <div className="mt-0.5 text-[12px] text-dim">{connector.summary}</div>
           )}
         </div>
+        {connected ? (
+          <Button variant="outline" onClick={() => void disconnect()} className={actionButtonClass}>
+            Disconnect
+          </Button>
+        ) : hasHelp ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowHelp(true)}
+            className="text-dim hover:text-paper"
+          >
+            Show me how
+          </Button>
+        ) : null}
+      </div>
 
-        {/* OAuth credentials (the user's own Google Desktop client) until linked. */}
-        {!google?.connected && (
-          <div className="flex flex-col gap-3 border-t border-line px-4 py-3">
-            <span className="text-[13px] text-faded">
-              Google OAuth credentials (Desktop app client)
-            </span>
+      {/* Credentials form, derived from the connector's auth model, until linked. */}
+      {!connected && isOAuth && (
+        <div className="flex flex-col gap-3 border-t border-line px-4 py-3">
+          <span className="text-[13px] text-faded">
+            {connector.displayName} OAuth credentials (Desktop app client)
+          </span>
+          <Input
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            placeholder={hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"}
+            aria-label={`${connector.displayName} OAuth client ID`}
+            autoComplete="off"
+            className={inputClass}
+          />
+          <div className="flex items-center gap-3">
             <Input
-              value={clientId}
-              onChange={(e) => setClientId(e.target.value)}
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              type="password"
               placeholder={
-                google?.hasCredentials ? "•••• client ID saved — paste to replace" : "Client ID"
+                hasCredentials ? "•••• client secret saved — paste to replace" : "Client secret"
               }
-              aria-label="Google OAuth client ID"
+              aria-label={`${connector.displayName} OAuth client secret`}
               autoComplete="off"
               className={inputClass}
             />
-            <div className="flex items-center gap-3">
-              <Input
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                type="password"
-                placeholder={
-                  google?.hasCredentials
-                    ? "•••• client secret saved — paste to replace"
-                    : "Client secret"
-                }
-                aria-label="Google OAuth client secret"
-                autoComplete="off"
-                className={inputClass}
-              />
-              <Button
-                variant="outline"
-                onClick={() => void saveCredentials()}
-                disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
-                className={actionButtonClass}
-              >
-                {busy === "creds" ? "Saving…" : "Save"}
-              </Button>
-            </div>
             <Button
               variant="outline"
-              onClick={() => void connect()}
-              disabled={!google?.hasCredentials || busy === "connect"}
+              onClick={() => void saveOAuthCredentials()}
+              disabled={busy === "creds" || !clientId.trim() || !clientSecret.trim()}
               className={actionButtonClass}
             >
-              {busy === "connect" ? "Waiting for Google…" : "Connect Google"}
+              {busy === "creds" ? "Saving…" : "Save"}
             </Button>
           </div>
-        )}
+          <Button
+            variant="outline"
+            onClick={() => void connect()}
+            disabled={!hasCredentials || busy === "connect"}
+            className={actionButtonClass}
+          >
+            {busy === "connect"
+              ? `Waiting for ${connector.displayName}…`
+              : `Connect ${connector.displayName}`}
+          </Button>
+        </div>
+      )}
 
-        {/* Account-wide sync controls — apply to every enabled service. */}
-        {google?.connected && (
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line px-4 py-2.5 text-[12px] text-dim">
-            <label className="flex items-center gap-2">
-              sync every
-              <Input
-                key={commonInterval}
-                type="number"
-                min={1}
-                defaultValue={commonInterval}
-                onBlur={(e) => {
-                  const value = Number(e.target.value);
-                  if (Number.isFinite(value) && value >= 1 && value !== commonInterval) {
-                    void configureAll({ intervalMinutes: value });
-                  }
-                }}
-                className={cn(inputClass, "h-7 w-16")}
-              />
-              min
-            </label>
+      {!connected && connector.auth.kind === "basic" && (
+        <div className="flex flex-col gap-3 border-t border-line px-4 py-3">
+          <span className="text-[13px] text-faded">{connector.displayName} credentials</span>
+          {connector.auth.fields.map((field) => (
+            <Input
+              key={field.key}
+              value={basicFields[field.key] ?? ""}
+              onChange={(e) => setBasicFields((prev) => ({ ...prev, [field.key]: e.target.value }))}
+              type={field.type}
+              placeholder={
+                field.placeholder ?? (hasCredentials ? `•••• ${field.label} saved` : field.label)
+              }
+              aria-label={field.label}
+              autoComplete="off"
+              className={inputClass}
+            />
+          ))}
+          <Button
+            variant="outline"
+            onClick={() => void saveBasicCredentials()}
+            disabled={
+              busy === "creds" ||
+              connector.auth.fields.some((f) => f.required && !(basicFields[f.key] ?? "").trim())
+            }
+            className={actionButtonClass}
+          >
+            {busy === "creds" ? "Saving…" : "Save & connect"}
+          </Button>
+        </div>
+      )}
+
+      {/* Account-wide sync controls — apply to every enabled kind. */}
+      {connected && (
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line px-4 py-2.5 text-[12px] text-dim">
+          <label className="flex items-center gap-2">
+            sync every
+            <Input
+              key={commonInterval}
+              type="number"
+              min={1}
+              defaultValue={commonInterval}
+              onBlur={(e) => {
+                const value = Number(e.target.value);
+                if (Number.isFinite(value) && value >= 1 && value !== commonInterval) {
+                  void configureAll({ intervalMinutes: value });
+                }
+              }}
+              className={cn(inputClass, "h-7 w-16")}
+            />
+            min
+          </label>
+          {connector.kinds.some((k) => k.capabilities.coverageWindow) && (
             <label className="flex items-center gap-2">
               coverage
               <select
                 value={commonCoverage}
                 onChange={(e) =>
-                  void configureAll({ coverageWindow: e.target.value }, coverageKind)
+                  void configureAll({ coverageWindow: e.target.value }, supportsCoverage)
                 }
                 className={cn(inputClass, "h-7 w-auto px-2")}
               >
@@ -1478,289 +1556,279 @@ function ConnectorsSection() {
                 ))}
               </select>
             </label>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={syncAll}
-              className="text-dim hover:text-paper"
-            >
-              <RefreshCw className="size-3.5" />
-              Sync now
-            </Button>
-          </div>
-        )}
-
-        {/* A row per service: a switch to turn it on, plus an inline settings
-            panel (toggled open in place) for anything specific to that service. */}
-        <ul className="divide-y divide-line border-t border-line">
-          {serviceKinds.map((kind) => {
-            const meta = metaFor(kind);
-            const { Logo } = meta;
-            const k = google?.kinds.find((entry) => entry.kind === kind);
-            const connected = google?.connected ?? false;
-            const enabled = k?.enabled ?? false;
-            // Gmail, Calendar and Tasks all carry service-specific settings (#88).
-            const hasSettings = kind === "gmail" || kind === "calendar" || kind === "tasks";
-            const open = openKind === kind;
-            const cov = k?.coverage;
-            return (
-              <li key={kind} className="px-4 py-2.5">
-                <div className="flex items-center gap-3">
-                  <Logo className="size-5 shrink-0" />
-                  <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-[14px] text-paper">
-                    {meta.label}
-                    {connected && enabled && <CoverageStateBadge state={cov?.state} />}
-                  </span>
-                  {connected && enabled && hasSettings && (
-                    <button
-                      type="button"
-                      title={`${meta.label} settings`}
-                      aria-expanded={open}
-                      onClick={() => setOpenKind(open ? null : kind)}
-                      className={cn(
-                        "rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper",
-                        open && "bg-card text-paper",
-                      )}
-                    >
-                      <Settings2 className="size-4" />
-                    </button>
-                  )}
-                  <Switch
-                    checked={enabled}
-                    disabled={!connected || !k}
-                    onCheckedChange={(value) => void configure(kind, { enabled: value })}
-                    aria-label={`Toggle ${meta.label}`}
-                  />
-                </div>
-
-                {connected && enabled && k && open && hasSettings && (
-                  <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3 text-[13px] text-faded">
-                    {kind === "gmail" && (
-                      <>
-                        <label className="flex items-start gap-2">
-                          <input
-                            type="checkbox"
-                            checked={k.coverage?.contentMode === "rich"}
-                            onChange={(e) =>
-                              void configure(kind, {
-                                contentMode: e.target.checked ? "rich" : "metadata",
-                              })
-                            }
-                            className="mt-0.5"
-                          />
-                          <span>
-                            Index email bodies (not just metadata).{" "}
-                            <span className="text-ember">
-                              Broader: stores message text on this device.
-                            </span>
-                          </span>
-                        </label>
-                        {/* Label include/exclude (#88): comma-separated label names. */}
-                        <LabelFilterControl
-                          label="Only these labels (optional)"
-                          placeholder="e.g. Work, Important"
-                          value={k.coverage?.includeLabels ?? []}
-                          onCommit={(labels) => void configure(kind, { includeLabels: labels })}
-                        />
-                        <LabelFilterControl
-                          label="Exclude these labels (optional)"
-                          placeholder="e.g. Promotions, Spam"
-                          value={k.coverage?.excludeLabels ?? []}
-                          onCommit={(labels) => void configure(kind, { excludeLabels: labels })}
-                        />
-                        {k.coverage?.backfill && (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-[11px] text-dim">
-                              {k.coverage.backfill.complete
-                                ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
-                                : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
-                              {k.coverage.oldestIndexed
-                                ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
-                                : ""}
-                            </span>
-                            <div className="h-1 w-full overflow-hidden rounded-full bg-card">
-                              <div
-                                className={cn(
-                                  "h-full rounded-full",
-                                  k.coverage.backfill.complete ? "bg-emerald-500" : "bg-sky-500",
-                                )}
-                                style={{ width: k.coverage.backfill.complete ? "100%" : "60%" }}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-
-                    {kind === "tasks" && (
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[12px] text-dim">Task lists</span>
-                        {taskLists.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {taskLists.map((list) => {
-                              const selected = k.coverage?.enabledTaskLists ?? [];
-                              // Empty selection ⇒ all lists are synced.
-                              const on = selected.length === 0 || selected.includes(list.id);
-                              return (
-                                <label key={list.id} className="flex items-center gap-2 text-faded">
-                                  <input
-                                    type="checkbox"
-                                    checked={on}
-                                    onChange={(e) => {
-                                      const base =
-                                        selected.length === 0
-                                          ? taskLists.map((l) => l.id)
-                                          : selected;
-                                      const next = e.target.checked
-                                        ? [...new Set([...base, list.id])]
-                                        : base.filter((id) => id !== list.id);
-                                      void configure(kind, { enabledTaskLists: next });
-                                    }}
-                                  />
-                                  {list.title}
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-dim">No task lists found yet.</span>
-                        )}
-                      </div>
-                    )}
-
-                    {kind === "calendar" && (
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[12px] text-dim">Calendars</span>
-                        {calendars.length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {calendars.map((cal) => {
-                              const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
-                              const on = enabledCals.includes(cal.id);
-                              return (
-                                <label key={cal.id} className="flex items-center gap-2 text-faded">
-                                  <input
-                                    type="checkbox"
-                                    checked={on}
-                                    onChange={(e) => {
-                                      const next = e.target.checked
-                                        ? [...new Set([...enabledCals, cal.id])]
-                                        : enabledCals.filter((id) => id !== cal.id);
-                                      void configure(kind, {
-                                        enabledCalendars: next.length > 0 ? next : ["primary"],
-                                      });
-                                    }}
-                                  />
-                                  {cal.summary}
-                                  {cal.primary ? " (primary)" : ""}
-                                </label>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-[11px] text-dim">No calendars found yet.</span>
-                        )}
-                        {k.coverage?.calendars && k.coverage.calendars.length > 0 && (
-                          <span className="text-[11px] text-dim">
-                            {k.coverage.itemCount ?? 0} events indexed across{" "}
-                            {k.coverage.calendars.length} calendar
-                            {k.coverage.calendars.length === 1 ? "" : "s"}
-                          </span>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Shared per-kind footer (#88): last success / last failure and
-                        the manual sync + full re-import actions. */}
-                    <div className="flex flex-col gap-2 border-t border-line pt-3">
-                      <div className="flex flex-col gap-0.5 text-[11px] text-dim">
-                        <span>
-                          Last successful sync:{" "}
-                          {cov?.lastSuccessAt
-                            ? new Date(cov.lastSuccessAt).toLocaleString()
-                            : "never"}
-                        </span>
-                        {cov?.lastFailureAt && (
-                          <span className="text-ember">
-                            Last failure: {new Date(cov.lastFailureAt).toLocaleString()}
-                            {cov.lastError ? ` — ${cov.lastError}` : ""}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => void syncNow(kind)}
-                          className={actionButtonClass}
-                        >
-                          <RefreshCw className="size-3.5" />
-                          Sync now
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void resetKind(kind)}
-                          className="text-dim hover:text-paper"
-                          title="Clear what's indexed and re-import the whole coverage window from scratch."
-                        >
-                          Reset & re-import
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-
-      {error && (
-        <p role="alert" className="text-sm text-ember">
-          ⚠ {error}
-        </p>
+          )}
+          <Button variant="ghost" size="sm" onClick={syncAll} className="text-dim hover:text-paper">
+            <RefreshCw className="size-3.5" />
+            Sync now
+          </Button>
+        </div>
       )}
 
-      <Dialog open={showHelp} onOpenChange={setShowHelp}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Connect Google in a few steps</DialogTitle>
-            <DialogDescription>
-              MeOS uses your own Google Cloud OAuth client, so your data never passes through anyone
-              else.
-            </DialogDescription>
-          </DialogHeader>
-          <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-faded">
-            <li>
-              Open the{" "}
-              <button
-                type="button"
-                onClick={() => void openExternal("https://console.cloud.google.com/")}
-                className="text-lamp underline-offset-2 hover:underline"
+      {/* A row per kind: a switch to turn it on, plus an inline settings panel. */}
+      <ul className="divide-y divide-line border-t border-line">
+        {[...catalogKinds, ...extraKinds].map((kind) => {
+          const meta = kindMetaFor(kind);
+          const KindLogo = brandLogo(meta?.logo);
+          const label = meta?.displayName ?? kind.charAt(0).toUpperCase() + kind.slice(1);
+          const caps = meta?.capabilities ?? {};
+          const k = provider?.kinds.find((entry) => entry.kind === kind);
+          const enabled = k?.enabled ?? false;
+          // A kind has an inline settings panel if it exposes label filters or a
+          // sub-resource picker.
+          const hasSettings = Boolean(caps.labelFilters || caps.subResources);
+          const open = openKind === kind;
+          const cov = k?.coverage;
+          return (
+            <li key={kind} className="px-4 py-2.5">
+              <div className="flex items-center gap-3">
+                <KindLogo className="size-5 shrink-0" />
+                <span className="flex min-w-0 flex-1 items-center gap-2 truncate text-[14px] text-paper">
+                  {label}
+                  {connected && enabled && <CoverageStateBadge state={cov?.state} />}
+                </span>
+                {connected && enabled && hasSettings && (
+                  <button
+                    type="button"
+                    title={`${label} settings`}
+                    aria-expanded={open}
+                    onClick={() => setOpenKind(open ? null : kind)}
+                    className={cn(
+                      "rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper",
+                      open && "bg-card text-paper",
+                    )}
+                  >
+                    <Settings2 className="size-4" />
+                  </button>
+                )}
+                <Switch
+                  checked={enabled}
+                  disabled={!connected || !k}
+                  onCheckedChange={(value) => void configure(kind, { enabled: value })}
+                  aria-label={`Toggle ${label}`}
+                />
+              </div>
+
+              {connected && enabled && k && open && hasSettings && (
+                <div className="mt-3 flex flex-col gap-3 border-t border-line pt-3 text-[13px] text-faded">
+                  {caps.labelFilters && (
+                    <>
+                      <label className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={k.coverage?.contentMode === "rich"}
+                          onChange={(e) =>
+                            void configure(kind, {
+                              contentMode: e.target.checked ? "rich" : "metadata",
+                            })
+                          }
+                          className="mt-0.5"
+                        />
+                        <span>
+                          Index email bodies (not just metadata).{" "}
+                          <span className="text-ember">
+                            Broader: stores message text on this device.
+                          </span>
+                        </span>
+                      </label>
+                      {/* Label include/exclude (#88): comma-separated label names. */}
+                      <LabelFilterControl
+                        label="Only these labels (optional)"
+                        placeholder="e.g. Work, Important"
+                        value={k.coverage?.includeLabels ?? []}
+                        onCommit={(labels) => void configure(kind, { includeLabels: labels })}
+                      />
+                      <LabelFilterControl
+                        label="Exclude these labels (optional)"
+                        placeholder="e.g. Promotions, Spam"
+                        value={k.coverage?.excludeLabels ?? []}
+                        onCommit={(labels) => void configure(kind, { excludeLabels: labels })}
+                      />
+                      {k.coverage?.backfill && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[11px] text-dim">
+                            {k.coverage.backfill.complete
+                              ? `Backfill complete — ${k.coverage.itemCount ?? 0} indexed`
+                              : `Backfilling… ${k.coverage.backfill.indexed} indexed so far`}
+                            {k.coverage.oldestIndexed
+                              ? ` (back to ${k.coverage.oldestIndexed.slice(0, 10)})`
+                              : ""}
+                          </span>
+                          <div className="h-1 w-full overflow-hidden rounded-full bg-card">
+                            <div
+                              className={cn(
+                                "h-full rounded-full",
+                                k.coverage.backfill.complete ? "bg-emerald-500" : "bg-sky-500",
+                              )}
+                              style={{ width: k.coverage.backfill.complete ? "100%" : "60%" }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+
+                  {caps.subResources === "taskLists" && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[12px] text-dim">Task lists</span>
+                      {taskLists.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {taskLists.map((list) => {
+                            const selected = k.coverage?.enabledTaskLists ?? [];
+                            // Empty selection ⇒ all lists are synced.
+                            const on = selected.length === 0 || selected.includes(list.id);
+                            return (
+                              <label key={list.id} className="flex items-center gap-2 text-faded">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={(e) => {
+                                    const base =
+                                      selected.length === 0 ? taskLists.map((l) => l.id) : selected;
+                                    const next = e.target.checked
+                                      ? [...new Set([...base, list.id])]
+                                      : base.filter((id) => id !== list.id);
+                                    void configure(kind, { enabledTaskLists: next });
+                                  }}
+                                />
+                                {list.title}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-dim">No task lists found yet.</span>
+                      )}
+                    </div>
+                  )}
+
+                  {caps.subResources === "calendars" && (
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-[12px] text-dim">Calendars</span>
+                      {calendars.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {calendars.map((cal) => {
+                            const enabledCals = k.coverage?.enabledCalendars ?? ["primary"];
+                            const on = enabledCals.includes(cal.id);
+                            return (
+                              <label key={cal.id} className="flex items-center gap-2 text-faded">
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={(e) => {
+                                    const next = e.target.checked
+                                      ? [...new Set([...enabledCals, cal.id])]
+                                      : enabledCals.filter((id) => id !== cal.id);
+                                    void configure(kind, {
+                                      enabledCalendars: next.length > 0 ? next : ["primary"],
+                                    });
+                                  }}
+                                />
+                                {cal.summary}
+                                {cal.primary ? " (primary)" : ""}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-dim">No calendars found yet.</span>
+                      )}
+                      {k.coverage?.calendars && k.coverage.calendars.length > 0 && (
+                        <span className="text-[11px] text-dim">
+                          {k.coverage.itemCount ?? 0} events indexed across{" "}
+                          {k.coverage.calendars.length} calendar
+                          {k.coverage.calendars.length === 1 ? "" : "s"}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Shared per-kind footer (#88): last success / last failure and
+                      the manual sync + full re-import actions. */}
+                  <div className="flex flex-col gap-2 border-t border-line pt-3">
+                    <div className="flex flex-col gap-0.5 text-[11px] text-dim">
+                      <span>
+                        Last successful sync:{" "}
+                        {cov?.lastSuccessAt
+                          ? new Date(cov.lastSuccessAt).toLocaleString()
+                          : "never"}
+                      </span>
+                      {cov?.lastFailureAt && (
+                        <span className="text-ember">
+                          Last failure: {new Date(cov.lastFailureAt).toLocaleString()}
+                          {cov.lastError ? ` — ${cov.lastError}` : ""}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void syncNow(kind)}
+                        className={actionButtonClass}
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Sync now
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void resetKind(kind)}
+                        className="text-dim hover:text-paper"
+                        title="Clear what's indexed and re-import the whole coverage window from scratch."
+                      >
+                        Reset & re-import
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {hasHelp && (
+        <Dialog open={showHelp} onOpenChange={setShowHelp}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Connect Google in a few steps</DialogTitle>
+              <DialogDescription>
+                MeOS uses your own Google Cloud OAuth client, so your data never passes through
+                anyone else.
+              </DialogDescription>
+            </DialogHeader>
+            <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-faded">
+              <li>
+                Open the{" "}
+                <button
+                  type="button"
+                  onClick={() => void openExternal("https://console.cloud.google.com/")}
+                  className="text-lamp underline-offset-2 hover:underline"
+                >
+                  Google Cloud Console
+                </button>{" "}
+                and create (or pick) a project.
+              </li>
+              <li>Enable the People API, Google Calendar API, Gmail API, and Tasks API.</li>
+              <li>Configure the OAuth consent screen (External, add yourself as a test user).</li>
+              <li>
+                Create an OAuth client ID of type <strong>Desktop app</strong>.
+              </li>
+              <li>Paste the client ID and secret above, then click Connect Google.</li>
+            </ol>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowHelp(false)}
+                className={actionButtonClass}
               >
-                Google Cloud Console
-              </button>{" "}
-              and create (or pick) a project.
-            </li>
-            <li>Enable the People API, Google Calendar API, Gmail API, and Tasks API.</li>
-            <li>Configure the OAuth consent screen (External, add yourself as a test user).</li>
-            <li>
-              Create an OAuth client ID of type <strong>Desktop app</strong>.
-            </li>
-            <li>Paste the client ID and secret above, then click Connect Google.</li>
-          </ol>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowHelp(false)}
-              className={actionButtonClass}
-            >
-              Got it
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </section>
+                Got it
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   );
 }
 

@@ -6,7 +6,10 @@
  * file — the orchestrator never learns Google's name.
  */
 
+import { tool, type ToolSet } from "ai";
+import { z } from "zod";
 import type {
+  AgentToolContext,
   Connector,
   ConnectorManifest,
   NormalizedDelta,
@@ -28,7 +31,7 @@ import type {
   TaskItem,
 } from "../types.js";
 import { fetchCalendarDelta, fetchCalendarList } from "./calendar.js";
-import { fetchGmailDelta } from "./gmail.js";
+import { fetchGmailDelta, searchThreadsText } from "./gmail.js";
 import { fetchTasksDelta } from "./tasks.js";
 import {
   buildAuthUrl,
@@ -43,6 +46,9 @@ import { fetchContactsDelta, fetchSelf } from "./people.js";
 export const GOOGLE_MANIFEST: ConnectorManifest = {
   id: "google",
   displayName: "Google",
+  logo: "google",
+  summary: "Index your contacts, calendar, email and tasks.",
+  brandColor: "#4285F4",
   auth: { kind: "oauth2", scopes: GOOGLE_SCOPES },
   kinds: [
     {
@@ -51,6 +57,9 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:contacts",
       contentMode: "metadata",
       defaultIntervalMinutes: 60,
+      logo: "google-contacts",
+      noun: { one: "contact", many: "contacts" },
+      blurb: "The people you know, as entities in your graph.",
     },
     {
       kind: "calendar",
@@ -58,6 +67,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:calendar",
       contentMode: "metadata",
       defaultIntervalMinutes: 30,
+      logo: "google-calendar",
+      noun: { one: "event", many: "events" },
+      blurb: "Your events and who you meet with.",
+      capabilities: { coverageWindow: true, subResources: "calendars" },
     },
     {
       kind: "gmail",
@@ -65,6 +78,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:gmail",
       contentMode: "metadata",
       defaultIntervalMinutes: 15,
+      logo: "gmail",
+      noun: { one: "email", many: "emails" },
+      blurb: "Email metadata, and optionally message content.",
+      capabilities: { coverageWindow: true, labelFilters: true },
     },
     {
       kind: "tasks",
@@ -72,6 +89,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:tasks",
       contentMode: "metadata",
       defaultIntervalMinutes: 30,
+      logo: "google-tasks",
+      noun: { one: "task", many: "tasks" },
+      blurb: "Your to-dos — the agent can read and create them.",
+      capabilities: { subResources: "taskLists", writeable: true },
     },
   ],
 };
@@ -158,6 +179,36 @@ export class GoogleConnector implements Connector {
   async listCalendars(ctx: SyncContext): Promise<CalendarListEntry[]> {
     return fetchCalendarList(ctx.accessToken);
   }
+
+  /**
+   * The chat-agent tools Google contributes when connected. `fetch_email_threads`
+   * pulls live email-thread text the agent can quote — email bodies aren't indexed,
+   * so this is the only way to read them. Offered only when the Gmail kind is
+   * enabled; the token is minted lazily inside `execute` (no per-turn network cost).
+   */
+  agentTools(ctx: AgentToolContext): ToolSet {
+    if (!ctx.enabledKinds.has("gmail")) return {};
+    return {
+      fetch_email_threads: tool({
+        description:
+          "Fetch the text of the user's actual email threads matching a query (a contact name, subject, or keywords). Use when a question needs the contents of correspondence — email bodies are not in the knowledge base, so this is the only way to read them. Cite what you find in prose.",
+        inputSchema: z.object({
+          query: z.string().describe("Gmail search query — a contact, subject, or keywords."),
+        }),
+        execute: async ({ query }) => {
+          try {
+            return await searchThreadsText(await ctx.getAccessToken(), query);
+          } catch (error) {
+            return `Couldn't fetch email threads: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        },
+      }),
+    };
+  }
+
+  /** One-line system-prompt hint, appended only when these tools are active. */
+  readonly promptHint =
+    "fetch_email_threads (Gmail): pull the text of the user's actual email threads. Email bodies are NOT in the knowledge base, so reach for this when a question needs the contents of correspondence with someone; cite what you find in prose.";
 
   async fetchDelta(
     ctx: SyncContext,

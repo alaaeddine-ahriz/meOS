@@ -27,7 +27,10 @@
  *   revoke → delete local data.
  */
 
+import type { ToolSet } from "ai";
+import type { Embedder } from "../embedding/embedder.js";
 import type { Extraction } from "../extract/schema.js";
+import type { KnowledgeStore } from "../knowledge/store.js";
 import type { CalendarListEntry, ConnectorKindConfig, OAuthTokens } from "./types.js";
 
 /**
@@ -37,6 +40,32 @@ import type { CalendarListEntry, ConnectorKindConfig, OAuthTokens } from "./type
  * `materialize()` seam.
  */
 export type ContentMode = "metadata" | "document";
+
+/**
+ * The optional capabilities a kind supports. The settings UI reads THESE flags
+ * instead of hardcoding kind names (no more `kind === "gmail"` branches), so a new
+ * kind's controls light up purely from its manifest.
+ */
+export interface KindCapabilities {
+  /** Has a "how far back to index" coverage-window control (Gmail, Calendar). */
+  coverageWindow?: boolean;
+  /** Supports include/exclude label filters (Gmail). */
+  labelFilters?: boolean;
+  /**
+   * Offers a user-selectable set of sub-resources to sync. The string is the
+   * picker's resource name (e.g. "calendars", "taskLists") — the connector exposes
+   * the list via {@link Connector.listSubResources}.
+   */
+  subResources?: string;
+  /** Read/write: the agent/UI can create items of this kind (Google Tasks). */
+  writeable?: boolean;
+}
+
+/** Singular/plural nouns for a kind, used by the Sources grouping ("3 contacts"). */
+export interface KindNoun {
+  one: string;
+  many: string;
+}
 
 /** One syncable data kind a connector supports (e.g. "contacts", "gmail"). */
 export interface KindManifest {
@@ -54,14 +83,62 @@ export interface KindManifest {
   contentMode: ContentMode;
   /** Default poll interval (minutes) when a user first enables this kind. */
   defaultIntervalMinutes: number;
+  /**
+   * Stable brand-logo id for this kind's chip, resolved by the web `LOGO_REGISTRY`
+   * (e.g. "gmail", "google-calendar"). Falls back to the connector's `logo`.
+   */
+  logo?: string;
+  /** Singular/plural nouns for the Sources grouping. Falls back to `displayName`. */
+  noun?: KindNoun;
+  /** One-line description for the settings card (what enabling this kind does). */
+  blurb?: string;
+  /**
+   * Privacy default for items of this kind. `true` (the connector default) keeps
+   * derived content off the wiki and off portable artifacts (sync/export) — see
+   * `defaultVisibilityForType`. Set `false` for kinds whose data is freely shareable.
+   */
+  private?: boolean;
+  /** Optional capabilities that drive the settings UI without naming the kind. */
+  capabilities?: KindCapabilities;
 }
 
-/** A connector's auth model. OAuth today; declared so the UI can render the flow. */
-export interface AuthManifest {
+/**
+ * One credential field a non-OAuth connector collects on connect (an IMAP host,
+ * username, password, …). The settings UI renders a form from these declarations,
+ * so a basic-auth connector needs no bespoke connect screen.
+ */
+export interface AuthField {
+  /** Stable field id, persisted in the account's auth config blob (e.g. "host"). */
+  key: string;
+  /** Human-readable label for the form. */
+  label: string;
+  /** Input type — `password` masks the value in the UI. */
+  type: "text" | "password" | "number";
+  placeholder?: string;
+  /** Whether the field is required for the connection to be considered configured. */
+  required?: boolean;
+}
+
+/** OAuth2 auth: a hosted consent flow + token refresh (Google, Notion, …). */
+export interface OAuthAuthManifest {
   kind: "oauth2";
   /** The scopes requested at consent — surfaced for transparency. */
   scopes: readonly string[];
 }
+
+/** Basic auth: the user supplies credentials directly (IMAP host/user/password). */
+export interface BasicAuthManifest {
+  kind: "basic";
+  /** The credential fields the connect form collects. */
+  fields: readonly AuthField[];
+}
+
+/**
+ * A connector's auth model. Declared so the routes + settings UI render and drive
+ * the connect flow generically: OAuth2 connectors get a consent URL + callback;
+ * basic-auth connectors get a credentials form. New auth kinds extend this union.
+ */
+export type AuthManifest = OAuthAuthManifest | BasicAuthManifest;
 
 /** The static description of a connector: identity, kinds, and auth model. */
 export interface ConnectorManifest {
@@ -69,6 +146,15 @@ export interface ConnectorManifest {
   id: string;
   /** Human-readable provider name for the settings UI. */
   displayName: string;
+  /**
+   * Stable brand-logo id resolved by the web `LOGO_REGISTRY` (e.g. "google"). The
+   * single irreducible frontend artifact per connector is the matching SVG.
+   */
+  logo: string;
+  /** One-line description for the settings card + the not-connected empty state. */
+  summary?: string;
+  /** Optional brand accent color (hex), e.g. "#4285F4", for chips/headers. */
+  brandColor?: string;
   /** The data kinds this connector can sync. */
   kinds: readonly KindManifest[];
   /** How the connector authenticates. */
@@ -168,6 +254,26 @@ export interface SyncContext {
 }
 
 /**
+ * Context handed to {@link Connector.agentTools} when assembling the chat agent's
+ * toolset. The server resolves a live, already-refreshed `accessToken` for the
+ * connected account before calling, so a tool's `execute` can hit the provider
+ * API directly. The knowledge store + embedder are provided for tools that read
+ * locally-synced data (e.g. a calendar-events query over indexed sources).
+ */
+export interface AgentToolContext {
+  store: KnowledgeStore;
+  embedder: Embedder;
+  /** The kinds the user enabled for this account — gate tools that need a synced kind. */
+  enabledKinds: ReadonlySet<string>;
+  /**
+   * Resolve a live access token for this account, refreshing it if needed. Lazy on
+   * purpose: building a tool definition costs no network; the token is minted only
+   * when the tool actually runs, so a connected-but-unused connector adds no latency.
+   */
+  getAccessToken: () => Promise<string>;
+}
+
+/**
  * The connector contract. Implementations stay stateless: they receive an access
  * token + the saved cursor, talk to their provider, and return NORMALIZED items.
  * They never touch the DB, the schedule, or the materialization seam — the
@@ -176,7 +282,12 @@ export interface SyncContext {
  */
 export interface Connector {
   readonly manifest: ConnectorManifest;
-  readonly oauth: OAuthProvider;
+  /**
+   * The OAuth surface — present for `auth.kind === "oauth2"` connectors, omitted
+   * for basic-auth ones (which store credentials directly). The routes branch on
+   * `manifest.auth.kind`, so this is only read for OAuth connectors.
+   */
+  readonly oauth?: OAuthProvider;
   /**
    * Pull a delta for `kind` since `cursor` (null = initial full sync) and
    * normalize each changed item. The orchestrator persists `nextCursor`, skips
@@ -189,6 +300,19 @@ export interface Connector {
    * have no such selection. Stateless — purely a read against the provider.
    */
   listCalendars?(ctx: SyncContext): Promise<CalendarListEntry[]>;
+  /**
+   * Optional: the chat-agent tools this connector contributes when its account is
+   * connected. The server merges these into the toolset per turn (see the
+   * connector-tools builder), so a connector ships its agent capabilities the same
+   * way it ships its sync — no edits to the core tool factory or the chat route.
+   */
+  agentTools?(ctx: AgentToolContext): ToolSet;
+  /**
+   * Optional: a short system-prompt fragment describing this connector's tools, so
+   * the model knows they exist without the core prompt naming every provider.
+   * Appended to the chat system prompt only when the connector is connected.
+   */
+  readonly promptHint?: string;
 }
 
 /** Look up a kind's manifest, or undefined if the connector doesn't support it. */

@@ -6,7 +6,6 @@ import {
   Cpu,
   FolderOpen,
   Loader2,
-  Mail,
   Pause,
   Play,
   RotateCw,
@@ -14,7 +13,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
-import { GoogleLogo, SERVICE_BRANDS } from "@/components/brand-logos";
+import { brandLogo } from "@/components/brand-logos";
+import { type SourceTypeBrand, useConnectorCatalog } from "@/hooks/use-connector-catalog";
 import { cn } from "@/lib/utils";
 import {
   api,
@@ -139,19 +139,15 @@ function CountsRow({
   );
 }
 
-function ConnectorCard({ k }: { k: ConnectorHealth }) {
-  // Reuse the connector brand logos (Gmail, Calendar, Contacts, Tasks) the rest
-  // of the app uses, keyed by the same `google:<kind>` source type.
-  const brand = SERVICE_BRANDS[`google:${k.kind}`];
+function ConnectorCard({ k, brand }: { k: ConnectorHealth; brand: SourceTypeBrand }) {
+  // The brand (label + logo) comes from the connector catalog, resolved by the
+  // parent from this kind's `<provider>:<kind>` source type.
+  const Logo = brand.Logo;
   return (
     <div className="rounded-xl border border-line bg-card/40 px-4 py-3">
       <div className="mb-2 flex items-center gap-2.5">
-        {brand ? (
-          <brand.Logo className="size-4 shrink-0" />
-        ) : (
-          <Mail className="size-4 shrink-0 text-dim" />
-        )}
-        <span className="flex-1 text-sm font-medium text-paper">{brand?.label ?? k.label}</span>
+        <Logo className="size-4 shrink-0" />
+        <span className="flex-1 text-sm font-medium text-paper">{k.label || brand.label}</span>
         <HealthBadge health={k.health} />
       </div>
       <p className="mb-2 text-xs text-dim">
@@ -406,6 +402,7 @@ function FailureGroup({
 }
 
 export function HealthView() {
+  const catalog = useConnectorCatalog();
   const [source, setSource] = useState<SourceHealth | null>(null);
   const [runtime, setRuntime] = useState<RuntimeHealth | null>(null);
   const [metrics, setMetrics] = useState<IngestMetrics | null>(null);
@@ -481,9 +478,9 @@ export function HealthView() {
   // surface on their own cards, so they're counted but not re-listed here.
   const failingJobs = jobs.filter((j) => j.state === "failed" || j.state === "dead-letter");
   const watcherProblem = source.localFolders.watcherError ? 1 : 0;
-  const connectorProblems = source.connectors.kinds.filter(
-    (k) => k.enabled && k.health === "degraded",
-  ).length;
+  const connectorProblems = source.connectors.providers
+    .flatMap((p) => p.kinds)
+    .filter((k) => k.enabled && k.health === "degraded").length;
   const attentionCount =
     failingJobs.length + watcherProblem + connectorProblems + (engine.status === "problem" ? 1 : 0);
   const running = source.runningJobs.length || source.pipeline.running;
@@ -654,29 +651,44 @@ export function HealthView() {
             <HealthBadge health={source.connectors.health} />
           </span>
         </h3>
-        {!source.connectors.connected ? (
+        {source.connectors.providers.every((p) => !p.connected) ? (
           <div className="rounded-xl border border-line bg-desk px-4 py-3 text-sm text-dim">
-            No services connected. Connect Google in Settings to index your contacts, calendar,
+            No services connected. Connect a service in Settings to index your contacts, calendar,
             email and tasks.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-line bg-desk">
-            {/* The connected account, with its brand mark. */}
-            <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
-              <GoogleLogo className="size-5 shrink-0" />
-              <span className="text-sm font-medium text-paper">Google</span>
-              {source.connectors.accountEmail && (
-                <span className="ml-auto truncate text-xs text-dim">
-                  {source.connectors.accountEmail}
-                </span>
-              )}
-            </div>
-            {/* Its services. */}
-            <div className="grid gap-2 p-3 sm:grid-cols-2">
-              {source.connectors.kinds.map((k) => (
-                <ConnectorCard key={k.kind} k={k} />
-              ))}
-            </div>
+          <div className="flex flex-col gap-3">
+            {/* One block per connected provider account, joined to the catalog for
+                its brand mark. */}
+            {source.connectors.providers
+              .filter((p) => p.connected)
+              .map((p) => {
+                const Logo = brandLogo(catalog.connector(p.provider)?.logo);
+                return (
+                  <div
+                    key={p.provider}
+                    className="overflow-hidden rounded-xl border border-line bg-desk"
+                  >
+                    <div className="flex items-center gap-2.5 border-b border-line px-4 py-3">
+                      <Logo className="size-5 shrink-0" />
+                      <span className="text-sm font-medium text-paper">{p.displayName}</span>
+                      {p.accountEmail && (
+                        <span className="ml-auto truncate text-xs text-dim">{p.accountEmail}</span>
+                      )}
+                    </div>
+                    {/* Its services. */}
+                    <div className="grid gap-2 p-3 sm:grid-cols-2">
+                      {p.kinds.map((k) => (
+                        <ConnectorCard
+                          key={k.kind}
+                          k={k}
+                          brand={catalog.brandForSourceType(`${p.provider}:${k.kind}`)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
           </div>
         )}
       </section>

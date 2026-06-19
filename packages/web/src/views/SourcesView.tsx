@@ -1,15 +1,11 @@
-import {
-  Activity,
-  CalendarDays,
-  CheckSquare,
-  Database,
-  ExternalLink,
-  Mail,
-  User,
-} from "lucide-react";
+import { Activity, Database, ExternalLink } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { SERVICE_BRANDS, type ServiceBrand } from "@/components/brand-logos";
+import {
+  type ConnectorCatalogApi,
+  type SourceTypeBrand,
+  useConnectorCatalog,
+} from "@/hooks/use-connector-catalog";
 import { ListSection } from "@/components/list";
 import { Breadcrumbs, Page, PageBody, PageHeader, type Crumb } from "@/components/Page";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -26,35 +22,40 @@ import { HealthView } from "./HealthView.js";
  * shows the synthesised pages, this shows the raw indexed sources behind them.
  */
 
-/** Per-kind display metadata, keyed by the connector kind ("gmail", …). */
-const KIND_META: Record<string, { singular: string; plural: string; icon: typeof Mail }> = {
-  contacts: { singular: "contact", plural: "Contacts", icon: User },
-  calendar: { singular: "event", plural: "Calendar events", icon: CalendarDays },
-  gmail: { singular: "email", plural: "Emails", icon: Mail },
-  tasks: { singular: "task", plural: "Tasks", icon: CheckSquare },
-};
-const KIND_ORDER = ["contacts", "calendar", "gmail", "tasks"];
-
-function brandFor(type: string): ServiceBrand | undefined {
-  return SERVICE_BRANDS[type];
+/** One displayable group of indexed sources, with its catalog-derived display. */
+interface SourceGroup {
+  kind: string;
+  /** Display: title (plural noun), and the brand label/logo for the source type. */
+  title: string;
+  brand: SourceTypeBrand;
+  items: IndexedSource[];
 }
 
-/** Group indexed sources by kind, in the canonical kind order. */
-function groupByKind(items: IndexedSource[]) {
+/**
+ * Group indexed sources by kind, ordered by the kind's global catalog order so
+ * the canonical Contacts → Calendar → Gmail → Tasks order holds, with unknown
+ * kinds last. Each group's display (plural noun, logo, label) comes from the
+ * catalog via the source type of its items.
+ */
+function groupByKind(items: IndexedSource[], catalog: ConnectorCatalogApi): SourceGroup[] {
   const byKind = new Map<string, IndexedSource[]>();
   for (const item of items) byKind.set(item.kind, [...(byKind.get(item.kind) ?? []), item]);
-  const ordered = [
-    ...KIND_ORDER.filter((k) => byKind.has(k)),
-    ...[...byKind.keys()].filter((k) => !KIND_ORDER.includes(k)),
-  ];
-  return ordered.map((kind) => ({
-    kind,
-    meta: KIND_META[kind],
-    items: byKind.get(kind)!,
-  }));
+  return [...byKind.entries()]
+    .map(([kind, groupItems]) => {
+      const sourceType = groupItems[0]?.type ?? kind;
+      const resolved = catalog.kindOf(sourceType);
+      const brand = catalog.brandForSourceType(sourceType);
+      const title = resolved
+        ? resolved.kind.noun.many.charAt(0).toUpperCase() + resolved.kind.noun.many.slice(1)
+        : brand.label;
+      return { kind, title, brand, items: groupItems, order: brand.order };
+    })
+    .sort((a, b) => a.order - b.order)
+    .map(({ order: _order, ...group }) => group);
 }
 
 export function SourcesView() {
+  const catalog = useConnectorCatalog();
   const [params, setParams] = useSearchParams();
   const tab: "items" | "health" = params.get("tab") === "health" ? "health" : "items";
   const [sources, setSources] = useState<IndexedSource[]>([]);
@@ -75,7 +76,7 @@ export function SourcesView() {
       .finally(() => setLoaded(true));
   }, [tab]);
 
-  const groups = useMemo(() => groupByKind(sources), [sources]);
+  const groups = useMemo(() => groupByKind(sources, catalog), [sources, catalog]);
 
   const tabs = (
     <Tabs value={tab} onValueChange={setTab}>
@@ -114,15 +115,16 @@ export function SourcesView() {
           </p>
         ) : (
           groups.map((group) => {
-            const Icon = group.meta?.icon;
+            const Icon = group.brand.Logo;
             return (
-              <ListSection
-                key={group.kind}
-                label={group.meta?.plural ?? group.kind}
-                count={group.items.length}
-              >
+              <ListSection key={group.kind} label={group.title} count={group.items.length}>
                 {group.items.map((item) => (
-                  <SourceRow key={item.id} item={item} icon={Icon && <Icon className="size-4" />} />
+                  <SourceRow
+                    key={item.id}
+                    item={item}
+                    brand={catalog.brandForSourceType(item.type)}
+                    icon={<Icon className="size-4" />}
+                  />
                 ))}
               </ListSection>
             );
@@ -135,8 +137,15 @@ export function SourcesView() {
 
 /** One indexed-item row: kind icon, title, a chip of linked entities, and a
  * button to open the original in its provider. The row links to the detail page. */
-function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode }) {
-  const brand = brandFor(item.type);
+function SourceRow({
+  item,
+  brand,
+  icon,
+}: {
+  item: IndexedSource;
+  brand: SourceTypeBrand;
+  icon?: React.ReactNode;
+}) {
   const gone = item.status === "deleted" || item.status === "missing";
   // A source is "referenced" only by entities that actually have a wiki page — raw
   // extraction of page-less entities is not a wiki reference.
@@ -159,7 +168,7 @@ function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode
           {refCount} referenced
         </span>
       )}
-      {item.link && brand && (
+      {item.link && (
         <button
           type="button"
           title={`Open in ${brand.label}`}
@@ -176,6 +185,7 @@ function SourceRow({ item, icon }: { item: IndexedSource; icon?: React.ReactNode
 /** The detail page for one indexed item: its content, the entities it links to,
  * and the sibling items it connects to through a shared entity. */
 export function SourcePageView() {
+  const catalog = useConnectorCatalog();
   const { id } = useParams();
   const [detail, setDetail] = useState<SourceDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -190,8 +200,10 @@ export function SourcePageView() {
       .catch((e) => setError(String(e)));
   }, [id]);
 
-  const brand = detail ? brandFor(detail.type) : undefined;
-  const meta = detail ? KIND_META[detail.kind] : undefined;
+  // Resolve display from the catalog: the kind (for its singular noun, and to
+  // know whether the type is a recognised connector source) and the brand.
+  const resolvedKind = detail ? catalog.kindOf(detail.type) : undefined;
+  const brand = detail ? catalog.brandForSourceType(detail.type) : undefined;
   const crumbs: Crumb[] = [{ label: "Sources", to: "/sources" }, { label: detail?.title ?? "…" }];
 
   return (
@@ -199,9 +211,9 @@ export function SourcePageView() {
       <PageHeader
         title={detail?.title ?? "Source"}
         breadcrumb={<Breadcrumbs items={crumbs} />}
-        description={meta ? meta.singular : undefined}
+        description={resolvedKind ? resolvedKind.kind.noun.one : undefined}
         actions={
-          detail?.link && brand ? (
+          detail?.link && resolvedKind && brand ? (
             <button
               type="button"
               onClick={() => void openExternal(detail.link!)}

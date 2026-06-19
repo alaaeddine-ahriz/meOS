@@ -39,13 +39,36 @@ const ALL_TRUE: SourceVisibility = {
   activityVisible: true,
 };
 
-/** Connector source types whose data stays off portable, remote-pushed artifacts. */
+/**
+ * Built-in connector source types that stay off portable, remote-pushed artifacts.
+ * This is a BOOTSTRAP seed only: every connector additionally injects its own
+ * private source types via {@link registerPrivateSourceTypes} when the registry
+ * registers it (see `connectors/registry.ts`), so a NEW connector gets the right
+ * privacy defaults from its manifest — no edit to this file.
+ */
 export const CONNECTOR_SOURCE_TYPES = [
   "google:contacts",
   "google:calendar",
   "google:gmail",
   "google:tasks",
 ] as const;
+
+/** The live set of private-by-default source types: the seed + connector-registered. */
+const privateSourceTypes = new Set<string>(CONNECTOR_SOURCE_TYPES);
+
+/**
+ * Register source types that should be private by default. Called by the connector
+ * registry as connectors register, so the visibility defaults track the registry
+ * instead of a hardcoded list that drifts as connectors are added.
+ */
+export function registerPrivateSourceTypes(types: Iterable<string>): void {
+  for (const t of types) privateSourceTypes.add(t);
+}
+
+/** Whether a source `type` is private by default (connector data, profile context). */
+export function isConnectorSourceType(type: string): boolean {
+  return privateSourceTypes.has(type);
+}
 
 /** The profile-context source type (kept in sync with the server's profile route). */
 export const PROFILE_SOURCE_TYPE = "profile_context";
@@ -70,7 +93,7 @@ export const MEETING_SOURCE_TYPE = "meeting";
  *   profile_context                         ✓      ✓     ✗    ✗     ✗      ✓
  */
 export function defaultVisibilityForType(type: string): SourceVisibility {
-  if ((CONNECTOR_SOURCE_TYPES as readonly string[]).includes(type)) {
+  if (privateSourceTypes.has(type)) {
     // Connector data complements the wiki as a *reference*, not as content: it is
     // searchable + answerable, but kept out of page prose (wiki) and off portable
     // artifacts (sync/export). A person known only from a contact/email never

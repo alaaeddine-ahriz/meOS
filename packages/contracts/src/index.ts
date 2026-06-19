@@ -88,7 +88,12 @@ export type {
   KnowledgePreferences,
 } from "./schemas/preferences.js";
 export type {
+  AuthField,
   CalendarListEntry,
+  CatalogConnector,
+  CatalogKind,
+  ConnectorAuth,
+  ConnectorCatalog,
   ConnectorCoverage,
   ConnectorKind,
   ConnectorKindStatus,
@@ -97,6 +102,8 @@ export type {
   CoverageWindow,
   GmailContentMode,
   IndexMode,
+  KindCapabilities,
+  ProviderStatus,
   Task,
   TaskList,
 } from "./schemas/connectors.js";
@@ -105,6 +112,7 @@ export type {
   SourceCounts,
   LocalFoldersHealth,
   ConnectorHealth,
+  ConnectorAccountHealth,
   ConnectorsHealth,
   RunningJob,
   RecentFailure,

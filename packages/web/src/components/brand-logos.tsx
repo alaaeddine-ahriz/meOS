@@ -2,11 +2,16 @@
  * Official multicolor brand logos for the external services meOS connects to,
  * as self-contained inline SVGs (no dependency, no network). Each accepts a
  * `className` so callers control sizing (e.g. `size-4`); the logo keeps its own
- * brand colors. `SERVICE_BRANDS` maps a connector source type
- * (`google:gmail` | `google:calendar` | `google:contacts`) to its label + logo,
- * so a wiki page can show which services reference an entity.
+ * brand colors.
+ *
+ * The connector catalog (`GET /api/connectors/catalog`) is the source of truth
+ * for which logo a connector/kind uses: every catalog entry carries a stable
+ * `logo` id. {@link LOGO_REGISTRY} maps those ids to the inline SVGs here, and
+ * {@link brandLogo} resolves an id (falling back to a generic plug for unknown
+ * ids, so a newly-registered connector never crashes the UI).
  */
 
+import { Plug } from "lucide-react";
 import type { ReactElement } from "react";
 
 interface LogoProps {
@@ -144,23 +149,32 @@ export function GoogleTasksLogo({ className }: LogoProps) {
   );
 }
 
-/** A service's display label + logo, keyed by connector source type. */
-export interface ServiceBrand {
-  label: string;
-  Logo: (props: LogoProps) => ReactElement;
+/** A logo component: takes a `className` for sizing and returns the inline SVG. */
+export type LogoComponent = (props: LogoProps) => ReactElement;
+
+/** The generic fallback mark for a connector/kind whose `logo` id we don't know. */
+export function FallbackLogo({ className }: LogoProps) {
+  return <Plug className={className} aria-hidden="true" />;
 }
 
-export const SERVICE_BRANDS: Record<string, ServiceBrand> = {
-  "google:gmail": { label: "Gmail", Logo: GmailLogo },
-  "google:calendar": { label: "Google Calendar", Logo: GoogleCalendarLogo },
-  "google:contacts": { label: "Google Contacts", Logo: GoogleContactsLogo },
-  "google:tasks": { label: "Google Tasks", Logo: GoogleTasksLogo },
+/**
+ * Every inline brand logo, keyed by the stable `logo` id the connector catalog
+ * uses. New connectors reference these ids from the server; add a new entry here
+ * to give a new service its mark (anything not found falls back to a plug).
+ */
+export const LOGO_REGISTRY: Record<string, LogoComponent> = {
+  google: GoogleLogo,
+  gmail: GmailLogo,
+  "google-calendar": GoogleCalendarLogo,
+  "google-contacts": GoogleContactsLogo,
+  "google-tasks": GoogleTasksLogo,
 };
 
-/** Stable display order for chips: Gmail, Calendar, Contacts, Tasks. */
-export const SERVICE_ORDER = [
-  "google:gmail",
-  "google:calendar",
-  "google:contacts",
-  "google:tasks",
-] as const;
+/**
+ * Resolve a catalog `logo` id to its component. Unknown (or missing) ids return
+ * the generic {@link FallbackLogo}, so the UI degrades gracefully for connectors
+ * whose logo isn't bundled yet rather than crashing.
+ */
+export function brandLogo(id?: string): LogoComponent {
+  return (id && LOGO_REGISTRY[id]) || FallbackLogo;
+}
