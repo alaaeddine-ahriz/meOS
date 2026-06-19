@@ -30,6 +30,11 @@ export async function ensureAccessToken(
 ): Promise<string> {
   const expiresSoon = account.expiry ? Date.parse(account.expiry) <= Date.now() + 60_000 : false;
   if (account.access_token && !expiresSoon) return account.access_token;
+  if (!connector.oauth) {
+    // Only OAuth connectors mint access tokens; a basic-auth connector should never
+    // reach this path (it carries its credentials directly into the sync context).
+    throw new Error(`${connector.manifest.displayName} is not an OAuth connector.`);
+  }
   if (!account.refresh_token || !account.client_id || !account.client_secret) {
     throw new Error(
       `${connector.manifest.displayName} account needs re-authentication (no usable refresh token).`,

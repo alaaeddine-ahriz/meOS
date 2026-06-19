@@ -20,6 +20,10 @@ const tags = ["connectors"];
 // The Google connector drives this route's auth flow, kinds, and validation —
 // the framework owns "what Google is", the route owns the HTTP surface (#5).
 const google = connectorRegistry.require("google");
+// Google authenticates via OAuth, so its connector always exposes an OAuth surface;
+// capture it once (narrowed) so the OAuth flow below reads it without `?.`.
+if (!google.oauth) throw new Error("Google connector must expose an OAuth provider.");
+const googleOAuth = google.oauth;
 const KINDS: string[] = google.manifest.kinds.map((k) => k.kind);
 
 /**
@@ -173,7 +177,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       pending.set(state, verifier);
       // Don't leak verifiers forever if the user abandons the flow.
       setTimeout(() => pending.delete(state), 10 * 60_000).unref();
-      const url = google.oauth.buildAuthUrl({
+      const url = googleOAuth.buildAuthUrl({
         clientId: account.client_id,
         redirectUri,
         challenge,
@@ -210,7 +214,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         return page("Authorization failed", "Google credentials are missing.");
       }
       try {
-        const tokens = await google.oauth.exchangeCode({
+        const tokens = await googleOAuth.exchangeCode({
           clientId: account.client_id,
           clientSecret: account.client_secret,
           code,
@@ -464,7 +468,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     },
     async () => {
       const account = ctx.store.getConnectorAccount("google");
-      if (account?.access_token) await google.oauth.revokeToken(account.access_token);
+      if (account?.access_token) await googleOAuth.revokeToken(account.access_token);
       ctx.store.deleteConnectorAccount("google");
       ctx.connectors.reschedule();
       return connectorsSchema.DisconnectResponse.parse({ disconnected: true });

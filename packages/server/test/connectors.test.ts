@@ -29,6 +29,33 @@ describe("GET /api/connectors", () => {
   });
 });
 
+describe("GET /api/connectors/catalog", () => {
+  it("projects the registry into a secret-free catalog the UI renders from", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/connectors/catalog" });
+    expect(res.statusCode).toBe(200);
+    const catalog = connectors.ConnectorCatalogSchema.parse(res.json());
+
+    const google = catalog.connectors.find((c) => c.id === "google");
+    expect(google).toBeDefined();
+    expect(google!.logo).toBe("google");
+    expect(google!.auth.kind).toBe("oauth2");
+    // The catalog carries no secrets — only identity, branding, kinds, capabilities.
+    expect(JSON.stringify(google)).not.toMatch(/client_secret|access_token/);
+
+    // Every kind is fully resolved: logo, noun, and the private-by-default flag.
+    const gmail = google!.kinds.find((k) => k.kind === "gmail");
+    expect(gmail).toMatchObject({
+      sourceType: "google:gmail",
+      logo: "gmail",
+      noun: { one: "email", many: "emails" },
+      private: true,
+    });
+    expect(gmail!.capabilities).toMatchObject({ coverageWindow: true, labelFilters: true });
+    const tasks = google!.kinds.find((k) => k.kind === "tasks");
+    expect(tasks!.capabilities).toMatchObject({ writeable: true });
+  });
+});
+
 describe("PUT /api/connectors/google/credentials", () => {
   it("rejects an empty body with the VALIDATION_ERROR envelope", async () => {
     const res = await server.app.inject({

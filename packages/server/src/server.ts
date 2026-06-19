@@ -12,6 +12,7 @@ import { registerOpenApi } from "./openapi.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { registerConnectorCatalogRoute } from "./routes/connector-catalog.js";
 import { registerConnectorRoutes } from "./routes/connectors.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
@@ -84,6 +85,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerOutputRoutes(app, ctx);
   registerProfileRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
+  registerConnectorCatalogRoute(app, ctx);
   registerConnectorRoutes(app, ctx);
   registerSourceRoutes(app, ctx);
   registerSourceHealthRoutes(app, ctx);

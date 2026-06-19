@@ -43,6 +43,9 @@ import { fetchContactsDelta, fetchSelf } from "./people.js";
 export const GOOGLE_MANIFEST: ConnectorManifest = {
   id: "google",
   displayName: "Google",
+  logo: "google",
+  summary: "Index your contacts, calendar, email and tasks.",
+  brandColor: "#4285F4",
   auth: { kind: "oauth2", scopes: GOOGLE_SCOPES },
   kinds: [
     {
@@ -51,6 +54,9 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:contacts",
       contentMode: "metadata",
       defaultIntervalMinutes: 60,
+      logo: "google-contacts",
+      noun: { one: "contact", many: "contacts" },
+      blurb: "The people you know, as entities in your graph.",
     },
     {
       kind: "calendar",
@@ -58,6 +64,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:calendar",
       contentMode: "metadata",
       defaultIntervalMinutes: 30,
+      logo: "google-calendar",
+      noun: { one: "event", many: "events" },
+      blurb: "Your events and who you meet with.",
+      capabilities: { coverageWindow: true, subResources: "calendars" },
     },
     {
       kind: "gmail",
@@ -65,6 +75,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:gmail",
       contentMode: "metadata",
       defaultIntervalMinutes: 15,
+      logo: "gmail",
+      noun: { one: "email", many: "emails" },
+      blurb: "Email metadata, and optionally message content.",
+      capabilities: { coverageWindow: true, labelFilters: true },
     },
     {
       kind: "tasks",
@@ -72,6 +86,10 @@ export const GOOGLE_MANIFEST: ConnectorManifest = {
       sourceType: "google:tasks",
       contentMode: "metadata",
       defaultIntervalMinutes: 30,
+      logo: "google-tasks",
+      noun: { one: "task", many: "tasks" },
+      blurb: "Your to-dos — the agent can read and create them.",
+      capabilities: { subResources: "taskLists", writeable: true },
     },
   ],
 };

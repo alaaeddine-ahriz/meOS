@@ -7,7 +7,8 @@
  * none of them name a specific provider.
  */
 
-import type { Connector } from "./framework.js";
+import { registerPrivateSourceTypes } from "../knowledge/visibility.js";
+import type { Connector, KindManifest } from "./framework.js";
 import { googleConnector } from "./google/connector.js";
 
 export class ConnectorRegistry {
@@ -20,6 +21,12 @@ export class ConnectorRegistry {
   /** Register (or replace) a connector under its manifest id. */
   register(connector: Connector): void {
     this.byId.set(connector.manifest.id, connector);
+    // Privacy defaults track the registry: a kind is private unless it opts out,
+    // so a new connector's data inherits the safe (off-wiki, off-sync) defaults
+    // straight from its manifest — no edit to knowledge/visibility.ts.
+    registerPrivateSourceTypes(
+      connector.manifest.kinds.filter((k) => k.private !== false).map((k) => k.sourceType),
+    );
   }
 
   /** The connector for `provider`, or undefined if none is registered. */
@@ -37,6 +44,35 @@ export class ConnectorRegistry {
   /** Every registered connector, for status/discovery surfaces. */
   list(): Connector[] {
     return [...this.byId.values()];
+  }
+
+  /** Every registered provider id, e.g. `["google"]`. */
+  providerIds(): string[] {
+    return [...this.byId.keys()];
+  }
+
+  /** Every kind manifest across all connectors, paired with its provider id. */
+  allKinds(): Array<{ provider: string; kind: KindManifest }> {
+    return this.list().flatMap((c) =>
+      c.manifest.kinds.map((kind) => ({ provider: c.manifest.id, kind })),
+    );
+  }
+
+  /** Every source type any registered connector emits, e.g. `"google:gmail"`. */
+  sourceTypes(): string[] {
+    return this.list().flatMap((c) => c.manifest.kinds.map((k) => k.sourceType));
+  }
+
+  /**
+   * The source types whose data is private by default (kept off the wiki and off
+   * portable artifacts). A kind is private unless its manifest sets `private: false`
+   * — so `knowledge/visibility.ts` derives its defaults from the registry instead of
+   * a hardcoded list that drifts as connectors are added.
+   */
+  privateSourceTypes(): string[] {
+    return this.list().flatMap((c) =>
+      c.manifest.kinds.filter((k) => k.private !== false).map((k) => k.sourceType),
+    );
   }
 }
 

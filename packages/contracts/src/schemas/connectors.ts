@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-export const ConnectorKindSchema = z.enum(["contacts", "calendar", "gmail", "tasks"]);
+/**
+ * A connector kind id (e.g. "gmail", "calendar"). Open string rather than a closed
+ * enum: valid kinds come from the connector registry/catalog, so a new connector's
+ * kinds validate without editing this schema. The catalog is the source of truth.
+ */
+export const ConnectorKindSchema = z.string().min(1);
 
 /** How far back a kind indexes (#68). "recent" is the safe default seed. */
 export const CoverageWindowSchema = z.enum(["recent", "30d", "90d", "1y", "all"]);
@@ -229,6 +234,76 @@ export const CreateTaskBody = z.object({
 });
 
 export const CreateTaskResponse = z.object({ task: TaskSchema });
+
+// --- Connector catalog (GET /api/connectors/catalog) ---
+//
+// The catalog is the public, SECRET-FREE projection of the connector registry that
+// the web app reads to render every connector view. It is the single source of
+// truth for a connector's identity, branding, kinds, capabilities, and auth model —
+// so adding a connector lights up the UI with no frontend list edits.
+
+/** One credential field a basic-auth connector's connect form collects. */
+export const AuthFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: z.enum(["text", "password", "number"]),
+  placeholder: z.string().optional(),
+  required: z.boolean().optional(),
+});
+
+/** A connector's auth model: a hosted OAuth flow, or a basic-credentials form. */
+export const ConnectorAuthSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("oauth2"), scopes: z.array(z.string()) }),
+  z.object({ kind: z.literal("basic"), fields: z.array(AuthFieldSchema) }),
+]);
+
+/** The capability flags that drive a kind's settings controls (no kind-name branching). */
+export const KindCapabilitiesSchema = z.object({
+  coverageWindow: z.boolean().optional(),
+  labelFilters: z.boolean().optional(),
+  subResources: z.string().optional(),
+  writeable: z.boolean().optional(),
+});
+
+/** One kind in the catalog, with display + privacy + capabilities resolved. */
+export const CatalogKindSchema = z.object({
+  kind: z.string(),
+  sourceType: z.string(),
+  displayName: z.string(),
+  /** Brand-logo id resolved by the web LOGO_REGISTRY. */
+  logo: z.string(),
+  /** Singular/plural nouns for the Sources grouping. */
+  noun: z.object({ one: z.string(), many: z.string() }),
+  blurb: z.string().optional(),
+  contentMode: z.enum(["metadata", "document"]),
+  /** True when this kind's data is private by default (off wiki/sync/export). */
+  private: z.boolean(),
+  defaultIntervalMinutes: z.number(),
+  capabilities: KindCapabilitiesSchema,
+});
+
+/** One connector in the catalog. */
+export const CatalogConnectorSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  logo: z.string(),
+  summary: z.string().optional(),
+  brandColor: z.string().optional(),
+  auth: ConnectorAuthSchema,
+  kinds: z.array(CatalogKindSchema),
+});
+
+/** GET /api/connectors/catalog — every registered connector, secret-free. */
+export const ConnectorCatalogSchema = z.object({
+  connectors: z.array(CatalogConnectorSchema),
+});
+
+export type AuthField = z.infer<typeof AuthFieldSchema>;
+export type ConnectorAuth = z.infer<typeof ConnectorAuthSchema>;
+export type KindCapabilities = z.infer<typeof KindCapabilitiesSchema>;
+export type CatalogKind = z.infer<typeof CatalogKindSchema>;
+export type CatalogConnector = z.infer<typeof CatalogConnectorSchema>;
+export type ConnectorCatalog = z.infer<typeof ConnectorCatalogSchema>;
 
 export type IndexMode = z.infer<typeof IndexModeSchema>;
 export type CoverageState = z.infer<typeof CoverageStateSchema>;

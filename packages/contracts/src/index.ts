@@ -88,7 +88,12 @@ export type {
   KnowledgePreferences,
 } from "./schemas/preferences.js";
 export type {
+  AuthField,
   CalendarListEntry,
+  CatalogConnector,
+  CatalogKind,
+  ConnectorAuth,
+  ConnectorCatalog,
   ConnectorCoverage,
   ConnectorKind,
   ConnectorKindStatus,
@@ -97,6 +102,7 @@ export type {
   CoverageWindow,
   GmailContentMode,
   IndexMode,
+  KindCapabilities,
   Task,
   TaskList,
 } from "./schemas/connectors.js";
