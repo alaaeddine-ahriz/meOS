@@ -101,7 +101,14 @@ describe("memory maintenance", () => {
   });
 
   it("runs consolidation end-to-end and writes the digest", async () => {
-    const { newId } = await seedEntityWithObservations();
+    const { entity, newId } = await seedEntityWithObservations();
+    // Dana needs ≥3 active, non-private facts to clear the wiki page-worthiness
+    // bar (gate B) so the stale page is actually regenerated below.
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Dana works as a designer.",
+      confidence: 0.7,
+    });
     db.prepare("UPDATE observations SET confidence = 0.9 WHERE id = ?").run(newId);
 
     const llm = new StubLlmClient({

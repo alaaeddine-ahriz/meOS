@@ -17,9 +17,20 @@ function seedPageWorthyEntity(name: string) {
   const { store } = server.ctx;
   const entity = store.createEntity({ type: "person", name });
   const src = store.createSource({ type: "file", title: `${name} notes`, content: "..." });
+  // Three facts from a real document clear the richness bar → warrants a page.
   store.insertObservation({
     entityId: entity.id,
     text: `${name} leads the Orion project.`,
+    sourceId: src,
+  });
+  store.insertObservation({
+    entityId: entity.id,
+    text: `${name} mentors the design team.`,
+    sourceId: src,
+  });
+  store.insertObservation({
+    entityId: entity.id,
+    text: `${name} joined the company in 2019.`,
     sourceId: src,
   });
   store.recordStaleSource(entity.id, src);
@@ -305,9 +316,20 @@ describe("Activity feed records agent actions", () => {
     const { store } = server.ctx;
     const entity = store.createEntity({ type: "person", name: "Activity Commit Person" });
     const src = store.createSource({ type: "file", title: "notes", content: "..." });
+    // Three facts from a real document clear the richness bar → warrants a page.
     store.insertObservation({
       entityId: entity.id,
       text: "Activity Commit Person leads Orion.",
+      sourceId: src,
+    });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Activity Commit Person mentors the team.",
+      sourceId: src,
+    });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Activity Commit Person joined in 2019.",
       sourceId: src,
     });
     await server.app.inject({

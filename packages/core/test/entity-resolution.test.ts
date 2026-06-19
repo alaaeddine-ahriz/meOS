@@ -315,8 +315,11 @@ describe("wiki backfill", () => {
   it("populates wiki_pages from on-disk Markdown without an LLM", async () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana" });
-    // A page-worthy fact, so the entity warrants the page already on disk.
+    // Three page-worthy facts clear the richness bar, so the entity warrants the
+    // page already on disk.
     s.insertObservation({ entityId: dana.id, text: "Dana leads the Orion project." });
+    s.insertObservation({ entityId: dana.id, text: "Dana mentors the design team." });
+    s.insertObservation({ entityId: dana.id, text: "Dana joined the company in 2019." });
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
@@ -338,7 +341,10 @@ describe("wiki backfill", () => {
   it("synthesises a body for an empty on-disk page and writes it back", async () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
+    // Three facts clear the richness bar, so Dana warrants a page.
     s.insertObservation({ entityId: dana.id, text: "Dana leads Orion." });
+    s.insertObservation({ entityId: dana.id, text: "Dana mentors the design team." });
+    s.insertObservation({ entityId: dana.id, text: "Dana joined the company in 2019." });
     // an empty page on disk (frontmatter + title only) — the agentic-writer gap
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
@@ -362,7 +368,10 @@ describe("wiki backfill", () => {
     const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
     const orion = s.createEntity({ type: "project", name: "Orion" });
     s.upsertRelationship(dana.id, orion.id, "works on");
+    // Three facts clear the richness bar, so Dana warrants a page.
     s.insertObservation({ entityId: dana.id, text: "Dana ships fast." });
+    s.insertObservation({ entityId: dana.id, text: "Dana mentors the design team." });
+    s.insertObservation({ entityId: dana.id, text: "Dana joined the company in 2019." });
     const wiki = new WikiWriter(s, new StubLlmClient(), tmp, new HashEmbedder());
 
     await wiki.backfillPages();
@@ -376,7 +385,14 @@ describe("wiki backfill", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
     const marcus = s.createEntity({ type: "person", name: "Marcus", summary: "An engineer." });
+    // Each warrants a page: three facts apiece clear the richness bar, so the
+    // only thing protecting Marcus's page is that it is agent-authored prose.
     s.insertObservation({ entityId: dana.id, text: "Dana ships fast." });
+    s.insertObservation({ entityId: dana.id, text: "Dana mentors the design team." });
+    s.insertObservation({ entityId: dana.id, text: "Dana joined the company in 2019." });
+    s.insertObservation({ entityId: marcus.id, text: "Marcus reviews architecture." });
+    s.insertObservation({ entityId: marcus.id, text: "Marcus runs the platform team." });
+    s.insertObservation({ entityId: marcus.id, text: "Marcus joined the company in 2018." });
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
     // a synthetic page with the old Connections format, and an agent page with [[links]]
@@ -401,7 +417,10 @@ describe("wiki backfill", () => {
     const s = store();
     const dana = s.createEntity({ type: "person", name: "Dana", summary: "A designer." });
     const orion = s.createEntity({ type: "project", name: "Orion" });
+    // Two relationships give Dana (and, reciprocally, Orion) the connectedness to
+    // each warrant a page.
     s.upsertRelationship(dana.id, orion.id, "works on");
+    s.upsertRelationship(dana.id, orion.id, "founded");
     const dir = path.join(tmp, "person");
     fs.mkdirSync(dir, { recursive: true });
     // an old synthetic page: no marker, no [[links]] — the pre-backlinks format

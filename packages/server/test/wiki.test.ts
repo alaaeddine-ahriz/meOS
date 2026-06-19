@@ -37,8 +37,13 @@ describe("GET /api/wiki/graph", () => {
     const a = store.createEntity({ type: "person", name: "Graph A" });
     const b = store.createEntity({ type: "person", name: "Graph B" });
     const src = store.createSource({ type: "file", title: "Graph notes", content: "..." });
+    // Three facts apiece clear the richness bar, so both endpoints warrant a page.
     store.insertObservation({ entityId: a.id, text: "Graph A leads.", sourceId: src });
+    store.insertObservation({ entityId: a.id, text: "Graph A owns the roadmap.", sourceId: src });
+    store.insertObservation({ entityId: a.id, text: "Graph A joined in 2020.", sourceId: src });
     store.insertObservation({ entityId: b.id, text: "Graph B helps.", sourceId: src });
+    store.insertObservation({ entityId: b.id, text: "Graph B runs reviews.", sourceId: src });
+    store.insertObservation({ entityId: b.id, text: "Graph B joined in 2021.", sourceId: src });
     store.upsertRelationship(a.id, b.id, "works with", src);
 
     const res = await server.app.inject({ method: "GET", url: "/api/wiki/graph" });
@@ -114,9 +119,20 @@ describe("GET /api/wiki — connector references stay out of the index", () => {
     // A person mentioned by a real document → warrants a page, must be listed.
     const documented = store.createEntity({ type: "person", name: "Listed Person" });
     const fileSrc = store.createSource({ type: "file", title: "Notes", content: "..." });
+    // Three facts from a real document clear the richness bar → warrants a page.
     store.insertObservation({
       entityId: documented.id,
       text: "Listed Person leads the project.",
+      sourceId: fileSrc,
+    });
+    store.insertObservation({
+      entityId: documented.id,
+      text: "Listed Person mentors the team.",
+      sourceId: fileSrc,
+    });
+    store.insertObservation({
+      entityId: documented.id,
+      text: "Listed Person joined the company in 2019.",
       sourceId: fileSrc,
     });
     // A person known only from a contact → reference only, must be hidden.
