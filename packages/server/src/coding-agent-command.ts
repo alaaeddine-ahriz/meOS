@@ -41,15 +41,15 @@ function resolveRun(ctx: AppContext, conversationId: number, modelOverride?: str
 }
 
 /**
- * Locate the built `@meos/wiki-mcp` entry to spawn as a stdio MCP server. It
- * proxies to our own HTTP API, so an agent run dogfoods the exact external-agent
- * path. Returns the command + args (run with our own Node), or null if the
- * package isn't built/installed — in which case the agent simply runs without
- * meOS tools rather than failing.
+ * Locate a built `@meos/wiki-mcp` entry (the package, or its `./connectors`
+ * subpath) to spawn as a stdio MCP server. Each proxies to our own HTTP API, so
+ * an agent run dogfoods the exact MCP-over-HTTP path. Returns the command + args
+ * (run with our own Node), or null if that entry isn't built/installed — the
+ * agent then simply runs without that toolset rather than failing.
  */
-function resolveWikiMcp(): { command: string; args: string[] } | null {
+function resolveMcpEntry(spec: string): { command: string; args: string[] } | null {
   try {
-    return { command: process.execPath, args: [require.resolve("@meos/wiki-mcp")] };
+    return { command: process.execPath, args: [require.resolve(spec)] };
   } catch {
     return null;
   }
@@ -57,28 +57,29 @@ function resolveWikiMcp(): { command: string; args: string[] } | null {
 
 /**
  * Build the meOS MCP injection for an agent run: the `--mcp-config` JSON that
- * registers our wiki/knowledge tools (pointed at this server's own port) plus a
- * system-prompt addendum that teaches the agent to use them. Returns null when
- * the MCP server can't be located, so the run proceeds tool-less.
+ * registers our wiki/knowledge tools AND the user's live connector tools (each
+ * pointed at this server's own port), plus a system-prompt addendum teaching the
+ * agent to use them — and, for connectors, to rely on meOS's existing auth rather
+ * than authenticating anything itself. Returns null only when NO MCP entry can be
+ * located, so the run proceeds tool-less.
  */
 function buildMeosMcp(ctx: AppContext): { mcpConfig: string; appendSystemPrompt: string } | null {
-  const entry = resolveWikiMcp();
-  if (!entry) {
+  const wiki = resolveMcpEntry("@meos/wiki-mcp");
+  const connectors = resolveMcpEntry("@meos/wiki-mcp/connectors");
+  if (!wiki && !connectors) {
     console.warn(
       "[coding-agent] @meos/wiki-mcp not found (build it with `pnpm --filter @meos/wiki-mcp build`); " +
-        "running the agent without meOS knowledge tools.",
+        "running the agent without meOS knowledge or connector tools.",
     );
     return null;
   }
-  const mcpConfig = JSON.stringify({
-    mcpServers: {
-      meos: {
-        command: entry.command,
-        args: entry.args,
-        env: { MEOS_SERVER_URL: `http://127.0.0.1:${ctx.config.server.port}` },
-      },
-    },
-  });
+  const env = { MEOS_SERVER_URL: `http://127.0.0.1:${ctx.config.server.port}` };
+  const mcpServers: Record<string, { command: string; args: string[]; env: typeof env }> = {};
+  if (wiki) mcpServers.meos = { command: wiki.command, args: wiki.args, env };
+  if (connectors) {
+    mcpServers["meos-connectors"] = { command: connectors.command, args: connectors.args, env };
+  }
+  const mcpConfig = JSON.stringify({ mcpServers });
   return { mcpConfig, appendSystemPrompt: MEOS_SYSTEM_PROMPT };
 }
 
@@ -100,6 +101,19 @@ const MEOS_SYSTEM_PROMPT = [
   "'external' first, then wiki_queue → wiki_context → wiki_write → wiki_check →",
   "wiki_commit. Only ever rewrite a page's prose body; never invent facts or edit",
   "frontmatter. Fall back to your other tools only for genuine coding/file work.",
+  "",
+  "You ALSO have live tools for the user's connected services on the",
+  "`meos-connectors` server (names prefixed `mcp__meos-connectors__`) — e.g.",
+  "Google calendar, tasks, email, and contacts when those are connected. Use them",
+  "for up-to-the-minute data the wiki won't have (future events, email bodies,",
+  "current tasks) or to act on the user's behalf (e.g. create a task).",
+  "",
+  "These tools run against the accounts the user ALREADY connected in meOS, using",
+  "the existing authorization. NEVER ask the user to authenticate again, and never",
+  "set up your own Google/credentials, API keys, gcloud, or a separate MCP for a",
+  "service meOS already covers — just call the meos-connectors tool. If a tool",
+  "reports the account needs reconnecting, tell the user to reconnect it in meOS",
+  "settings; do not attempt your own auth flow.",
 ].join("\n");
 
 export async function runCodingAgent(

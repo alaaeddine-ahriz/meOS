@@ -4,6 +4,10 @@
   "type": "module",
   "private": false,
   "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./connectors": "./dist/connectors.js"
+  },
   "bin": {
     "meos-wiki-mcp": "./dist/index.js"
   },
