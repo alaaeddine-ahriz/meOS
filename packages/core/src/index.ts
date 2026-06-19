@@ -112,8 +112,12 @@ export type {
   Subgraph,
   SubgraphEdge,
   SubgraphNode,
+  WikiAuthor,
   WikiChange,
+  WikiMaintenanceMode,
+  WikiPageMeta,
   WikiPageWithVector,
+  WikiRunAuthor,
   WikiRunEventKind,
   WikiRunEventRow,
   WikiRunRow,
@@ -191,7 +195,16 @@ export type { ProfileProposal } from "./profile/profile-assistant.js";
 export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
 export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
-export type { WikiRunHook, WikiRunSink, WikiRunStart } from "./wiki/writer.js";
+export type {
+  WikiPageCheck,
+  WikiPageIssue,
+  WikiReconcileResult,
+  WikiReconcileSkip,
+  WikiRunHook,
+  WikiRunSink,
+  WikiRunStart,
+} from "./wiki/writer.js";
+export { WIKI_AGENTS_MD, writeWikiAgentDocs } from "./wiki/agent-readme.js";
 export {
   DEFAULT_WIKI_SANDBOX_LIMITS,
   RunLimitTracker,

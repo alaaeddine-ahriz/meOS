@@ -1,8 +1,10 @@
 import {
   AlertTriangle,
+  Bot,
   Check,
   ChevronRight,
   Cloud,
+  Copy,
   FolderOpen,
   FolderPlus,
   GitBranch,
@@ -28,6 +30,7 @@ import {
   AnthropicLogo,
   brandLogo,
   GoogleLogo,
+  type LogoComponent,
   OpenAILogo,
   OpenRouterLogo,
 } from "@/components/brand-logos";
@@ -61,6 +64,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   api,
+  type AgentModeResponse,
   type CatalogConnector,
   type CatalogKind,
   type CloudProvider,
@@ -107,6 +111,7 @@ type TabId =
   | "connectors"
   | "knowledge"
   | "sync"
+  | "maintenance"
   | "reset";
 
 /**
@@ -171,6 +176,13 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         blurb: "Version your wiki and digests with Git.",
         hint: "Back up and version your wiki and digests with Git. Connect a remote to sync them across machines.",
       },
+      {
+        id: "maintenance",
+        label: "Wiki agent",
+        icon: Bot,
+        blurb: "Maintain the wiki with your own coding agent.",
+        hint: "Hand wiki upkeep to Claude Code, Claude Desktop, or Codex — billed to your own subscription instead of MeOS's API budget. MeOS shares one status ledger so the two never collide.",
+      },
     ],
   },
   {
@@ -231,6 +243,224 @@ function Segmented<T extends string>({
         ))}
       </div>
     </div>
+  );
+}
+
+// --- Wiki maintenance (external coding-agent) -------------------------
+
+type WikiMode = AgentModeResponse["mode"];
+
+const WIKI_MODES: Array<{ value: WikiMode; label: string }> = [
+  { value: "in-app", label: "In-app" },
+  { value: "external", label: "External" },
+  { value: "hybrid", label: "Hybrid" },
+];
+
+const MODE_BLURB: Record<WikiMode, string> = {
+  "in-app": "MeOS writes the wiki itself, using its own LLM budget. The default.",
+  external:
+    "MeOS pauses its paid rewrites and leaves the work for your coding agent. Sources are still indexed; turning them into facts and prose is left to the agent.",
+  hybrid: "Both MeOS and your agent can write pages — whoever reconciles a page first wins.",
+};
+
+/** Per-agent setup: a logo + the steps (with copyable commands) to connect it. */
+const AGENT_SETUP: Array<{
+  id: string;
+  name: string;
+  Logo: LogoComponent;
+  steps: Array<{ text: string; code?: string }>;
+}> = [
+  {
+    id: "claude-code",
+    name: "Claude Code",
+    Logo: AnthropicLogo,
+    steps: [
+      {
+        text: "Register the meOS server once, in your terminal:",
+        code: "claude mcp add meos -- npx -y @meos/wiki-mcp",
+      },
+      { text: "Then open Claude Code and ask it to update your wiki." },
+    ],
+  },
+  {
+    id: "claude-desktop",
+    name: "Claude Desktop",
+    Logo: AnthropicLogo,
+    steps: [
+      {
+        text: "Open Settings → Developer → Edit Config, then add:",
+        code: `{
+  "mcpServers": {
+    "meos": { "command": "npx", "args": ["-y", "@meos/wiki-mcp"] }
+  }
+}`,
+      },
+      { text: "Restart Claude Desktop, then ask it to update your wiki." },
+    ],
+  },
+  {
+    id: "codex",
+    name: "Codex",
+    Logo: OpenAILogo,
+    steps: [
+      {
+        text: "Add the server to ~/.codex/config.toml:",
+        code: `[mcp_servers.meos]
+command = "npx"
+args = ["-y", "@meos/wiki-mcp"]`,
+      },
+      { text: "Then run codex and ask it to update your wiki." },
+    ],
+  },
+];
+
+/** A monospace command block with a copy button. */
+function CopyBlock({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="relative">
+      <pre className="overflow-x-auto rounded-md border border-line bg-card/40 p-3 pr-10 font-mono text-[12px] leading-relaxed text-foreground">
+        {command}
+      </pre>
+      <button
+        type="button"
+        aria-label="Copy to clipboard"
+        onClick={copy}
+        className="absolute right-2 top-2 rounded p-1 text-dim transition-colors hover:text-paper"
+      >
+        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Hand wiki upkeep to the user's own coding agent (Claude Code / Claude Desktop /
+ * Codex) via the meOS MCP server — billed to their subscription, not MeOS's API.
+ * Sets the maintenance mode and guides the per-agent MCP setup.
+ */
+function WikiMaintenanceSection() {
+  const [mode, setMode] = useState<WikiMode | null>(null);
+  const [pending, setPending] = useState<number | null>(null);
+  const [agent, setAgent] = useState<string>("claude-code");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getWikiMode()
+      .then((r) => setMode(r.mode))
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    api
+      .getWikiAgentQueue()
+      .then((r) => setPending(r.pages.length))
+      .catch(() => {
+        /* the count is a nicety; never block the section on it */
+      });
+  }, []);
+
+  const changeMode = async (next: WikiMode) => {
+    const prev = mode;
+    setMode(next); // optimistic
+    setError(null);
+    try {
+      const r = await api.setWikiMode(next);
+      setMode(r.mode);
+    } catch (e) {
+      setMode(prev);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const selected = AGENT_SETUP.find((a) => a.id === agent) ?? AGENT_SETUP[0]!;
+  const handoff = mode === "external" || mode === "hybrid";
+
+  return (
+    <section className="flex flex-col gap-6">
+      {mode === null && !error && <p className="text-sm text-dim">Loading…</p>}
+
+      {mode !== null && (
+        <>
+          <div className="flex flex-col gap-2">
+            <Segmented<WikiMode>
+              label="Maintenance"
+              value={mode}
+              options={WIKI_MODES}
+              onChange={changeMode}
+            />
+            <p className="text-sm text-faded">{MODE_BLURB[mode]}</p>
+          </div>
+
+          {handoff && pending !== null && (
+            <p className="text-sm text-faded">
+              {pending === 0
+                ? "Nothing waiting — your wiki is up to date."
+                : `${pending} page${pending === 1 ? "" : "s"} waiting for your agent.`}
+            </p>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <h2 className="font-mono text-[11px] uppercase tracking-[0.25em] text-dim">
+              Connect your coding agent
+            </h2>
+
+            {!handoff && (
+              <p className="text-sm text-faded">
+                Switch to <span className="font-mono text-faded">External</span> above to hand wiki
+                upkeep to your own agent — its work is billed to your subscription, not MeOS&apos;s
+                API budget.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-1.5">
+              {AGENT_SETUP.map((a) => (
+                <Button
+                  key={a.id}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setAgent(a.id)}
+                  className={cn(
+                    "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
+                    agent === a.id && "border-lamp-dim text-paper",
+                  )}
+                >
+                  <a.Logo className="size-3.5" />
+                  {a.name}
+                </Button>
+              ))}
+            </div>
+
+            <ol className="flex flex-col gap-3">
+              {selected.steps.map((step, i) => (
+                <li key={i} className="flex flex-col gap-2">
+                  <span className="text-sm text-faded">
+                    <span className="text-dim">{i + 1}.</span> {step.text}
+                  </span>
+                  {step.code && <CopyBlock command={step.code} />}
+                </li>
+              ))}
+            </ol>
+
+            <p className="text-xs text-dim">
+              MeOS must be running — the server is a thin proxy over its local API. It talks to{" "}
+              <span className="font-mono">http://127.0.0.1:4321</span> by default; set{" "}
+              <span className="font-mono">MEOS_SERVER_URL</span> to override.
+            </p>
+          </div>
+        </>
+      )}
+
+      {error && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -326,6 +556,7 @@ export function SettingsView() {
               {tab === "connectors" && <ConnectorsSection />}
               {tab === "knowledge" && <KnowledgeSection />}
               {tab === "sync" && <GitSyncSection />}
+              {tab === "maintenance" && <WikiMaintenanceSection />}
               {tab === "reset" && <ResetSection />}
             </div>
           </div>

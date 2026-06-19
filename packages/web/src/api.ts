@@ -82,6 +82,8 @@ import type {
 import type {
   ActivityResponse,
   AddFolderResponse,
+  AgentModeResponse,
+  AgentQueueResponse,
   ApplyProfileResponse,
   AuditResponse,
   AuthStartResponse,
@@ -137,6 +139,8 @@ import type {
 
 export type {
   ActivityEvent,
+  AgentModeResponse,
+  AgentQueueResponse,
   AuditEntry,
   IndexedSource,
   IndexedEntityLink,
@@ -461,6 +465,15 @@ export const api = {
   gitSync: () => json<GitStatus>("/api/settings/git/sync", { method: "POST" }),
   getGitLog: (limit = 50) => json<GitLogResponse>(`/api/settings/git/log?limit=${limit}`),
   getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
+  // --- wiki maintenance mode (in-app vs external coding-agent) ---
+  getWikiMode: () => json<AgentModeResponse>("/api/wiki/agent/mode"),
+  setWikiMode: (mode: AgentModeResponse["mode"]) =>
+    json<AgentModeResponse>("/api/wiki/agent/mode", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode }),
+    }),
+  getWikiAgentQueue: () => json<AgentQueueResponse>("/api/wiki/agent/queue"),
   getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
   // --- connectors (multi-provider: every method takes the provider id) ---
   // The connector catalog: every registered connector with its kinds, display

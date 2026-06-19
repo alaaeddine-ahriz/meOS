@@ -10,6 +10,8 @@ export const WikiRunSchema = z.object({
   type: z.string(),
   slug: z.string().nullable(),
   status: z.enum(["running", "done", "failed"]),
+  /** Who drove the run: the in-app maintainer, or the user's own coding agent. */
+  author: z.enum(["in-app", "agent"]),
   created_at: z.string(),
   finished_at: z.string().nullable(),
 });
@@ -46,6 +48,7 @@ export const ActivityStreamEventSchema = z.discriminatedUnion("type", [
     name: z.string(),
     entityType: z.string(),
     slug: z.string(),
+    author: z.enum(["in-app", "agent"]),
   }),
   z.object({
     type: z.literal("event"),

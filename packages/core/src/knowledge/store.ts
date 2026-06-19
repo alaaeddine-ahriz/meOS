@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { CalendarEventItem, ConnectorKindConfig } from "../connectors/types.js";
 import type { MeosDatabase } from "../db/database.js";
 import { deserializeVector, serializeVector } from "../embedding/vectors.js";
@@ -605,6 +606,27 @@ export interface WikiPageBody {
   body: string;
 }
 
+/** Who last wrote a page's prose: the in-app maintainer or the user's coding agent. */
+export type WikiAuthor = "in-app" | "agent";
+
+/**
+ * How the wiki is maintained. `in-app` (default) is today's behavior — the
+ * in-app maintainer auto-rewrites stale pages. `external` pauses that paid
+ * rewrite so the user's own coding agent owns it (ingestion still marks pages
+ * stale). `hybrid` allows both.
+ */
+export type WikiMaintenanceMode = "in-app" | "external" | "hybrid";
+
+/** A compiled page with its maintenance-ledger columns (hash, author, quality). */
+export interface WikiPageMeta {
+  entity_id: number;
+  body: string;
+  body_hash: string | null;
+  authored_by: WikiAuthor;
+  quality: number | null;
+  updated_at: string;
+}
+
 /** A wiki page the writer created or rewrote in one regeneration pass. */
 export interface WikiChange {
   entityId: number;
@@ -619,6 +641,9 @@ export interface WikiChange {
 }
 
 /** A single agentic wiki-maintainer run (one page regeneration). */
+/** Who drove a wiki run: the in-app maintainer, or the user's own coding agent. */
+export type WikiRunAuthor = "in-app" | "agent";
+
 export interface WikiRunRow {
   id: number;
   entity_id: number | null;
@@ -627,6 +652,7 @@ export interface WikiRunRow {
   type: string;
   slug: string | null;
   status: "running" | "done" | "failed";
+  author: WikiRunAuthor;
   created_at: string;
   finished_at: string | null;
 }
@@ -1691,6 +1717,42 @@ export class KnowledgeStore {
          FROM source_revisions WHERE source_id = ? ORDER BY revision`,
       )
       .all(sourceId) as SourceRevisionRow[];
+  }
+
+  /**
+   * Sources that are indexed (an active revision exists) but carry no facts yet —
+   * the agent's extraction queue under external wiki maintenance (#wiki-agent,
+   * Option 2). "No facts" is judged via the provenance link (observation_sources),
+   * so a source that only reinforced existing facts still counts as extracted.
+   * Newest first, bounded.
+   */
+  sourcesAwaitingExtraction(
+    limit = 100,
+  ): Array<{ id: number; type: string; title: string; path: string | null; created_at: string }> {
+    return this.db
+      .prepare(
+        `SELECT s.id, s.type, s.title, s.path, s.created_at
+         FROM sources s
+         WHERE EXISTS (
+                 SELECT 1 FROM source_revisions r
+                 WHERE r.source_id = s.id AND r.status = 'active'
+               )
+           AND NOT EXISTS (
+                 SELECT 1 FROM observations o WHERE o.source_id = s.id
+               )
+           AND NOT EXISTS (
+                 SELECT 1 FROM observation_sources os WHERE os.source_id = s.id
+               )
+         ORDER BY s.id DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Array<{
+      id: number;
+      type: string;
+      title: string;
+      path: string | null;
+      created_at: string;
+    }>;
   }
 
   /**
@@ -2913,19 +2975,26 @@ export class KnowledgeStore {
 
   /** Open a run for a page regeneration; events are appended as the agent works. */
   createWikiRun(input: {
-    entityId: number;
+    entityId: number | null;
     name: string;
     type: string;
-    slug: string;
+    slug: string | null;
     sourceIds: number[];
+    author?: WikiRunAuthor;
   }): number {
     return Number(
       this.db
         .prepare(
-          "INSERT INTO wiki_runs (entity_id, source_id, name, type, slug) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO wiki_runs (entity_id, source_id, name, type, slug, author) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(input.entityId, input.sourceIds[0] ?? null, input.name, input.type, input.slug)
-        .lastInsertRowid,
+        .run(
+          input.entityId,
+          input.sourceIds[0] ?? null,
+          input.name,
+          input.type,
+          input.slug,
+          input.author ?? "in-app",
+        ).lastInsertRowid,
     );
   }
 
@@ -3770,15 +3839,28 @@ export class KnowledgeStore {
 
   // --- compiled wiki pages (retrievable prose) -------------------------
 
-  /** Persist the body the writer produced so chat can retrieve compiled prose. */
-  upsertWikiPage(entityId: number, body: string, embedding?: Float32Array): void {
+  /**
+   * Persist the body the writer produced so chat can retrieve compiled prose.
+   * Also records `body_hash` (so an unchanged page is skipped on the next pass by
+   * either maintenance path) and `authored_by` (so the in-app refresh paths don't
+   * clobber a page the user maintains with their own coding agent).
+   */
+  upsertWikiPage(
+    entityId: number,
+    body: string,
+    embedding?: Float32Array,
+    authoredBy: WikiAuthor = "in-app",
+  ): void {
+    const bodyHash = createHash("sha256").update(body).digest("hex");
     this.db
       .prepare(
-        `INSERT INTO wiki_pages (entity_id, body, embedding) VALUES (?, ?, ?)
+        `INSERT INTO wiki_pages (entity_id, body, embedding, body_hash, authored_by)
+         VALUES (?, ?, ?, ?, ?)
          ON CONFLICT(entity_id) DO UPDATE SET body = excluded.body,
-           embedding = excluded.embedding, updated_at = datetime('now')`,
+           embedding = excluded.embedding, body_hash = excluded.body_hash,
+           authored_by = excluded.authored_by, updated_at = datetime('now')`,
       )
-      .run(entityId, body, embedding ? serializeVector(embedding) : null);
+      .run(entityId, body, embedding ? serializeVector(embedding) : null, bodyHash, authoredBy);
   }
 
   /** Drop an entity's compiled page from the retrieval table (e.g. it no longer
@@ -3806,6 +3888,18 @@ export class KnowledgeStore {
          WHERE w.entity_id = ?`,
       )
       .get(entityId) as WikiPageBody | undefined;
+  }
+
+  /** One entity's compiled page with the maintenance-ledger columns (hash,
+   *  author, quality), if it has a page. Backs the external-maintenance endpoints
+   *  and the idempotent commit skip (on-disk body hash vs stored body_hash). */
+  wikiPageMeta(entityId: number): WikiPageMeta | undefined {
+    return this.db
+      .prepare(
+        `SELECT entity_id, body, body_hash, authored_by, quality, updated_at
+         FROM wiki_pages WHERE entity_id = ?`,
+      )
+      .get(entityId) as WikiPageMeta | undefined;
   }
 
   /** Persist a page's lint score (0..1). */
@@ -3932,6 +4026,20 @@ export class KnowledgeStore {
          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
       )
       .run(key, JSON.stringify(value));
+  }
+
+  /**
+   * The wiki maintenance mode. Defaults to `in-app` (unchanged behavior) until
+   * the user opts into external (coding-agent) maintenance. Only the in-app
+   * auto-rewrite consults this; the external endpoints work in any mode.
+   */
+  getWikiMaintenanceMode(): WikiMaintenanceMode {
+    const mode = this.getSetting<WikiMaintenanceMode>("wiki_maintenance");
+    return mode === "external" || mode === "hybrid" ? mode : "in-app";
+  }
+
+  setWikiMaintenanceMode(mode: WikiMaintenanceMode): void {
+    this.setSetting("wiki_maintenance", mode);
   }
 
   // --- knowledge preferences (#86) -------------------------------------

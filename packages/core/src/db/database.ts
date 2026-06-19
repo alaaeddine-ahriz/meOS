@@ -913,6 +913,28 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE connector_accounts ADD COLUMN auth_config TEXT;
   `,
+
+  // 34 — external wiki maintenance. A page can now be (re)written by the user's
+  // own coding agent (Claude Code / Codex / Claude Desktop) over the same files,
+  // not just the in-app maintainer. Two columns make that path share one status
+  // ledger with the in-app path:
+  //   body_hash   — sha256 of the last-persisted body. A page whose on-disk body
+  //                 hashes to this is already reconciled, so neither path
+  //                 reprocesses it ("analyzed, no new edits → skip").
+  //   authored_by — 'in-app' | 'agent'. Marks agent-authored prose so the in-app
+  //                 refresh paths don't clobber a page the user maintains externally.
+  `
+  ALTER TABLE wiki_pages ADD COLUMN body_hash TEXT;
+  ALTER TABLE wiki_pages ADD COLUMN authored_by TEXT NOT NULL DEFAULT 'in-app';
+  `,
+
+  // 35 — who authored a wiki run. The Activity feed records the in-app maintainer's
+  // page regenerations as runs; external maintenance (a user's own coding agent)
+  // now records its commits + fact submissions as runs too. This column lets the
+  // feed label and tell the two apart. Existing rows are the in-app maintainer.
+  `
+  ALTER TABLE wiki_runs ADD COLUMN author TEXT NOT NULL DEFAULT 'in-app';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

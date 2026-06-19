@@ -252,6 +252,7 @@ export function ActivityView({ embedded = false }: { embedded?: boolean }) {
           type: event.entityType,
           slug: event.slug,
           status: "running",
+          author: event.author,
           created_at: new Date().toISOString(),
           finished_at: null,
         };
@@ -496,7 +497,18 @@ function RunRow({
         onClick={onToggle}
         icon={<Icon className={cn("size-4", className)} />}
         label={run.name}
-        meta={formatTime(run.created_at)}
+        meta={
+          run.author === "agent" ? (
+            <span className="flex items-center gap-2">
+              <span className="rounded bg-accent px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Agent
+              </span>
+              {formatTime(run.created_at)}
+            </span>
+          ) : (
+            formatTime(run.created_at)
+          )
+        }
       />
       {open && (
         <div className="mb-2 ml-6 border-l border-border pl-4">

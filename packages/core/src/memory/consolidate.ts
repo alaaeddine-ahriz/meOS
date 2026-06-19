@@ -93,10 +93,18 @@ export async function runConsolidation(deps: {
   profile?: string;
   /** ISO date-time lower bound for "what changed"; defaults to the last 24h. */
   since?: string;
+  /**
+   * Run the (paid, LLM) stale-page rewrite. Defaults to true. The server sets it
+   * false under external wiki maintenance, so the nightly pass still consolidates
+   * memory, lints, and writes the digest, but leaves page prose to the user's
+   * coding agent (pages stay flagged stale for it to pick up).
+   */
+  regenerateWiki?: boolean;
 }): Promise<ConsolidationReport> {
   const { store, llm, wiki, digestDir } = deps;
   const schema = deps.schema ?? DEFAULT_SCHEMA_MD;
   const profile = deps.profile ?? "";
+  const regenerateWiki = deps.regenerateWiki ?? true;
   const since =
     deps.since ??
     new Date(Date.now() - 24 * 3600 * 1000).toISOString().replace("T", " ").slice(0, 19);
@@ -111,7 +119,7 @@ export async function runConsolidation(deps: {
   // (broken links, orphan prose) for the regeneration below to repair.
   const healing = healWiki(store);
   const { decayed, promoted, expired, retiered } = runRetention(store);
-  const wikiChanges = await wiki.regenerateStale();
+  const wikiChanges = regenerateWiki ? await wiki.regenerateStale() : [];
   const staleRegenerated = wikiChanges.length;
 
   // The digest is written to disk and git-synced/exported — only list sources

@@ -20,6 +20,7 @@ export * from "./schemas/common.js";
 export * as ingest from "./schemas/ingest.js";
 export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";
+export * as wikiAgent from "./schemas/wiki-agent.js";
 export * as staleFacts from "./schemas/stale-facts.js";
 export * as vault from "./schemas/vault.js";
 export * as chat from "./schemas/chat.js";
@@ -152,6 +153,19 @@ import type * as sourceHealthSchemas from "./schemas/source-health.js";
 import type * as sourcesSchemas from "./schemas/sources.js";
 import type * as vaultSchemas from "./schemas/vault.js";
 import type * as wikiSchemas from "./schemas/wiki.js";
+import type * as wikiAgentSchemas from "./schemas/wiki-agent.js";
+
+export type AgentQueueResponse = z.infer<typeof wikiAgentSchemas.AgentQueueResponse>;
+export type AgentContextResponse = z.infer<typeof wikiAgentSchemas.AgentContextResponse>;
+export type AgentCheckResponse = z.infer<typeof wikiAgentSchemas.AgentCheckResponse>;
+export type AgentWriteResponse = z.infer<typeof wikiAgentSchemas.AgentWriteResponse>;
+export type AgentCommitResponse = z.infer<typeof wikiAgentSchemas.AgentCommitResponse>;
+export type AgentModeResponse = z.infer<typeof wikiAgentSchemas.AgentModeResponse>;
+export type AgentSourcesResponse = z.infer<typeof wikiAgentSchemas.AgentSourcesResponse>;
+export type AgentExtractContextResponse = z.infer<
+  typeof wikiAgentSchemas.AgentExtractContextResponse
+>;
+export type AgentFactsResponse = z.infer<typeof wikiAgentSchemas.AgentFactsResponse>;
 
 export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
 export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;
