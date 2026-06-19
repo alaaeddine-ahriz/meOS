@@ -143,7 +143,11 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
       if (body.agent) {
         const controller = new AbortController();
         const onClose = () => controller.abort();
-        request.raw.on("close", onClose);
+        // Listen on the RESPONSE socket, not request.raw: for a POST the request
+        // stream emits "close" as soon as its body is consumed (immediately),
+        // which would abort the run before it starts. reply.raw "close" fires
+        // only when the client actually disconnects.
+        reply.raw.on("close", onClose);
         const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
         try {
           await runCodingAgent(ctx, conversationId, message, send, controller.signal);
@@ -152,7 +156,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
           send({ type: "error", message: error instanceof Error ? error.message : String(error) });
         } finally {
           clearInterval(heartbeat);
-          request.raw.off("close", onClose);
+          reply.raw.off("close", onClose);
         }
         reply.raw.end();
         return;
