@@ -25,6 +25,34 @@ claude mcp add meos -- npx -y @meos/wiki-mcp
 (Claude Desktop / Codex: add an equivalent stdio server entry running
 `npx -y @meos/wiki-mcp`.)
 
+## Local development
+
+`npx -y @meos/wiki-mcp` pulls the **published** package from npm, so it won't
+reflect changes in your local checkout. To point your agent at this repo
+instead, register one of the following. (`pnpm dev` runs the meOS app — server
+on `:4321` — but not this package; the MCP server is spawned separately by your
+agent.)
+
+**Run from source — no build step.** `dev` runs straight from `src/` with tsx.
+Add it from the repo root so the workspace filter resolves:
+
+```sh
+claude mcp add meos -- pnpm --filter @meos/wiki-mcp dev
+```
+
+**Build once, register the built entry by absolute path.** This is
+cwd-independent (handy for Claude Desktop / Codex, which don't run from the
+repo root):
+
+```sh
+pnpm --filter @meos/wiki-mcp build      # or `pnpm build` (builds every package)
+claude mcp add meos -- node /absolute/path/to/meOS/packages/wiki-mcp/dist/index.js
+```
+
+Either way, start the meOS app first (`pnpm dev`) — the tools error clearly
+until the server on `:4321` is reachable. Point at a server on another host or
+port with `MEOS_SERVER_URL` (see [Configuration](#configuration)).
+
 ## Configuration
 
 | Env var           | Default                 | Description                               |
@@ -36,14 +64,15 @@ start the meOS app.
 
 ## Tools
 
-| Tool           | Args                   | What it does                                                       |
-| -------------- | ---------------------- | ------------------------------------------------------------------ |
-| `wiki_queue`   | —                      | List pages needing work (stale / new sources / missing) + the mode |
-| `wiki_context` | `{ slug }`             | Facts, sources, relationships, and linkable names to ground a page |
-| `wiki_check`   | `{ slugs? }`           | Validate body + frontmatter without writing                        |
-| `wiki_write`   | `{ slug, body }`       | Write a page body (for agents with no filesystem access)           |
-| `wiki_commit`  | `{ slugs?, message? }` | Reconcile edited pages into the DB and git-commit                  |
-| `wiki_mode`    | `{ mode? }`            | Read (no arg) or set (`in-app` \| `external` \| `hybrid`) the mode |
+| Tool           | Args                   | What it does                                                                                              |
+| -------------- | ---------------------- | --------------------------------------------------------------------------------------------------------- |
+| `wiki_search`  | `{ query }`            | Free-text search the knowledge base to answer questions; returns matching entities (with slugs) + sources |
+| `wiki_queue`   | —                      | List pages needing work (stale / new sources / missing) + the mode                                        |
+| `wiki_context` | `{ slug }`             | Facts, sources, relationships, and linkable names to ground a page                                        |
+| `wiki_check`   | `{ slugs? }`           | Validate body + frontmatter without writing                                                               |
+| `wiki_write`   | `{ slug, body }`       | Write a page body (for agents with no filesystem access)                                                  |
+| `wiki_commit`  | `{ slugs?, message? }` | Reconcile edited pages into the DB and git-commit                                                         |
+| `wiki_mode`    | `{ mode? }`            | Read (no arg) or set (`in-app` \| `external` \| `hybrid`) the mode                                        |
 
 ## Workflow
 

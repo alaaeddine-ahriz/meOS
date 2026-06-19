@@ -51,12 +51,28 @@ export const ChatBody = z.object({
    * back over the same SSE frame vocabulary, so the chat UI renders it natively.
    */
   agent: z.boolean().optional(),
+  /**
+   * The model the coding agent should run with this turn (passed to the CLI as
+   * `--model`). Typically a version-proof alias (`opus` | `sonnet` | `haiku`).
+   * Only meaningful when `agent` is set; absent falls back to the stored default.
+   */
+  model: z.string().optional(),
 });
 
 /** Frames emitted on the /api/chat SSE stream. */
 export const ChatEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start"), conversationId: z.number() }),
-  z.object({ type: z.literal("sources"), sources: z.array(SourceRefSchema) }),
+  z.object({
+    type: z.literal("sources"),
+    sources: z.array(SourceRefSchema),
+    /**
+     * Wiki pages an answer drew on (agent mode surfaces the [[entities]] its
+     * meOS tools consulted). Distinct from `sources` (raw documents): these link
+     * to a wiki page, not a file. Live-only — like the traversed `graph`, not
+     * persisted on the message.
+     */
+    pages: z.array(z.object({ name: z.string(), slug: z.string(), type: z.string() })).optional(),
+  }),
   z.object({ type: z.literal("reasoning"), text: z.string() }),
   z.object({
     type: z.literal("tool-call"),

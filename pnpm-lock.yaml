@@ -169,6 +169,9 @@ importers:
       '@meos/core':
         specifier: workspace:*
         version: link:../core
+      '@meos/wiki-mcp':
+        specifier: workspace:*
+        version: link:../wiki-mcp
       croner:
         specifier: ^9.0.0
         version: 9.1.0

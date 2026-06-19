@@ -1,5 +1,5 @@
 export { ClaudeStreamAdapter } from "./adapter.js";
-export { runClaudeCodeAgent } from "./runner.js";
+export { buildClaudeArgs, runClaudeCodeAgent } from "./runner.js";
 export {
   DEFAULT_MAX_TURNS,
   DEFAULT_MODEL,

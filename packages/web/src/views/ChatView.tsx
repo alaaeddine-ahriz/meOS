@@ -21,7 +21,7 @@ import {
   type SourceRef,
 } from "../api.js";
 import { DiffView } from "../components/DiffView.js";
-import { SourceList } from "../components/SourceList.js";
+import { SourceList, type WikiPageRef } from "../components/SourceList.js";
 import { Button } from "@/components/ui/button";
 import {
   Conversation,
@@ -39,6 +39,11 @@ import {
   PromptInputFooter,
   PromptInputHeader,
   PromptInputProvider,
+  PromptInputSelect,
+  PromptInputSelectContent,
+  PromptInputSelectItem,
+  PromptInputSelectTrigger,
+  PromptInputSelectValue,
   PromptInputSubmit,
   PromptInputTextarea,
   PromptInputTools,
@@ -83,6 +88,19 @@ const SUGGESTIONS: Array<{ label: string; prompt: string }> = [
 const SLASH_COMMANDS: Array<{ command: string; description: string }> = [
   { command: "/profile", description: "Tell MeOS what to change about your profile" },
 ];
+
+// Models the in-chat coding agent (Claude Code) can run with. Full model IDs,
+// not the bare `opus`/`sonnet`/`haiku` aliases: the installed CLI (v1.0.61) does
+// NOT resolve those aliases — it forwards them verbatim and the API 404s
+// ("model: haiku"). Verified end-to-end against the real CLI. Bump when newer
+// snapshots ship.
+const AGENT_MODELS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "claude-opus-4-8", label: "Opus" },
+  { value: "claude-sonnet-4-6", label: "Sonnet" },
+  { value: "claude-haiku-4-5", label: "Haiku" },
+];
+const DEFAULT_AGENT_MODEL = "claude-sonnet-4-6";
+const AGENT_MODEL_STORAGE_KEY = "meos.agentModel";
 
 // A `/profile` reply embeds the change as a diff between these markers (see the
 // server's profile-command). The chat renders it as a real diff + an action.
@@ -129,12 +147,16 @@ function parseUserMessage(content: string): { text: string; files: string[]; wik
 }
 
 /**
- * One step in an assistant turn's live agent trace: either the model's
- * (accreting) private reasoning, or a tool call with its eventual result. Kept
- * in arrival order so the UI reads as "thought → consulted → thought → answered".
+ * One step in an assistant turn's live agent trace, kept in arrival order so the
+ * UI reads as a chronological transcript — "thought → ran a tool → wrote → ran a
+ * tool → answered" — instead of grouping every tool call above the prose:
+ *  - `reasoning` — the model's (accreting) private thinking.
+ *  - `text`      — answer prose the model emitted between/around tool calls.
+ *  - `tool`      — a tool call with its eventual result.
  */
 type AgentPart =
   | { kind: "reasoning"; text: string }
+  | { kind: "text"; text: string }
   | {
       kind: "tool";
       toolCallId?: string;
@@ -161,6 +183,16 @@ function appendReasoning(parts: AgentPart[], text: string): AgentPart[] {
     return [...parts.slice(0, -1), { ...last, text: last.text + text }];
   }
   return [...parts, { kind: "reasoning", text }];
+}
+
+/** Merge a text delta into the trailing text part, or open a new one — so a run
+ * of prose stays one block but a tool call between two blocks splits them. */
+function appendText(parts: AgentPart[], text: string): AgentPart[] {
+  const last = parts[parts.length - 1];
+  if (last?.kind === "text") {
+    return [...parts.slice(0, -1), { ...last, text: last.text + text }];
+  }
+  return [...parts, { kind: "text", text }];
 }
 
 /** Attach a tool result to its pending call (matched by id, else by name). */
@@ -223,6 +255,9 @@ export function ChatView() {
   const [error, setError] = useState<{ message: string; kind?: LlmErrorKind } | null>(null);
   // sources arrive per streamed reply, keyed by the assistant message's index
   const [liveSources, setLiveSources] = useState<ReadonlyMap<number, SourceRef[]>>(new Map());
+  // wiki pages an answer drew on (agent turns surface the entities they consulted),
+  // keyed the same way — live-only, rendered beside the source documents
+  const [livePages, setLivePages] = useState<ReadonlyMap<number, WikiPageRef[]>>(new Map());
   // the agent's live trace (reasoning + tool calls, in arrival order), keyed the
   // same way — so each turn shows the model thinking and consulting the brain
   const [liveTrace, setLiveTrace] = useState<ReadonlyMap<number, AgentPart[]>>(new Map());
@@ -237,6 +272,26 @@ export function ChatView() {
   // agent mode lives here (not in Composer) so it stays on across the empty→
   // conversation transition, where a fresh Composer instance is mounted
   const [agentMode, setAgentMode] = useState(false);
+  // the model the coding agent runs with — persisted so the choice survives a
+  // reload, and kept here (like agentMode) so it spans the Composer remount
+  const [agentModel, setAgentModel] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem(AGENT_MODEL_STORAGE_KEY);
+      // Only trust a persisted value that's still a known alias — a stale or
+      // hand-edited one would blank the picker and be sent as an unknown --model.
+      if (stored && AGENT_MODELS.some((m) => m.value === stored)) return stored;
+    } catch {
+      // private mode / storage disabled — fall through to the default
+    }
+    return DEFAULT_AGENT_MODEL;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(AGENT_MODEL_STORAGE_KEY, agentModel);
+    } catch {
+      // private mode / storage disabled — the in-memory choice still applies
+    }
+  }, [agentModel]);
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
@@ -266,6 +321,7 @@ export function ChatView() {
     // Switching conversations cancels any run still streaming into the old one.
     abortRef.current?.abort();
     setLiveSources(new Map());
+    setLivePages(new Map());
     setLiveTrace(new Map());
     setLiveGraph(new Map());
     setAgentTurns(new Map());
@@ -333,7 +389,7 @@ export function ChatView() {
 
   const busy = status === "submitted" || status === "streaming";
 
-  const send = async (text: string, agent?: boolean) => {
+  const send = async (text: string, agent?: boolean, model?: string) => {
     const assistantIndex = messages.length + 1;
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -351,7 +407,13 @@ export function ChatView() {
     // with nothing (and no error) drops its placeholder instead of shimmering forever.
     let produced = false;
     try {
-      for await (const event of streamChat(text, activeId ?? undefined, agent, controller.signal)) {
+      for await (const event of streamChat(
+        text,
+        activeId ?? undefined,
+        agent,
+        model,
+        controller.signal,
+      )) {
         if (event.type !== "start" && event.type !== "done" && event.type !== "error") {
           produced = true;
         }
@@ -362,6 +424,10 @@ export function ChatView() {
           }
         } else if (event.type === "sources") {
           setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
+          if (event.pages && event.pages.length > 0) {
+            const pages = event.pages;
+            setLivePages((current) => new Map(current).set(assistantIndex, pages));
+          }
         } else if (event.type === "reasoning") {
           setLiveTrace((current) =>
             new Map(current).set(
@@ -407,6 +473,17 @@ export function ChatView() {
             next[next.length - 1] = { ...last, content: last.content + event.text };
             return next;
           });
+          // Agent turns weave their answer text into the live trace, in position
+          // among the tool calls, so the timeline stays chronological. (The plain
+          // knowledge chat keeps a single answer block, rendered from `content`.)
+          if (agent) {
+            setLiveTrace((current) =>
+              new Map(current).set(
+                assistantIndex,
+                appendText(current.get(assistantIndex) ?? [], event.text),
+              ),
+            );
+          }
         } else if (event.type === "error") {
           failTurn({ message: event.message, kind: event.kind });
         }
@@ -467,6 +544,8 @@ export function ChatView() {
                 entities={entities}
                 agentMode={agentMode}
                 onAgentModeChange={setAgentMode}
+                agentModel={agentModel}
+                onAgentModelChange={setAgentModel}
               />
             </div>
 
@@ -500,52 +579,78 @@ export function ChatView() {
                     >
                       <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
                         {message.role === "assistant" ? (
-                          <>
-                            {trace && trace.length > 0 && (
+                          agentTurns.get(index) && trace && trace.length > 0 ? (
+                            // Live agent turn: one chronological timeline — thinking,
+                            // tool calls, and answer text interleaved in the order they
+                            // happened — then the references it leaned on.
+                            <>
                               <AgentTrace
                                 trace={trace}
-                                streaming={busy && index === lastIndex && !message.content}
+                                streaming={busy && index === lastIndex}
+                                entities={entities}
+                                components={markdownComponents}
                               />
-                            )}
-                            {message.content ? (
-                              (() => {
-                                const { text: proseText, patch: profilePatch } = splitProfileEdit(
-                                  message.content,
-                                );
-                                return (
-                                  <div className="text-[15px]">
-                                    {proseText && (
-                                      <MessageResponse
-                                        className="prose-meos"
-                                        isAnimating={busy && index === lastIndex}
-                                        components={markdownComponents}
-                                      >
-                                        {resolveWikiLinks(proseText, entities)}
-                                      </MessageResponse>
-                                    )}
-                                    {profilePatch && (
-                                      <ProfileEditResult
-                                        patch={profilePatch}
-                                        onOpen={() => navigate("/settings")}
-                                      />
-                                    )}
-                                    <div className="mt-3">
-                                      <SourceList
-                                        sources={liveSources.get(index) ?? message.sources ?? []}
-                                      />
+                              <div className="mt-3">
+                                <SourceList
+                                  sources={liveSources.get(index) ?? message.sources ?? []}
+                                  pages={livePages.get(index) ?? []}
+                                  onOpenPage={setWikiPanelSlug}
+                                />
+                              </div>
+                              {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
+                            </>
+                          ) : (
+                            <>
+                              {trace && trace.length > 0 && (
+                                <AgentTrace
+                                  trace={trace}
+                                  streaming={busy && index === lastIndex && !message.content}
+                                  entities={entities}
+                                  components={markdownComponents}
+                                />
+                              )}
+                              {message.content ? (
+                                (() => {
+                                  const { text: proseText, patch: profilePatch } = splitProfileEdit(
+                                    message.content,
+                                  );
+                                  return (
+                                    <div className="text-[15px]">
+                                      {proseText && (
+                                        <MessageResponse
+                                          className="prose-meos"
+                                          isAnimating={busy && index === lastIndex}
+                                          components={markdownComponents}
+                                        >
+                                          {resolveWikiLinks(proseText, entities)}
+                                        </MessageResponse>
+                                      )}
+                                      {profilePatch && (
+                                        <ProfileEditResult
+                                          patch={profilePatch}
+                                          onOpen={() => navigate("/settings")}
+                                        />
+                                      )}
+                                      <div className="mt-3">
+                                        <SourceList
+                                          sources={liveSources.get(index) ?? message.sources ?? []}
+                                          pages={livePages.get(index) ?? []}
+                                          onOpenPage={setWikiPanelSlug}
+                                        />
+                                      </div>
                                     </div>
-                                  </div>
-                                );
-                              })()
-                            ) : trace && trace.length > 0 ? null : (
-                              <Shimmer className="text-sm" duration={1.6}>
-                                {agentTurns.get(index)
-                                  ? "Running Claude Code…"
-                                  : "Consulting the knowledge base…"}
-                              </Shimmer>
-                            )}
-                            {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
-                          </>
+                                  );
+                                })()
+                              ) : trace && trace.length > 0 ? null : (
+                                <Shimmer className="text-sm" duration={1.6}>
+                                  {agentTurns.get(index)
+                                    ? "Running Claude Code…"
+                                    : "Consulting the knowledge base…"}
+                                </Shimmer>
+                              )}
+                              {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
+                            </>
+                          )
                         ) : (
                           <UserMessage content={message.content} entities={entities} />
                         )}
@@ -569,6 +674,8 @@ export function ChatView() {
                 entities={entities}
                 agentMode={agentMode}
                 onAgentModeChange={setAgentMode}
+                agentModel={agentModel}
+                onAgentModelChange={setAgentModel}
               />
             </div>
           </div>
@@ -590,13 +697,26 @@ export function ChatView() {
 }
 
 /**
- * The agent's live trace above an answer: its reasoning and each knowledge-base
- * tool call, in the order they happened — the chat equivalent of the wiki
- * maintainer's transcript, built from ai-elements Reasoning + Tool.
+ * An assistant turn's trace, in the order things happened — built from
+ * ai-elements Reasoning + Tool + the answer Response. For agent turns the model's
+ * `text` is woven in among the tool calls (so a tool appears exactly where it was
+ * used, between two stretches of prose); for the knowledge chat the trace holds
+ * only reasoning + tools and the single answer is rendered separately from
+ * `content`, so `text` parts simply never appear.
  */
-function AgentTrace({ trace, streaming }: { trace: AgentPart[]; streaming: boolean }) {
+function AgentTrace({
+  trace,
+  streaming,
+  entities,
+  components,
+}: {
+  trace: AgentPart[];
+  streaming: boolean;
+  entities: EntitySummary[];
+  components: ComponentProps<typeof MessageResponse>["components"];
+}) {
   return (
-    <div className="mb-2 flex flex-col gap-1.5">
+    <div className="flex flex-col gap-2">
       {trace.map((part, index) => {
         const isLast = index === trace.length - 1;
         if (part.kind === "reasoning") {
@@ -605,6 +725,18 @@ function AgentTrace({ trace, streaming }: { trace: AgentPart[]; streaming: boole
               <ReasoningTrigger />
               <ReasoningContent>{part.text}</ReasoningContent>
             </Reasoning>
+          );
+        }
+        if (part.kind === "text") {
+          return (
+            <MessageResponse
+              key={index}
+              className="prose-meos text-[15px]"
+              isAnimating={streaming && isLast}
+              components={components}
+            >
+              {resolveWikiLinks(part.text, entities)}
+            </MessageResponse>
           );
         }
         const label = TOOL_LABELS[part.toolName] ?? part.toolName;
@@ -709,16 +841,21 @@ function Composer({
   entities,
   agentMode,
   onAgentModeChange,
+  agentModel,
+  onAgentModelChange,
 }: {
   status: ChatStatus;
   busy: boolean;
-  onSend: (text: string, agent?: boolean) => void;
+  onSend: (text: string, agent?: boolean, model?: string) => void;
   onStop: () => void;
   entities: EntitySummary[];
   // Agent mode routes the turn to the local coding agent (Claude Code) instead
   // of the knowledge-base assistant. Owned by ChatView so it stays sticky.
   agentMode: boolean;
   onAgentModeChange: (on: boolean) => void;
+  // The model the coding agent runs with (an alias: opus | sonnet | haiku).
+  agentModel: string;
+  onAgentModelChange: (model: string) => void;
 }) {
   const [wikiRefs, setWikiRefs] = useState<EntitySummary[]>([]);
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
@@ -801,7 +938,7 @@ function Composer({
     if (wikiRefs.length > 0) parts.push(wikiRefs.map((e) => `[[${e.name}]]`).join(" "));
     for (const file of fileRefs) parts.push(`<file name="${file.name}">\n${file.text}\n</file>`);
     if (text) parts.push(text);
-    onSend(parts.join("\n\n"), agentMode);
+    onSend(parts.join("\n\n"), agentMode, agentMode ? agentModel : undefined);
     setWikiRefs([]);
     setFileRefs([]);
   };
@@ -921,6 +1058,27 @@ function Composer({
                 <Terminal className="size-3.5" />
                 Agent
               </Button>
+              {agentMode && (
+                <PromptInputSelect value={agentModel} onValueChange={onAgentModelChange}>
+                  <PromptInputSelectTrigger
+                    title="Model the agent runs with"
+                    className="h-7 gap-1 rounded-lg px-2 text-[12px] text-dim hover:text-paper"
+                  >
+                    <PromptInputSelectValue />
+                  </PromptInputSelectTrigger>
+                  <PromptInputSelectContent className="border-line bg-desk">
+                    {AGENT_MODELS.map((model) => (
+                      <PromptInputSelectItem
+                        key={model.value}
+                        value={model.value}
+                        className="text-[13px] text-paper"
+                      >
+                        {model.label}
+                      </PromptInputSelectItem>
+                    ))}
+                  </PromptInputSelectContent>
+                </PromptInputSelect>
+              )}
             </PromptInputTools>
             <PromptInputSubmit
               status={status}

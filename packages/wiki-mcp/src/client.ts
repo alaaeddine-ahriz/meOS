@@ -64,6 +64,10 @@ async function request<T>(
   return JSON.parse(text) as T;
 }
 
+export function getSearch(q: string): Promise<unknown> {
+  return request("GET", `/api/search?q=${encodeURIComponent(q)}`);
+}
+
 export function getQueue(): Promise<unknown> {
   return request("GET", "/api/wiki/agent/queue");
 }

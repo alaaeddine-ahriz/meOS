@@ -29,6 +29,18 @@ export interface ClaudeRunOptions {
   maxTurns?: number;
   /** `--permission-mode`. Defaults to {@link DEFAULT_PERMISSION_MODE}. */
   permissionMode?: string;
+  /**
+   * MCP servers to expose to the agent, as the JSON Claude Code's `--mcp-config`
+   * accepts (`{ "mcpServers": { … } }`). Passed inline (not `--strict-mcp-config`),
+   * so it MERGES with the user's own configured servers rather than replacing
+   * them. meOS uses this to inject its own wiki/knowledge MCP.
+   */
+  mcpConfig?: string;
+  /**
+   * Text appended to the agent's system prompt (`--append-system-prompt`) — meOS
+   * uses it to tell the agent about the meOS tools it just injected.
+   */
+  appendSystemPrompt?: string;
   /** Abort the run (kills the child) — wired to client disconnect. */
   signal?: AbortSignal;
   /** Binary to spawn. Defaults to `claude` (resolved on PATH). */

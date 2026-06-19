@@ -1,38 +1,81 @@
-import { ChevronDown, FileText } from "lucide-react";
+import { ChevronDown, FileText, Library } from "lucide-react";
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
 import { useConnectorCatalog } from "@/hooks/use-connector-catalog";
+import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { isRevealablePath, isTauri, openExternal, revealInFinder } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SourceRef } from "../api.js";
 
+/** A wiki page an answer drew on — links to the page rather than a file. */
+export interface WikiPageRef {
+  name: string;
+  slug: string;
+  type: string;
+}
+
 /**
- * Collapsible list of the documents an answer or wiki page draws on. File
- * sources reveal the original in Finder (desktop only); connector sources are
- * clickable chips (with the service's brand logo from the catalog) that open the
+ * Collapsible list of what an answer or wiki page draws on. Wiki `pages` (when
+ * given — agent answers surface the [[entities]] they consulted) link to the
+ * page; file sources reveal the original in Finder (desktop only); connector
+ * sources are clickable chips (with the service's brand logo) that open the
  * underlying item in the system browser.
  */
 export function SourceList({
   sources,
+  pages = [],
+  onOpenPage,
   defaultOpen = false,
 }: {
   sources: SourceRef[];
+  /** Wiki pages to list above the documents; each opens its page on click. */
+  pages?: WikiPageRef[];
+  onOpenPage?: (slug: string) => void;
   defaultOpen?: boolean;
 }) {
   const catalog = useConnectorCatalog();
-  if (sources.length === 0) return null;
+  const total = sources.length + pages.length;
+  if (total === 0) return null;
+  // "references" once wiki pages are mixed in; plain "sources" otherwise so the
+  // in-app chat (documents only) reads exactly as before.
+  const noun = pages.length > 0 ? "reference" : "source";
 
   return (
     <Sources defaultOpen={defaultOpen}>
       <SourcesTrigger
-        count={sources.length}
+        count={total}
         className="group font-mono text-[11px] uppercase tracking-[0.2em] text-dim transition-colors hover:text-faded"
       >
         <span>
-          {sources.length} source{sources.length > 1 ? "s" : ""}
+          {total} {noun}
+          {total > 1 ? "s" : ""}
         </span>
         <ChevronDown className="size-3 transition-transform group-data-[state=open]:rotate-180" />
       </SourcesTrigger>
       <SourcesContent>
+        {pages.map((page) => {
+          const Icon = ENTITY_TYPES[page.type]?.icon ?? Library;
+          return (
+            <Source
+              key={`page-${page.slug}`}
+              href={`/wiki/${page.slug}`}
+              onClick={(event) => {
+                event.preventDefault();
+                onOpenPage?.(page.slug);
+              }}
+              title={page.name}
+              className={cn(
+                "text-[13px] text-faded transition-colors",
+                onOpenPage ? "cursor-pointer hover:text-paper" : "cursor-default",
+              )}
+            >
+              <Icon className="size-3.5 shrink-0 text-lamp" />
+              <span className="truncate">{page.name}</span>
+              <span className="shrink-0 font-mono text-[10px] uppercase tracking-wider text-dim">
+                {page.type}
+              </span>
+            </Source>
+          );
+        })}
         {sources.map((source) => {
           // A connector source is one the catalog recognises by its source type;
           // it gets the service's brand logo and links out when its path is a URL.

@@ -17,6 +17,7 @@ import {
   getExtractContext,
   getMode,
   getQueue,
+  getSearch,
   getSources,
   postCheck,
   postCommit,
@@ -58,6 +59,21 @@ const WORKFLOW = [
 ].join("\n");
 
 const server = new McpServer({ name: "meos-wiki", version: "0.0.0" });
+
+server.registerTool(
+  "wiki_search",
+  {
+    description:
+      "Search the meOS knowledge base by free text to ANSWER QUESTIONS about the " +
+      "user's notes, people, projects, decisions, and sources. Returns the " +
+      "matching entities (each with a `slug` you can pass to wiki_context for the " +
+      "full grounding) and the source references behind them. Start here for any " +
+      "question; follow up with wiki_context (a page's facts + body) or " +
+      "wiki_extract_context (a source's full text) to read the detail.",
+    inputSchema: { query: z.string().describe("What to look for, in natural language") },
+  },
+  ({ query }) => run(() => getSearch(query)),
+);
 
 server.registerTool(
   "wiki_queue",

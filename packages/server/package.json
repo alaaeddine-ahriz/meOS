@@ -24,6 +24,7 @@
     "@fastify/swagger-ui": "^5.2.0",
     "@meos/contracts": "workspace:*",
     "@meos/core": "workspace:*",
+    "@meos/wiki-mcp": "workspace:*",
     "croner": "^9.0.0",
     "fastify": "^5.3.0",
     "zod": "^4.4.3"
