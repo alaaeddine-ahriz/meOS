@@ -347,8 +347,14 @@ export function ChatView() {
       { id: -2, role: "assistant", content: "", created_at: "" },
     ]);
 
+    // Tracks whether the turn streamed anything visible, so a turn that ends
+    // with nothing (and no error) drops its placeholder instead of shimmering forever.
+    let produced = false;
     try {
       for await (const event of streamChat(text, activeId ?? undefined, agent, controller.signal)) {
+        if (event.type !== "start" && event.type !== "done" && event.type !== "error") {
+          produced = true;
+        }
         if (event.type === "start") {
           if (event.conversationId !== activeId) {
             streamAssignedId.current = true;
@@ -404,6 +410,15 @@ export function ChatView() {
         } else if (event.type === "error") {
           failTurn({ message: event.message, kind: event.kind });
         }
+      }
+      if (!produced) {
+        // Nothing came back (and no error frame) — drop the empty assistant bubble.
+        setMessages((current) => {
+          const last = current[current.length - 1];
+          return last && last.role === "assistant" && !last.content
+            ? current.slice(0, -1)
+            : current;
+        });
       }
       setStatus((current) => (current === "error" ? current : "ready"));
     } catch (e) {
