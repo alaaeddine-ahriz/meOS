@@ -233,6 +233,7 @@ export { ChatService } from "./chat/chat.js";
 export type { ChatResponseEvent } from "./chat/chat.js";
 export { buildChatTools } from "./chat/tools.js";
 export type { ChatTools, ChatToolDeps, TraversalGraph } from "./chat/tools.js";
+export * from "./coding-agent/index.js";
 export {
   contradictionReport,
   decisionBrief,
