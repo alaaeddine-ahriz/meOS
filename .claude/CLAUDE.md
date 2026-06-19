@@ -58,3 +58,12 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## new-connector
+
+Authoring guide for adding an external integration (connector) to meOS.
+
+- **new-connector** (`.claude/skills/new-connector/SKILL.md`) - scaffold + author a connector (Notion, IMAP, …). Trigger: `/new-connector`
+  When the user asks to add a connector/integration/provider, invoke the Skill tool with `skill: "new-connector"` before writing code.
+
+A connector is declared once in a manifest (`packages/core/src/connectors/framework.ts`) and the platform derives every view, route, agent tool, and privacy default from it. Start with `pnpm connector:new <id>`; never hand-edit a view, route, or enum to make a connector appear. See also `docs/connectors.md`.

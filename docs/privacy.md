@@ -29,9 +29,12 @@ drift caller to caller.
 - **Embeddings** are computed locally (see [`llm-providers.md`](llm-providers.md)).
 - **The SQLite DB** (`data/meos.db`) is `.gitignore`d — it is derived state and
   never git-synced.
-- **Connector data** (contacts, email metadata) is ingested as `private`, so it's
-  searchable locally but never written to the git-synced wiki. See
-  [`connectors.md`](connectors.md).
+- **Connector data** (contacts, email metadata) is ingested as `private` by
+  default, so it's searchable locally but never written to the git-synced wiki.
+  The default comes from each connector kind's `private` flag in its manifest:
+  registering a connector injects its private source types into
+  `knowledge/visibility.ts`, so defaults track the registry instead of a
+  hardcoded list. See [`connectors.md`](connectors.md).
 - **Profile documents** stay private to this machine by default.
 
 ## Git sync

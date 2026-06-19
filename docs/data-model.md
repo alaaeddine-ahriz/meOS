@@ -49,7 +49,16 @@ content-hash ledger for change detection), `conversations`/`messages`/
 `message_sources` (chat + citations), `digests`, `settings` (LLM provider, keys,
 git prefs), `audit_log`, `wiki_runs`/`wiki_run_events` (agentic writer
 transcripts), and the `connector_*` tables (see
-[`connectors.md`](connectors.md)).
+[`connectors.md`](connectors.md)):
+
+- `connector_accounts` — one row per connected provider (`UNIQUE(provider)`),
+  holding its OAuth tokens or basic credentials.
+- `connector_sync_state` — per-kind sync cursor + a `config` JSON blob (coverage
+  window, label filters, …). `kind` is a free `TEXT` column with no `CHECK`
+  constraint: valid kinds come from the connector's manifest in the registry, not
+  a DB enum.
+- `connector_items` — a content-hash ledger that skips items unchanged since the
+  last sync.
 
 ## Sensitivity
 

@@ -31,9 +31,11 @@ background after ingestion; give the Activity → Feed a moment. A page only sho
 
 ## Connectors
 
-**OAuth won't complete.** Connectors use loopback + PKCE against _your own_
-Google Cloud "Desktop app" client. Make sure you created a Desktop-app OAuth
-client and entered its credentials. See [`connectors.md`](connectors.md).
+**OAuth won't complete.** OAuth2 connectors use loopback + PKCE against _your
+own_ provider client — for Google, a Google Cloud "Desktop app" client. Make
+sure you created the OAuth client and entered its credentials. (Basic-auth
+connectors like IMAP have no consent flow — they just need the credential fields
+the connector declares.) See [`connectors.md`](connectors.md).
 
 **A connector stopped syncing / 410 errors.** An expired Google sync token (410
 GONE) triggers a full resync automatically; the next run rebuilds the cursor.
