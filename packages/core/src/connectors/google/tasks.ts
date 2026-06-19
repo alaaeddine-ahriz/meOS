@@ -155,12 +155,17 @@ export async function listTasks(
 
   const items: TaskItem[] = [];
   for (const list of wanted) {
+    // Page each list to completion BEFORE the global due-sort. Google returns tasks
+    // in manual/position order (there is no orderBy), so stopping early on a running
+    // count would drop a soonest-due task that happens to sit on a later page.
     let pageToken: string | undefined;
     do {
       const params = new URLSearchParams({
         maxResults: "100",
         showCompleted: String(includeCompleted),
-        showHidden: "false",
+        // showHidden must also be true to surface tasks completed in Google's own
+        // first-party clients (web/mobile), which mark them hidden.
+        showHidden: String(includeCompleted),
         showDeleted: "false",
       });
       if (pageToken) params.set("pageToken", pageToken);
@@ -172,10 +177,11 @@ export async function listTasks(
         if (!task.deleted) items.push(normalize(task, list));
       }
       pageToken = data.nextPageToken;
-    } while (pageToken && items.length < max);
+    } while (pageToken);
   }
 
-  // Soonest-due first; undated tasks sink to the end.
+  // Soonest-due first; undated tasks sink to the end. Capped only after the sort,
+  // so the cap keeps the genuinely soonest tasks across every list.
   items.sort((a, b) => {
     if (a.due && b.due) return a.due.localeCompare(b.due);
     if (a.due) return -1;
