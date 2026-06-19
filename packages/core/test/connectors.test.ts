@@ -13,6 +13,7 @@ import { mapContact } from "../src/connectors/map/contacts.js";
 import { mapGmailMessage } from "../src/connectors/map/gmail.js";
 import { mapTask } from "../src/connectors/map/tasks.js";
 import { createTask, fetchTasksDelta } from "../src/connectors/google/tasks.js";
+import { googleConnector } from "../src/connectors/google/connector.js";
 import type {
   CalendarEventItem,
   ContactItem,
@@ -21,11 +22,13 @@ import type {
   TaskItem,
 } from "../src/connectors/types.js";
 import type {
+  AgentToolContext,
   Connector,
   NormalizedDelta,
   OAuthProvider,
   SyncContext,
 } from "../src/connectors/framework.js";
+import type { ToolCallOptions, ToolSet } from "ai";
 import { connectorRegistry, ConnectorRegistry } from "../src/connectors/registry.js";
 import { syncConnector } from "../src/connectors/sync.js";
 import { defaultVisibilityForType } from "../src/knowledge/visibility.js";
@@ -279,6 +282,244 @@ describe("Google Tasks REST client (read + write)", () => {
     expect(task.externalId).toBe("created1");
     expect(task.taskListTitle).toBe("Engine work");
     expect(task.completed).toBe(false);
+  });
+});
+
+describe("GoogleConnector agent tools (live fetch/search)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  // Route Google REST calls by URL to a scripted JSON body (mirrors the sync suite).
+  function stubFetch(routes: (url: string, init?: RequestInit) => unknown) {
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const body = routes(url, init);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => body,
+        text: async () => JSON.stringify(body),
+      } as Response;
+    });
+  }
+
+  // A minimal AgentToolContext: the agent tools only use enabledKinds + getAccessToken;
+  // store/embedder are never touched by Google's tools.
+  function agentCtx(enabled: string[], onToken?: () => void): AgentToolContext {
+    return {
+      store: {} as never,
+      embedder: {} as never,
+      enabledKinds: new Set(enabled),
+      getAccessToken: async () => {
+        onToken?.();
+        return "tok";
+      },
+    } satisfies AgentToolContext;
+  }
+
+  const opts: ToolCallOptions = { toolCallId: "t1", messages: [] };
+  async function callTool(tools: ToolSet, name: string, input: Record<string, unknown>) {
+    const t = tools[name];
+    if (!t || typeof t.execute !== "function") throw new Error(`tool ${name} is not executable`);
+    const exec = t.execute as (i: Record<string, unknown>, o: ToolCallOptions) => Promise<unknown>;
+    return String(await exec(input, opts));
+  }
+
+  it("contributes one tool per enabled content kind, each gated on its kind", () => {
+    expect(Object.keys(googleConnector.agentTools(agentCtx([])))).toEqual([]);
+    expect(Object.keys(googleConnector.agentTools(agentCtx(["gmail"])))).toEqual([
+      "fetch_email_threads",
+    ]);
+    expect(Object.keys(googleConnector.agentTools(agentCtx(["calendar"])))).toEqual([
+      "search_calendar",
+    ]);
+    expect(Object.keys(googleConnector.agentTools(agentCtx(["tasks"])))).toEqual([
+      "list_tasks",
+      "create_task",
+    ]);
+    expect(Object.keys(googleConnector.agentTools(agentCtx(["contacts"])))).toEqual([
+      "lookup_contact",
+    ]);
+    // All four content kinds enabled → the full suite.
+    const all = Object.keys(
+      googleConnector.agentTools(agentCtx(["gmail", "calendar", "tasks", "contacts"])),
+    ).sort();
+    expect(all).toEqual([
+      "create_task",
+      "fetch_email_threads",
+      "list_tasks",
+      "lookup_contact",
+      "search_calendar",
+    ]);
+  });
+
+  it("builds tools lazily — no token is minted until a tool runs", () => {
+    let minted = 0;
+    googleConnector.agentTools(
+      agentCtx(["gmail", "calendar", "tasks", "contacts"], () => minted++),
+    );
+    expect(minted).toBe(0);
+  });
+
+  it("search_calendar fetches live events, drops cancellations, orders by start", async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      if (url.includes("/calendars/primary/events")) {
+        return {
+          items: [
+            {
+              id: "e2",
+              summary: "Later sync",
+              status: "confirmed",
+              start: { dateTime: "2026-06-22T10:00:00Z" },
+              organizer: { email: "ada@example.com" },
+            },
+            {
+              id: "e1",
+              summary: "Sooner sync",
+              status: "confirmed",
+              start: { dateTime: "2026-06-20T09:00:00Z" },
+            },
+            {
+              id: "x",
+              summary: "Cancelled sync",
+              status: "cancelled",
+              start: { dateTime: "2026-06-21T00:00:00Z" },
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const tools = googleConnector.agentTools(agentCtx(["calendar"]));
+    const out = await callTool(tools, "search_calendar", {
+      query: "sync",
+      timeMin: "2026-06-19T00:00:00Z",
+    });
+
+    const call = seen.find((u) => u.includes("/calendars/primary/events"))!;
+    expect(call).toContain("singleEvents=true");
+    expect(call).toContain("orderBy=startTime");
+    expect(call).toContain("q=sync");
+    expect(decodeURIComponent(call)).toContain("timeMin=2026-06-19T00:00:00Z");
+    // Cancelled event dropped; survivors rendered soonest-first.
+    expect(out).toContain("Event: Sooner sync");
+    expect(out).toContain("Event: Later sync");
+    expect(out).not.toContain("Cancelled sync");
+    expect(out.indexOf("Sooner sync")).toBeLessThan(out.indexOf("Later sync"));
+  });
+
+  it("list_tasks returns open tasks soonest-due first; includeCompleted flips the flag", async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      if (url.includes("/users/@me/lists")) return { items: [{ id: "list1", title: "Inbox" }] };
+      if (url.includes("/lists/list1/tasks")) {
+        return {
+          items: [
+            {
+              id: "a",
+              title: "Later task",
+              status: "needsAction",
+              due: "2026-07-01T00:00:00.000Z",
+            },
+            {
+              id: "b",
+              title: "Sooner task",
+              status: "needsAction",
+              due: "2026-06-25T00:00:00.000Z",
+            },
+            { id: "c", title: "Undated task", status: "needsAction" },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const tools = googleConnector.agentTools(agentCtx(["tasks"]));
+    const out = await callTool(tools, "list_tasks", {});
+    const openCall = seen.find((u) => u.includes("/lists/list1/tasks"))!;
+    expect(openCall).toContain("showCompleted=false");
+    // Dated tasks ahead of undated, soonest-due first.
+    expect(out.indexOf("Sooner task")).toBeLessThan(out.indexOf("Later task"));
+    expect(out.indexOf("Later task")).toBeLessThan(out.indexOf("Undated task"));
+
+    seen.length = 0;
+    await callTool(tools, "list_tasks", { includeCompleted: true });
+    expect(seen.find((u) => u.includes("/lists/list1/tasks"))!).toContain("showCompleted=true");
+  });
+
+  it("create_task adds to the primary list and confirms what it created", async () => {
+    let posted: unknown;
+    stubFetch((url, init) => {
+      if (url.includes("/users/@me/lists")) return { items: [{ id: "list1", title: "Inbox" }] };
+      if (init?.method === "POST" && url.includes("/lists/list1/tasks")) {
+        posted = JSON.parse(String(init.body));
+        return {
+          id: "new1",
+          title: "Ship it",
+          status: "needsAction",
+          due: "2026-06-25T00:00:00.000Z",
+        };
+      }
+      return {};
+    });
+
+    const tools = googleConnector.agentTools(agentCtx(["tasks"]));
+    const out = await callTool(tools, "create_task", { title: "Ship it", due: "2026-06-25" });
+
+    // A bare YYYY-MM-DD is widened to an RFC3339 timestamp Google Tasks accepts.
+    expect(posted).toMatchObject({ title: "Ship it", due: "2026-06-25T00:00:00.000Z" });
+    expect(out).toContain('Created task "Ship it"');
+    expect(out).toContain("due 2026-06-25");
+    expect(out).toContain("Inbox");
+  });
+
+  it("lookup_contact searches contacts and renders the matches' details", async () => {
+    const seen: string[] = [];
+    stubFetch((url) => {
+      seen.push(url);
+      if (url.includes("/people:searchContacts")) {
+        return {
+          results: [
+            {
+              person: {
+                resourceName: "people/c1",
+                names: [{ displayName: "Grace Hopper" }],
+                emailAddresses: [{ value: "grace@example.com" }],
+                phoneNumbers: [{ value: "+1 555 0100" }],
+              },
+            },
+          ],
+        };
+      }
+      return {};
+    });
+
+    const tools = googleConnector.agentTools(agentCtx(["contacts"]));
+    const out = await callTool(tools, "lookup_contact", { query: "grace" });
+
+    expect(seen.find((u) => u.includes("/people:searchContacts"))!).toContain("query=grace");
+    expect(out).toContain("Contact: Grace Hopper");
+    expect(out).toContain("grace@example.com");
+  });
+
+  it("returns a graceful message instead of throwing when the provider call fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      async () =>
+        ({
+          ok: false,
+          status: 500,
+          json: async () => ({}),
+          text: async () => "boom",
+        }) as Response,
+    );
+    const tools = googleConnector.agentTools(agentCtx(["calendar"]));
+    const out = await callTool(tools, "search_calendar", { query: "x" });
+    expect(out).toContain("Couldn't search the calendar");
   });
 });
 

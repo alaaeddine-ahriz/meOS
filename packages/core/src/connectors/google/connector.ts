@@ -30,9 +30,9 @@ import type {
   SelfIdentity,
   TaskItem,
 } from "../types.js";
-import { fetchCalendarDelta, fetchCalendarList } from "./calendar.js";
+import { fetchCalendarDelta, fetchCalendarList, searchCalendarEvents } from "./calendar.js";
 import { fetchGmailDelta, searchThreadsText } from "./gmail.js";
-import { fetchTasksDelta } from "./tasks.js";
+import { createTask, fetchTasksDelta, listTaskLists, listTasks } from "./tasks.js";
 import {
   buildAuthUrl,
   exchangeCode,
@@ -40,7 +40,7 @@ import {
   refreshAccessToken,
   revokeToken,
 } from "./oauth.js";
-import { fetchContactsDelta, fetchSelf } from "./people.js";
+import { fetchContactsDelta, fetchSelf, searchContacts } from "./people.js";
 
 /** The Google connector's static description: id, kinds, auth model. */
 export const GOOGLE_MANIFEST: ConnectorManifest = {
@@ -186,15 +186,20 @@ export class GoogleConnector implements Connector {
   }
 
   /**
-   * The chat-agent tools Google contributes when connected. `fetch_email_threads`
-   * pulls live email-thread text the agent can quote — email bodies aren't indexed,
-   * so this is the only way to read them. Offered only when the Gmail kind is
-   * enabled; the token is minted lazily inside `execute` (no per-turn network cost).
+   * The chat-agent tools Google contributes when connected — one live fetch/search
+   * tool per enabled content kind, so the agent can reach the user's real Google
+   * data the knowledge base doesn't hold (email/thread bodies, future calendar
+   * events, current task state) and act on it (creating a task). Each tool is gated
+   * on its kind being synced, and the access token is minted lazily inside `execute`
+   * so a connected-but-unused kind adds no per-turn network cost.
    */
   agentTools(ctx: AgentToolContext): ToolSet {
-    if (!ctx.enabledKinds.has("gmail")) return {};
-    return {
-      fetch_email_threads: tool({
+    const tools: ToolSet = {};
+    const fail = (what: string, error: unknown) =>
+      `Couldn't ${what}: ${error instanceof Error ? error.message : String(error)}`;
+
+    if (ctx.enabledKinds.has("gmail")) {
+      tools.fetch_email_threads = tool({
         description:
           "Fetch the text of the user's actual email threads matching a query (a contact name, subject, or keywords). Use when a question needs the contents of correspondence — email bodies are not in the knowledge base, so this is the only way to read them. Cite what you find in prose.",
         inputSchema: z.object({
@@ -204,16 +209,126 @@ export class GoogleConnector implements Connector {
           try {
             return await searchThreadsText(await ctx.getAccessToken(), query);
           } catch (error) {
-            return `Couldn't fetch email threads: ${error instanceof Error ? error.message : String(error)}`;
+            return fail("fetch email threads", error);
           }
         },
-      }),
-    };
+      });
+    }
+
+    if (ctx.enabledKinds.has("calendar")) {
+      tools.search_calendar = tool({
+        description:
+          "Search the user's Google Calendar for live events — by free-text query (a person, title, or keywords) and/or a time window. Use for scheduling and agenda questions ('what's on my calendar next week', 'when do I next meet with X'), including FUTURE events the knowledge base may not hold. Results are ordered by start time; cite what you find.",
+        inputSchema: z.object({
+          query: z
+            .string()
+            .optional()
+            .describe("Free-text match across event title, description, and attendees."),
+          timeMin: z
+            .string()
+            .optional()
+            .describe("ISO lower bound for the event start, e.g. 2026-06-19T00:00:00Z."),
+          timeMax: z
+            .string()
+            .optional()
+            .describe("ISO upper bound for the event start, e.g. 2026-06-26T00:00:00Z."),
+        }),
+        execute: async ({ query, timeMin, timeMax }) => {
+          try {
+            const events = await searchCalendarEvents(await ctx.getAccessToken(), {
+              query,
+              timeMin,
+              timeMax,
+            });
+            if (events.length === 0) return "No calendar events matched.";
+            return events.map(renderEvent).join("\n\n");
+          } catch (error) {
+            return fail("search the calendar", error);
+          }
+        },
+      });
+    }
+
+    if (ctx.enabledKinds.has("tasks")) {
+      tools.list_tasks = tool({
+        description:
+          "List the user's current Google Tasks — their open to-dos across all lists, soonest-due first. Use to answer 'what's on my task list' or to find a task before acting on it.",
+        inputSchema: z.object({
+          includeCompleted: z
+            .boolean()
+            .optional()
+            .describe("Include completed tasks too. Defaults to open tasks only."),
+        }),
+        execute: async ({ includeCompleted }) => {
+          try {
+            const tasks = await listTasks(await ctx.getAccessToken(), { includeCompleted });
+            if (tasks.length === 0) return "No tasks found.";
+            return tasks.map(renderTask).join("\n\n");
+          } catch (error) {
+            return fail("list tasks", error);
+          }
+        },
+      });
+
+      tools.create_task = tool({
+        description:
+          "Create a new task in the user's Google Tasks. Use only when the user clearly asks to add a to-do or reminder. It is added to their primary task list and syncs back into the knowledge base.",
+        inputSchema: z.object({
+          title: z.string().describe("The task title — what to do."),
+          notes: z.string().optional().describe("Optional longer details for the task."),
+          due: z
+            .string()
+            .optional()
+            .describe("Optional due date as an ISO/RFC3339 date, e.g. 2026-06-25."),
+        }),
+        execute: async ({ title, notes, due }) => {
+          try {
+            const token = await ctx.getAccessToken();
+            const lists = await listTaskLists(token);
+            const listId = lists[0]?.id;
+            if (!listId) return "Couldn't create the task: no Google Tasks list is available.";
+            const task = await createTask(token, listId, { title, notes, due: due ?? null });
+            const when = task.due ? ` (due ${task.due.slice(0, 10)})` : "";
+            return `Created task "${task.title}"${when} in ${task.taskListTitle}.`;
+          } catch (error) {
+            return fail("create the task", error);
+          }
+        },
+      });
+    }
+
+    if (ctx.enabledKinds.has("contacts")) {
+      tools.lookup_contact = tool({
+        description:
+          "Look up a person in the user's Google Contacts by name, email, or phone, returning their live details (emails, phone numbers, organisation). Use when a question needs someone's current contact details.",
+        inputSchema: z.object({
+          query: z
+            .string()
+            .describe("A name, email, or phone to match against the user's contacts."),
+        }),
+        execute: async ({ query }) => {
+          try {
+            const matches = await searchContacts(await ctx.getAccessToken(), query);
+            if (matches.length === 0) return `No contact matched "${query}".`;
+            return matches.map(renderContact).join("\n\n");
+          } catch (error) {
+            return fail("look up the contact", error);
+          }
+        },
+      });
+    }
+
+    return tools;
   }
 
-  /** One-line system-prompt hint, appended only when these tools are active. */
+  /**
+   * System-prompt hint, appended only when Google contributes at least one tool.
+   * Each tool surfaces only for its connected kind (the model can only call tools
+   * actually in its toolset), so the hint frames the suite and the model picks the
+   * ones present.
+   */
   readonly promptHint =
-    "fetch_email_threads (Gmail): pull the text of the user's actual email threads. Email bodies are NOT in the knowledge base, so reach for this when a question needs the contents of correspondence with someone; cite what you find in prose.";
+    "Google tools (each present only when its service is connected): fetch_email_threads pulls the text of the user's real email threads — email bodies are NOT in the knowledge base, so reach for it whenever a question needs the contents of correspondence; search_calendar reads live calendar events by query and/or time window, including FUTURE events; list_tasks reads the user's current Google Tasks and create_task adds one; lookup_contact fetches a person's live contact details. Prefer these for up-to-the-minute facts or write actions, and cite what you find.";
 
   async fetchDelta(
     ctx: SyncContext,

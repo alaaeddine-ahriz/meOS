@@ -112,6 +112,52 @@ export async function fetchCalendarList(accessToken: string): Promise<CalendarLi
   return out;
 }
 
+/**
+ * Live calendar search for the chat agent (NOT the sync path): list events that
+ * match a free-text query and/or fall within a time window, across the given
+ * calendars (primary when none are named), ordered by start. Unlike
+ * {@link fetchCalendarDelta} this carries no sync token — it is a fresh, ordered
+ * read so the agent can answer "what's on my calendar this week" or "when do I
+ * next meet X" up to the minute, including FUTURE events the sync hasn't indexed.
+ */
+export async function searchCalendarEvents(
+  accessToken: string,
+  opts: {
+    query?: string;
+    timeMin?: string;
+    timeMax?: string;
+    calendarIds?: string[];
+    max?: number;
+  } = {},
+): Promise<CalendarEventItem[]> {
+  const calendarIds = opts.calendarIds?.length ? opts.calendarIds : ["primary"];
+  const max = Math.min(Math.max(opts.max ?? 25, 1), 50);
+  const all: CalendarEventItem[] = [];
+
+  for (const id of calendarIds) {
+    // `orderBy=startTime` requires `singleEvents=true`; both are set together.
+    const params = new URLSearchParams({
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: String(max),
+    });
+    if (opts.query) params.set("q", opts.query);
+    if (opts.timeMin) params.set("timeMin", opts.timeMin);
+    if (opts.timeMax) params.set("timeMax", opts.timeMax);
+    const data = await googleGet<EventsResponse>(
+      `${BASE}/calendars/${encodeURIComponent(id)}/events?${params.toString()}`,
+      accessToken,
+    );
+    for (const event of data.items ?? []) {
+      if (event.status !== "cancelled") all.push(normalize(event));
+    }
+  }
+
+  // Merge across calendars by start time, then cap the combined result.
+  all.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+  return all.slice(0, max);
+}
+
 /** Pull one calendar's delta, expanding recurring events and surfacing cancellations. */
 async function fetchOneCalendar(
   accessToken: string,
