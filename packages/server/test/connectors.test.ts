@@ -77,6 +77,110 @@ describe("PUT /api/connectors/google/credentials", () => {
   });
 });
 
+describe("IMAP — the basic-auth connector", () => {
+  it("lists imap in the catalog with a basic-auth form (auth.kind + fields)", async () => {
+    const res = await server.app.inject({ method: "GET", url: "/api/connectors/catalog" });
+    expect(res.statusCode).toBe(200);
+    const catalog = connectors.ConnectorCatalogSchema.parse(res.json());
+
+    const imap = catalog.connectors.find((c) => c.id === "imap");
+    expect(imap).toBeDefined();
+    expect(imap!.auth.kind).toBe("basic");
+    // The declared fields drive the connect form — host/port/username/password.
+    if (imap!.auth.kind === "basic") {
+      expect(imap!.auth.fields.map((f) => f.key).sort()).toEqual([
+        "host",
+        "password",
+        "port",
+        "username",
+      ]);
+      const host = imap!.auth.fields.find((f) => f.key === "host")!;
+      expect(host.required).toBe(true);
+    }
+    // One metadata-only, private email kind.
+    const messages = imap!.kinds.find((k) => k.kind === "messages");
+    expect(messages).toMatchObject({
+      sourceType: "imap:messages",
+      contentMode: "metadata",
+      private: true,
+      noun: { one: "email", many: "emails" },
+    });
+  });
+
+  it("starts disconnected with no credentials", async () => {
+    const fresh = await buildTestServer();
+    try {
+      const res = await fresh.app.inject({ method: "GET", url: "/api/connectors" });
+      const parsed = connectors.ConnectorStatusSchema.parse(res.json());
+      const imap = parsed.providers.find((p) => p.provider === "imap")!;
+      expect(imap.connected).toBe(false);
+      expect(imap.hasCredentials).toBe(false);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+
+  it("saves host/username/password and reports imap connected + hasCredentials", async () => {
+    const fresh = await buildTestServer();
+    try {
+      // 127.0.0.1:993 refuses immediately (nothing listening), so the route's
+      // best-effort testConnection fails fast and is swallowed as a warning — the
+      // save still succeeds, proving the test is non-blocking.
+      const res = await fresh.app.inject({
+        method: "PUT",
+        url: "/api/connectors/imap/credentials",
+        payload: {
+          host: "127.0.0.1",
+          port: "993",
+          username: "ada@example.com",
+          password: "app-password",
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const parsed = connectors.ConnectorStatusSchema.parse(res.json());
+      const imap = parsed.providers.find((p) => p.provider === "imap")!;
+      expect(imap.connected).toBe(true);
+      expect(imap.hasCredentials).toBe(true);
+      // The username surfaces as the account email for the UI.
+      expect(imap.accountEmail).toBe("ada@example.com");
+    } finally {
+      await fresh.cleanup();
+    }
+  }, 20_000);
+
+  it("rejects a basic-auth save missing a required field with VALIDATION_ERROR", async () => {
+    const fresh = await buildTestServer();
+    try {
+      const res = await fresh.app.inject({
+        method: "PUT",
+        url: "/api/connectors/imap/credentials",
+        // No password — a required field — so the save is rejected.
+        payload: { host: "imap.example.com", username: "ada@example.com" },
+      });
+      expect(res.statusCode).toBe(400);
+      const envelope = ErrorEnvelopeSchema.parse(res.json());
+      expect(envelope.code).toBe(ErrorCode.VALIDATION_ERROR);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+
+  it("400s the OAuth-only auth/start route for a basic connector", async () => {
+    const fresh = await buildTestServer();
+    try {
+      const res = await fresh.app.inject({
+        method: "POST",
+        url: "/api/connectors/imap/auth/start",
+      });
+      expect(res.statusCode).toBe(400);
+      const envelope = ErrorEnvelopeSchema.parse(res.json());
+      expect(envelope.code).toBe(ErrorCode.BAD_REQUEST);
+    } finally {
+      await fresh.cleanup();
+    }
+  });
+});
+
 describe("PUT /api/connectors/google/:kind/config", () => {
   it("400s with the BAD_REQUEST envelope when Google is not connected", async () => {
     // Use a fresh server so no connector account exists — the shared `server`

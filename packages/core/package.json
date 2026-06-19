@@ -23,6 +23,7 @@
     "bash-tool": "^1.3.17",
     "better-sqlite3": "^12.11.1",
     "fast-xml-parser": "^5.9.0",
+    "imapflow": "^1.4.1",
     "jszip": "^3.10.1",
     "just-bash": "^3.0.1",
     "mailparser": "^3.9.10",

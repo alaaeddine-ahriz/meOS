@@ -458,7 +458,7 @@ describe("atomic claim is multi-process safe (CAS)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(32);
+    expect(migrations.length).toBe(33);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -501,6 +501,7 @@ describe("migration 21 (durable ingest jobs)", () => {
         CREATE INDEX idx_inbox_items_path ON inbox_items(path);
       `);
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
+      db.exec(`ALTER TABLE connector_accounts DROP COLUMN auth_config;`);
       db.pragma("user_version = 20");
       db.close();
 
@@ -534,7 +535,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(32);
+    expect(migrations.length).toBe(33);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -553,6 +554,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
         ALTER TABLE ingest_jobs DROP COLUMN priority;
       `);
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
+      db.exec(`ALTER TABLE connector_accounts DROP COLUMN auth_config;`);
       db.pragma("user_version = 23");
       db.close();
 
@@ -582,7 +584,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
 
 describe("migration 27 (repair inbox_items CHECK)", () => {
   it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
-    expect(migrations.length).toBe(32);
+    expect(migrations.length).toBe(33);
 
     const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
     try {
@@ -630,6 +632,8 @@ describe("migration 27 (repair inbox_items CHECK)", () => {
         ALTER TABLE meeting_notes DROP COLUMN detection_method;
         ALTER TABLE meeting_notes DROP COLUMN linked_calendar_source_id;
       `);
+      // Drop migration-33's basic-auth column too, so 27→33 re-applies it cleanly.
+      db.exec(`ALTER TABLE connector_accounts DROP COLUMN auth_config;`);
       db.pragma("user_version = 26");
       db.close();
 

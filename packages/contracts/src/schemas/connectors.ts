@@ -168,6 +168,15 @@ export const GoogleCredentialsBody = z.object({
   clientSecret: z.string().min(1),
 });
 
+/**
+ * PUT /api/connectors/:provider/credentials for a BASIC-AUTH connector (IMAP …):
+ * an open map of the connector's declared `fields` to their string values. The
+ * route validates the specific keys (required-ness) against the resolved manifest,
+ * so this stays a permissive string map. `catchall(z.string())` keeps it a REQUEST
+ * body only — never a response (that's the Fastify record-serialization pitfall).
+ */
+export const BasicCredentialsBody = z.object({}).catchall(z.string());
+
 /** POST /api/connectors/google/auth/start */
 export const AuthStartResponse = z.object({ url: z.string() });
 

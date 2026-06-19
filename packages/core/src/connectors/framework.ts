@@ -249,7 +249,14 @@ export interface NormalizedDelta {
  * blob via {@link NormalizedDelta.nextConfig} and the orchestrator persists it.
  */
 export interface SyncContext {
+  /** Live OAuth access token for an oauth2 connector; "" for basic-auth ones. */
   accessToken: string;
+  /**
+   * The basic-auth credentials (host/username/password …) for a `auth.kind: "basic"`
+   * connector, parsed from the account's stored auth config. Present in place of
+   * `accessToken` for those connectors; undefined for OAuth ones.
+   */
+  authConfig?: Record<string, string>;
   config?: ConnectorKindConfig;
 }
 
@@ -300,6 +307,15 @@ export interface Connector {
    * have no such selection. Stateless — purely a read against the provider.
    */
   listCalendars?(ctx: SyncContext): Promise<CalendarListEntry[]>;
+  /**
+   * Optional (basic-auth connectors): verify the submitted credentials before the
+   * route marks the connector connected — e.g. open + close an IMAP session. Best
+   * effort: the route surfaces a failure as a warning rather than hard-failing the
+   * save, so a transient outage doesn't block storing valid credentials.
+   */
+  testConnection?(
+    authConfig: Record<string, string>,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
   /**
    * Optional: the chat-agent tools this connector contributes when its account is
    * connected. The server merges these into the toolset per turn (see the

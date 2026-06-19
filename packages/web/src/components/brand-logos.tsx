@@ -149,6 +149,30 @@ export function GoogleTasksLogo({ className }: LogoProps) {
   );
 }
 
+/**
+ * Generic email/IMAP — a clean envelope. IMAP has no single brand (it's an open
+ * protocol any provider speaks), so this is a neutral mark in the current text
+ * colour rather than a vendor logo.
+ */
+export function EmailLogo({ className }: LogoProps) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </svg>
+  );
+}
+
 /** A logo component: takes a `className` for sizing and returns the inline SVG. */
 export type LogoComponent = (props: LogoProps) => ReactElement;
 
@@ -168,6 +192,7 @@ export const LOGO_REGISTRY: Record<string, LogoComponent> = {
   "google-calendar": GoogleCalendarLogo,
   "google-contacts": GoogleContactsLogo,
   "google-tasks": GoogleTasksLogo,
+  email: EmailLogo,
 };
 
 /**

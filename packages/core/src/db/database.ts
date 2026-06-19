@@ -902,6 +902,17 @@ export const migrations: readonly string[] = [
     heartbeat_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   `,
+
+  // 33 — basic-auth connector credentials (the IMAP seam).
+  //
+  // OAuth connectors stash their secrets across access_token/refresh_token/
+  // client_id/client_secret. A basic-auth connector (IMAP, a local server …)
+  // instead collects a small declared form (host/username/password) on connect.
+  // This column holds that form as a JSON object so a non-OAuth account persists
+  // its credentials without growing a column per field. NULL for OAuth accounts.
+  `
+  ALTER TABLE connector_accounts ADD COLUMN auth_config TEXT;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
