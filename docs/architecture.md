@@ -107,17 +107,28 @@ weak evidence, and cite their source documents.
 
 ### Connectors — `core/src/connectors/`
 
-Provider-agnostic sync of external accounts into knowledge. The layer is shaped
-so other providers can slot in behind `types.ts`; Google is the first
-implementation:
+A connector platform: each provider is a self-contained plugin declared by one
+manifest in `framework.ts` (`id`, branding, the `kinds[]` it syncs, its `auth`
+model, and the chat-agent tools it contributes). The registry (`registry.ts`,
+`connectorRegistry`) is the source of truth — registering a connector injects
+its private source types into `knowledge/visibility.ts` and surfaces it in every
+view automatically; there is no per-provider enum to extend. Google is the
+reference implementation, not the only provider.
 
-- `google/` — read-only REST clients + OAuth (loopback + PKCE): `oauth.ts`,
-  `people.ts` (Contacts), `calendar.ts`, `gmail.ts`.
+- `framework.ts` — the manifest contract (`Connector`, kinds, `OAuthProvider`,
+  the `auth` union: OAuth2 or basic credentials).
+- `registry.ts` — `connectorRegistry`, the live set every other layer reads from.
+- `google/` — the reference connector: REST clients + OAuth (loopback + PKCE)
+  over `oauth.ts`, `people.ts` (Contacts), `calendar.ts`, `gmail.ts`, `tasks.ts`
+  (read + write); contacts/calendar/gmail are read-only, tasks is read/write.
 - `map/` — turn a fetched item into an `Extraction`.
 - `sync.ts` — orchestrate dedup + ingest through the normal merge path.
 
-The raw clients only fetch + normalize; everything reaches the graph through the
-same ingestion/merge path as files.
+Connectors contribute chat-agent tools via `Connector.agentTools(ctx)` +
+`promptHint`; `ChatService` assembles them from the registry each turn. The raw
+clients only fetch + normalize; everything reaches the graph through the same
+ingestion/merge path as files. To add a provider, scaffold it with
+`pnpm connector:new <id>` — see [connectors.md](./connectors.md).
 
 ### Vault — `core/src/vault/`
 
@@ -166,8 +177,11 @@ The server is the only place HTTP and process orchestration live. It depends on
   crystallization). Everything downstream receives this `AppContext`.
 - `server.ts` + `routes/` — Fastify API. One route module per surface:
   `chat.ts`, `wiki.ts`, `ingest.ts`, `vault.ts`, `profile.ts`, `settings.ts`,
-  `connectors.ts`, `activity.ts`, `digest.ts`, `git.ts`, `outputs.ts`. Routes
-  are the typed boundary the web UI consumes.
+  `connectors.ts`, `connector-catalog.ts`, `activity.ts`, `digest.ts`, `git.ts`,
+  `outputs.ts`. Routes are the typed boundary the web UI consumes. Connector
+  endpoints are keyed by a `:provider` path param
+  (`/api/connectors/:provider/...`), and `GET /api/connectors/catalog` is the
+  secret-free projection the web renders its connector UI from.
 - **Background workers**:
   - `watcher.ts` (`FolderWatcher`) — chokidar watch-folder ingestion, content-
     hash change detection, pushes onto the ingest queue.

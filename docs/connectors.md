@@ -32,7 +32,9 @@ That's it: the connector now shows up in Settings, the Health dashboard, the
 Sources tab, source chips, and the chat agent, with the right privacy defaults.
 
 See [`connectors/README.md`](../packages/core/src/connectors/README.md) for the full
-authoring guide and the framework contract.
+authoring guide and the framework contract. **AI agents:** run the `/new-connector`
+skill ([`.claude/skills/new-connector/SKILL.md`](../.claude/skills/new-connector/SKILL.md))
+for a step-by-step runbook.
 
 ## Auth
 

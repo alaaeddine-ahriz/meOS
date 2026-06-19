@@ -79,6 +79,10 @@ the `LlmClient` interface, so the suite is deterministic and offline.
 - **`core` stays runtime-agnostic.** Domain logic, the knowledge store,
   extraction, the wiki writer, connectors, and embeddings live in `core` with no
   Fastify/React imports.
+- **New connectors are scaffolded, not hand-wired.** Run `pnpm connector:new <id>`
+  to generate the connector folder, register it, and stub a logo, then fill in the
+  manifest and `fetchDelta`. See [`docs/connectors.md`](docs/connectors.md) and
+  [`packages/core/src/connectors/README.md`](packages/core/src/connectors/README.md).
 - Match the surrounding style; let the compiler and existing patterns guide you
   rather than reformatting unrelated code.
 

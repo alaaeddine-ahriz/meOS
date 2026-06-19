@@ -16,15 +16,24 @@ The monorepo is a pnpm workspace with four packages:
 
 ### A new connector (e.g. Microsoft, CalDAV)
 
-1. **Domain** in `core/src/connectors/`. Add a provider folder beside `google/`
-   with the read-only fetch/normalize clients, conform to the shapes in
-   `types.ts`, add a mapper under `map/` that turns an item into an
-   `Extraction`, and route it through `sync.ts`. Re-export from
-   `connectors/index.ts`.
-2. **Process wiring** in `server/src/connector-manager.ts` (sync intervals) and
-   `server/src/routes/connectors.ts` (HTTP surface for connect/status).
-3. **UI** in `web/src/views/SettingsView.tsx` (Connectors section), calling new
-   endpoints added to `web/src/api.ts`.
+Connectors are self-contained plugins, so most of this is generated and the rest
+is one manifest — no per-provider edits to the server, the routes, or the UI.
+
+1. **Scaffold** with `pnpm connector:new <id>` — it creates the provider folder
+   beside `google/`, registers the connector in `connectors/registry.ts`, and
+   stubs a brand logo.
+2. **Domain** in `core/src/connectors/<id>/`. Fill in the manifest in the
+   connector's `framework.ts` declaration (id, branding, the `kinds[]` it syncs,
+   the `auth` model — OAuth2 or basic credentials), implement `fetchDelta` to
+   pull + normalize each changed item, and add a mapper under `map/` that turns an
+   item into an `Extraction`. The registry — not a `types.ts` enum — is the source
+   of truth: registering injects the connector's catalog entry, privacy defaults,
+   sync schedule, routes, and any `agentTools`.
+3. **No server or UI wiring needed.** `ConnectorManager` drives sync from the
+   registry, the `:provider`-keyed routes in `server/src/routes/connectors.ts`
+   serve every connector, and the web reads the secret-free
+   `GET /api/connectors/catalog` projection — only the brand SVG is a manual
+   frontend artifact. See [`connectors.md`](./connectors.md).
 
 ### An ingestion parser (e.g. a new file type)
 
