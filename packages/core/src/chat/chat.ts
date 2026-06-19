@@ -1,3 +1,6 @@
+import type { ToolSet } from "ai";
+import { connectorRegistry, type ConnectorRegistry } from "../connectors/registry.js";
+import { ensureAccessToken } from "../connectors/sync.js";
 import type { Embedder } from "../embedding/embedder.js";
 import type { MeosEvents } from "../events.js";
 import type { KnowledgeStore, SourceRef, SubgraphEdge, SubgraphNode } from "../knowledge/store.js";
@@ -20,7 +23,6 @@ You have tools to consult that knowledge base:
 - read_wiki_page: the full compiled summary of one entity.
 - get_entity: one entity's dated, confidence-scored facts and relationships.
 - explore_graph: a MULTI-HOP walk of the graph from one entity, returning the whole connected neighbourhood (with a depth you choose) — for impact, dependency, and "how does this all fit together" questions.
-- fetch_email_threads (only when a Gmail account is connected): pull the text of the user's actual email threads. Email bodies are NOT in the knowledge base, so reach for this when a question needs the contents of correspondence with someone; cite what you find in prose.
 
 How to work:
 - Reach for tools first. Don't answer a substantive question before searching; if a first search is thin, refine the query or pivot to read_wiki_page / get_entity / explore_graph. Gather generously — it is better to pull more of the picture than you end up needing.
@@ -54,13 +56,47 @@ export class ChatService {
      */
     private readonly getProfileContext?: () => string,
     /**
-     * Builds a Gmail thread fetcher for this turn, or undefined when no Gmail
-     * account is connected. Re-evaluated per turn so connecting/disconnecting
-     * takes effect immediately and the `fetch_email_threads` tool only appears
-     * when it can actually work.
+     * The connector registry, for connector-contributed agent tools. Defaults to
+     * the shared registry; injectable so tests can slot in a fake connector.
      */
-    private readonly gmailFetcher?: () => ((query: string) => Promise<string>) | undefined,
+    private readonly connectors: ConnectorRegistry = connectorRegistry,
   ) {}
+
+  /**
+   * Assemble the agent tools contributed by currently-connected connectors, plus a
+   * one-line prompt hint per contributing connector. Re-evaluated every turn so
+   * connecting/disconnecting takes effect immediately; building a tool definition
+   * costs no network (the token is minted lazily inside the tool's `execute`).
+   */
+  private connectorTools(): { tools: ToolSet; hints: string[] } {
+    const tools: ToolSet = {};
+    const hints: string[] = [];
+    for (const connector of this.connectors.list()) {
+      if (!connector.agentTools) continue;
+      const account = this.store.getConnectorAccount(connector.manifest.id);
+      if (!account || !(account.refresh_token || account.access_token)) continue;
+      const enabledKinds = new Set(
+        this.store
+          .listSyncState(account.id)
+          .filter((s) => s.enabled)
+          .map((s) => s.kind),
+      );
+      const contributed = connector.agentTools({
+        store: this.store,
+        embedder: this.embedder,
+        enabledKinds,
+        getAccessToken: async () => {
+          const fresh = this.store.getConnectorAccount(connector.manifest.id);
+          if (!fresh) throw new Error(`${connector.manifest.displayName} is no longer connected.`);
+          return ensureAccessToken(this.store, fresh, connector);
+        },
+      });
+      if (Object.keys(contributed).length === 0) continue;
+      Object.assign(tools, contributed);
+      if (connector.promptHint) hints.push(connector.promptHint);
+    }
+    return { tools, hints };
+  }
 
   /**
    * Persist the user message, then let the model drive a tool loop over the
@@ -79,14 +115,20 @@ export class ChatService {
       this.store.setConversationTitle(conversationId, userMessage.slice(0, 80));
     }
 
-    const dated = `${SYSTEM_PROMPT}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}.`;
+    // Connector tools (+ their prompt hints) are assembled fresh each turn from the
+    // registry, so a newly-connected service's tools appear without a restart.
+    const { tools: connectorTools, hints } = this.connectorTools();
+    const connectorBlock = hints.length
+      ? `\n\nYou also have tools from the user's connected services:\n${hints.map((h) => `- ${h}`).join("\n")}`
+      : "";
+    const dated = `${SYSTEM_PROMPT}${connectorBlock}\n\nToday's date is ${new Date().toISOString().slice(0, 10)}.`;
     const system = withProfile(dated, this.getProfileContext?.() ?? "");
 
     // The tools share these collectors: `sources` grows as the model consults
     // documents (so we can announce citations live), and `graph` accumulates every
     // entity/edge the model traverses (drawn under the answer when the turn ends).
     const { tools, sources, graph } = buildChatTools(this.store, this.embedder, {
-      gmail: this.gmailFetcher?.(),
+      connectorTools,
     });
     const messages: ChatMessage[] = [...history, { role: "user", content: userMessage }];
 

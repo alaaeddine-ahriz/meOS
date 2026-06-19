@@ -6,7 +6,10 @@
  * file — the orchestrator never learns Google's name.
  */
 
+import { tool, type ToolSet } from "ai";
+import { z } from "zod";
 import type {
+  AgentToolContext,
   Connector,
   ConnectorManifest,
   NormalizedDelta,
@@ -28,7 +31,7 @@ import type {
   TaskItem,
 } from "../types.js";
 import { fetchCalendarDelta, fetchCalendarList } from "./calendar.js";
-import { fetchGmailDelta } from "./gmail.js";
+import { fetchGmailDelta, searchThreadsText } from "./gmail.js";
 import { fetchTasksDelta } from "./tasks.js";
 import {
   buildAuthUrl,
@@ -176,6 +179,36 @@ export class GoogleConnector implements Connector {
   async listCalendars(ctx: SyncContext): Promise<CalendarListEntry[]> {
     return fetchCalendarList(ctx.accessToken);
   }
+
+  /**
+   * The chat-agent tools Google contributes when connected. `fetch_email_threads`
+   * pulls live email-thread text the agent can quote — email bodies aren't indexed,
+   * so this is the only way to read them. Offered only when the Gmail kind is
+   * enabled; the token is minted lazily inside `execute` (no per-turn network cost).
+   */
+  agentTools(ctx: AgentToolContext): ToolSet {
+    if (!ctx.enabledKinds.has("gmail")) return {};
+    return {
+      fetch_email_threads: tool({
+        description:
+          "Fetch the text of the user's actual email threads matching a query (a contact name, subject, or keywords). Use when a question needs the contents of correspondence — email bodies are not in the knowledge base, so this is the only way to read them. Cite what you find in prose.",
+        inputSchema: z.object({
+          query: z.string().describe("Gmail search query — a contact, subject, or keywords."),
+        }),
+        execute: async ({ query }) => {
+          try {
+            return await searchThreadsText(await ctx.getAccessToken(), query);
+          } catch (error) {
+            return `Couldn't fetch email threads: ${error instanceof Error ? error.message : String(error)}`;
+          }
+        },
+      }),
+    };
+  }
+
+  /** One-line system-prompt hint, appended only when these tools are active. */
+  readonly promptHint =
+    "fetch_email_threads (Gmail): pull the text of the user's actual email threads. Email bodies are NOT in the knowledge base, so reach for this when a question needs the contents of correspondence with someone; cite what you find in prose.";
 
   async fetchDelta(
     ctx: SyncContext,

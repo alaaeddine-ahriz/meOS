@@ -10,15 +10,11 @@ const tags = ["chat"];
 
 export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void {
   // Re-read the profile each turn so edits apply immediately (no restart). The
-  // Gmail fetcher is re-evaluated per turn too, so the fetch_email_threads tool
-  // only appears once a Gmail account is connected.
-  const chat = new ChatService(
-    ctx.store,
-    ctx.llm,
-    ctx.embedder,
-    ctx.events,
-    () => loadProfileContext(ctx.config.dataDir),
-    () => ctx.connectors.gmailFetcher(),
+  // ChatService assembles connector agent tools (e.g. Gmail thread fetch) straight
+  // from the connector registry each turn, so a newly-connected service's tools
+  // appear without a restart.
+  const chat = new ChatService(ctx.store, ctx.llm, ctx.embedder, ctx.events, () =>
+    loadProfileContext(ctx.config.dataDir),
   );
 
   app.post(

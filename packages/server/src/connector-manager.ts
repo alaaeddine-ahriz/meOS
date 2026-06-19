@@ -3,7 +3,6 @@ import {
   createLogger,
   ensureAccessToken,
   IngestPriority,
-  searchThreadsText,
   syncConnector,
   type CalendarListEntry,
   type Connector,
@@ -20,7 +19,8 @@ const log = createLogger("connectors");
  * per enabled (account, kind), each pushing a sync onto the shared ingest queue
  * (so connector merges serialise with file ingest). Built inside the app context
  * so it closes over the live store/pipeline/queue; started from main.ts and
- * stopped on shutdown. Also vends the per-turn Gmail fetcher for the chat agent.
+ * stopped on shutdown. (Chat-agent tools are assembled by the ChatService straight
+ * from the registry — connectors own their own tools.)
  *
  * Driven through the {@link ConnectorRegistry} (#5): kinds and OAuth all come
  * from a resolved {@link Connector}, so this manager names no specific provider.
@@ -40,7 +40,7 @@ export class ConnectorManager {
    * When set (the app process), sync execution lives in the worker host, so the
    * actions that arm timers / push merge work are forwarded there instead of run
    * locally — connector merges must share the single writer process. Read-only
-   * ops (listCalendars, gmailFetcher) always run in-process; they only fetch.
+   * ops (listCalendars) always run in-process; they only fetch.
    */
   private readonly forward?: ConnectorForward;
 
@@ -155,24 +155,5 @@ export class ConnectorManager {
     if (!account) return [];
     const accessToken = await ensureAccessToken(this.deps.store, account, resolved.connector);
     return resolved.connector.listCalendars({ accessToken });
-  }
-
-  /**
-   * A Gmail thread fetcher for the chat agent, or undefined when Gmail isn't
-   * connected/enabled — so the `fetch_email_threads` tool only appears when it
-   * can work. Re-evaluated per turn by the ChatService.
-   */
-  gmailFetcher(): ((query: string) => Promise<string>) | undefined {
-    const account = this.deps.store.getConnectorAccount("google");
-    const connector = this.registry.get("google");
-    if (!account || !connector) return undefined;
-    const state = this.deps.store.getSyncState(account.id, "gmail");
-    if (!state?.enabled) return undefined;
-    return async (query: string) => {
-      const fresh = this.deps.store.getConnectorAccount("google");
-      if (!fresh) return "Gmail is no longer connected.";
-      const token = await ensureAccessToken(this.deps.store, fresh, connector);
-      return searchThreadsText(token, query);
-    };
   }
 }

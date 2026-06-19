@@ -113,7 +113,8 @@ export class ExampleConnector implements Connector {
         description: "Search the user's Example notes for a query.",
         inputSchema: z.object({ query: z.string() }),
         execute: async ({ query }) => {
-          void ctx.accessToken; // call your provider API with the live token
+          const token = await ctx.getAccessToken(); // minted lazily, only on use
+          void token; // call your provider API with `token`
           return `No Example results for "${query}" (template).`;
         },
       }),

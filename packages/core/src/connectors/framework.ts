@@ -263,8 +263,14 @@ export interface SyncContext {
 export interface AgentToolContext {
   store: KnowledgeStore;
   embedder: Embedder;
-  /** A live access token for this connected account (OAuth connectors). */
-  accessToken: string;
+  /** The kinds the user enabled for this account — gate tools that need a synced kind. */
+  enabledKinds: ReadonlySet<string>;
+  /**
+   * Resolve a live access token for this account, refreshing it if needed. Lazy on
+   * purpose: building a tool definition costs no network; the token is minted only
+   * when the tool actually runs, so a connected-but-unused connector adds no latency.
+   */
+  getAccessToken: () => Promise<string>;
 }
 
 /**
