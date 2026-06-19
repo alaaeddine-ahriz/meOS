@@ -25,6 +25,7 @@ import { registerSettingsRoutes } from "./routes/settings.js";
 import { registerSourceHealthRoutes } from "./routes/source-health.js";
 import { registerSourceRoutes } from "./routes/sources.js";
 import { registerVaultRoutes } from "./routes/vault.js";
+import { registerWikiAgentRoutes } from "./routes/wiki-agent.js";
 import { registerWikiRoutes } from "./routes/wiki.js";
 
 export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
@@ -78,6 +79,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerIngestRoutes(app, ctx);
   registerMeetingRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
+  registerWikiAgentRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   registerActivityRoutes(app, ctx);

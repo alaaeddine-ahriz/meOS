@@ -22,6 +22,7 @@ import {
   SwitchableLlmClient,
   Vault,
   WikiWriter,
+  writeWikiAgentDocs,
   type Embedder,
   type LlmConfig,
   type MeosConfig,
@@ -141,6 +142,9 @@ export async function runConsolidationJob(ctx: AppContext): Promise<void> {
     schema: loadSchema(ctx.config.dataDir),
     profile: loadProfileContext(ctx.config.dataDir),
     digestDir: path.join(ctx.config.dataDir, "digests"),
+    // External maintenance pauses the paid nightly page rewrite; memory
+    // consolidation, lint, and the digest still run.
+    regenerateWiki: ctx.store.getWikiMaintenanceMode() !== "external",
   });
   await commitWikiChanges(ctx, report.wikiChanges, "Consolidation", [
     `digests/${report.digestDate}.md`,
@@ -211,6 +215,10 @@ export function createContext(
     embedder,
     activity.hook,
   );
+  // Drop the agent-maintenance guide (AGENTS.md / CLAUDE.md) into the wiki dir so
+  // any coding agent that opens the folder learns the workflow + rules. Idempotent
+  // and best-effort — never throws.
+  writeWikiAgentDocs(path.join(config.dataDir, "wiki"));
   // The user's hand-authored note vault (Obsidian-style), distinct from the
   // system-compiled wiki — free-form markdown that cross-links via [[links]].
   const vault = new Vault(path.join(config.dataDir, "vault"));
@@ -234,6 +242,10 @@ export function createContext(
     refreshQueued = true;
     wikiQueue.push(async () => {
       refreshQueued = false;
+      // Under external maintenance the user's own coding agent rewrites pages, so
+      // the paid in-app rewrite pauses — wiki_stale stays set for the agent to pick
+      // up. Ingestion still ran and marked pages stale; only the rewrite is skipped.
+      if (store.getWikiMaintenanceMode() === "external") return;
       const changes = await wiki.regenerateStale();
       await commitWikiChanges({ git, store }, changes);
     });

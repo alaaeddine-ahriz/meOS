@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { createBashTool } from "bash-tool";
@@ -11,8 +12,10 @@ import type {
   KnowledgeStore,
   ObservationRow,
   RelationshipView,
+  WikiAuthor,
   WikiChange,
 } from "../knowledge/store.js";
+import { lintPage, type IssueSeverity } from "./wiki-lint.js";
 import {
   DEFAULT_WIKI_SANDBOX_LIMITS,
   RunLimitTracker,
@@ -85,6 +88,56 @@ function stripFrontmatter(markdown: string): string {
     }
   }
   return text.replace(/^\s*# .*\n+/, "").trim();
+}
+
+/**
+ * Read the system-owned identity (entity_id, slug) out of a page's frontmatter,
+ * if any. Used to verify an externally-edited page still points at its entity —
+ * the agent must never rewrite these.
+ */
+function parseFrontmatterIdentity(markdown: string): {
+  hasFrontmatter: boolean;
+  entityId?: number;
+  slug?: string;
+} {
+  if (!markdown.startsWith("---")) return { hasFrontmatter: false };
+  const end = markdown.indexOf("\n---", 3);
+  if (end === -1) return { hasFrontmatter: false };
+  const block = markdown.slice(3, end);
+  const idMatch = block.match(/(?:^|\n)\s*entity_id:\s*(\d+)/);
+  const slugMatch = block.match(/(?:^|\n)\s*slug:\s*"?([^"\n]+?)"?\s*(?:\n|$)/);
+  return {
+    hasFrontmatter: true,
+    entityId: idMatch ? Number(idMatch[1]) : undefined,
+    slug: slugMatch ? slugMatch[1]!.trim() : undefined,
+  };
+}
+
+/** One issue found while validating an externally-edited page. */
+export interface WikiPageIssue {
+  code: string;
+  severity: IssueSeverity;
+  message: string;
+}
+
+/** The result of validating a page on disk (lint + frontmatter integrity). */
+export interface WikiPageCheck {
+  slug: string;
+  /** True when nothing blocks a commit (no empty body, broken link, or bad frontmatter). */
+  ok: boolean;
+  quality: number;
+  frontmatterOk: boolean;
+  issues: WikiPageIssue[];
+}
+
+/** Why an external commit left a page untouched. */
+export type WikiReconcileSkip = "missing" | "empty" | "frontmatter" | "unchanged";
+
+/** Outcome of reconciling one externally-edited page into the knowledge store. */
+export interface WikiReconcileResult {
+  change: WikiChange | null;
+  skipped: WikiReconcileSkip | null;
+  check: WikiPageCheck;
 }
 
 /** Escape a string for literal use inside a RegExp. */
@@ -274,6 +327,139 @@ export class WikiWriter {
       .filter((e) => withPages.has(e.id))
       .map((e) => e.name)
       .slice(0, MAX_KNOWN_ENTITIES);
+  }
+
+  /**
+   * Public view of the [[wiki-link]] candidate names (entities that have a page),
+   * so the external-maintenance endpoints can hand the same list to the user's
+   * coding agent that the in-app maintainer uses.
+   */
+  linkableNames(): string[] {
+    return this.linkableEntityNames();
+  }
+
+  /**
+   * Validate a page on disk WITHOUT writing — the feedback loop an external agent
+   * runs before committing. Deterministic lint (broken links, grounding,
+   * staleness, vagueness) plus a frontmatter-integrity check: the system owns
+   * `entity_id`/`slug`, so an edited-away or mismatched identity blocks the commit.
+   * `ok` is false on the three blocking conditions (empty body, broken link, bad
+   * frontmatter); softer issues are reported as warnings.
+   */
+  checkPage(entity: EntityRow): WikiPageCheck {
+    const existing = this.readPage(entity);
+    const body = existing ? stripFrontmatter(existing) : "";
+    const lint = lintPage(this.store, entity.id, body);
+    const issues: WikiPageIssue[] = lint.issues.map((i) => ({
+      code: i.code,
+      severity: i.severity,
+      message: i.detail,
+    }));
+
+    const fm = existing ? parseFrontmatterIdentity(existing) : { hasFrontmatter: false };
+    const frontmatterOk =
+      !fm.hasFrontmatter ||
+      ((fm.entityId === undefined || fm.entityId === entity.id) &&
+        (fm.slug === undefined || fm.slug === entity.slug));
+    if (!frontmatterOk) {
+      issues.push({
+        code: "frontmatter",
+        severity: "review",
+        message:
+          "Frontmatter entity_id/slug must match this entity — do not edit it (meOS owns it).",
+      });
+    }
+
+    const blocking = issues.some(
+      (i) => i.code === "empty" || i.code === "broken_link" || i.code === "frontmatter",
+    );
+    return { slug: entity.slug, ok: !blocking, quality: lint.quality, frontmatterOk, issues };
+  }
+
+  /**
+   * Write a whole prose body to the page file with system-owned frontmatter,
+   * WITHOUT reconciling to the DB — the disk-write helper for agents that can't
+   * edit files directly (e.g. Claude Desktop). The agent then runs check/commit
+   * like a file-native agent. Any frontmatter/title the agent included is stripped
+   * (meOS owns those). Returns the data-dir-relative path.
+   */
+  stageBody(entity: EntityRow, body: string): string {
+    const prose = stripFrontmatter(body) || body.trim();
+    const observations = this.store.visibleObservations(entity.id);
+    const file = this.pagePath(entity);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      composePage(entity, prose, observations.length, meanOf(observations), false),
+    );
+    return path.posix.join("wiki", entity.type, `${entity.slug}.md`);
+  }
+
+  /**
+   * Reconcile one externally-edited page on disk into the knowledge store — the
+   * commit half of the external-maintenance path, mirroring what {@link regenerate}
+   * does after the in-app agent writes (re-impose system frontmatter, embed,
+   * persist body + body_hash, score, clear stale flags), so both paths share one
+   * status ledger. Idempotent: a body whose hash matches the stored page is left
+   * untouched (`skipped: "unchanged"`). Refuses to commit an empty body or a page
+   * whose frontmatter no longer identifies the entity.
+   */
+  async reconcileFromDisk(
+    entity: EntityRow,
+    opts: { authoredBy?: WikiAuthor } = {},
+  ): Promise<WikiReconcileResult> {
+    const check = this.checkPage(entity);
+    const existing = this.readPage(entity);
+    if (existing === null) return { change: null, skipped: "missing", check };
+    const body = stripFrontmatter(existing);
+    if (!body) return { change: null, skipped: "empty", check };
+    if (!check.frontmatterOk) return { change: null, skipped: "frontmatter", check };
+
+    // Idempotency: an on-disk body that already matches the persisted page needs
+    // no work — the in-app path and the agent never reprocess each other's output.
+    const meta = this.store.wikiPageMeta(entity.id);
+    const bodyHash = createHash("sha256").update(body).digest("hex");
+    if (meta && meta.body_hash === bodyHash) return { change: null, skipped: "unchanged", check };
+
+    const observations = this.store.visibleObservations(entity.id);
+    const runSourceIds = this.store.pendingStaleSources(entity.id);
+    const created = !meta;
+
+    // Re-impose the system-owned frontmatter so the agent can never corrupt the
+    // identity/counters, then persist exactly as the in-app writer does.
+    const file = this.pagePath(entity);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      composePage(entity, body, observations.length, meanOf(observations), false),
+    );
+
+    const [vector] = this.embedder ? await this.embedder.embed([body]) : [undefined];
+    this.store.upsertWikiPage(entity.id, body, vector, opts.authoredBy ?? "agent");
+    this.store.setWikiQuality(entity.id, check.quality);
+
+    // Give a never-summarised entity a one-line summary from its own prose.
+    if (!entity.summary) {
+      const firstSentence = body.split(/(?<=[.!?])\s/)[0]?.trim();
+      if (firstSentence) this.store.setEntitySummary(entity.id, firstSentence.slice(0, 280));
+    }
+
+    this.store.clearStaleSources(entity.id);
+    this.store.clearWikiStale(entity.id);
+
+    return {
+      change: {
+        entityId: entity.id,
+        name: entity.name,
+        type: entity.type,
+        slug: entity.slug,
+        filePath: path.posix.join("wiki", entity.type, `${entity.slug}.md`),
+        kind: created ? "created" : "updated",
+        sourceIds: runSourceIds,
+      },
+      skipped: null,
+      check,
+    };
   }
 
   /**
