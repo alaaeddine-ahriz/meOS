@@ -14,3 +14,6 @@ benchmarks/results/
 
 # Generated knowledge graph (graphify) — local artifact, not versioned
 graphify-out/
+
+# go-task fingerprint cache (Taskfile.yml)
+.task/
