@@ -13,11 +13,15 @@ import type {
   AuditEntry,
   CalendarEvent,
   CalendarListEntry,
+  CatalogConnector,
+  CatalogKind,
   ChatEvent,
   CloudProvider,
   Contradiction,
   ContradictionProposal,
   Conversation,
+  ConnectorAuth,
+  ConnectorCatalog,
   ConnectorCoverage,
   ConnectorHealth,
   ConnectorKind,
@@ -59,6 +63,7 @@ import type {
   ProfileProposal,
   ProfileSectionView,
   ProfileVersion,
+  ProviderStatus,
   ResolutionAction,
   RuntimeHealth,
   SourceDiff,
@@ -139,11 +144,15 @@ export type {
   SourceDetail,
   CalendarEvent,
   CalendarListEntry,
+  CatalogConnector,
+  CatalogKind,
   ChatEvent,
   CloudProvider,
   Contradiction,
   ContradictionProposal,
   Conversation,
+  ConnectorAuth,
+  ConnectorCatalog,
   ConnectorCoverage,
   ConnectorHealth,
   ConnectorKind,
@@ -183,6 +192,7 @@ export type {
   ProfileProposal,
   ProfileSectionView,
   ProfileVersion,
+  ProviderStatus,
   ResolutionAction,
   RuntimeHealth,
   SourceDiff,
@@ -452,17 +462,24 @@ export const api = {
   getGitLog: (limit = 50) => json<GitLogResponse>(`/api/settings/git/log?limit=${limit}`),
   getGitCommit: (hash: string) => json<GitCommitDetail>(`/api/settings/git/commit/${hash}`),
   getSourceDiff: (sourceId: number) => json<SourceDiff>(`/api/sources/${sourceId}/diff`),
-  // --- connectors (Google Contacts / Calendar / Gmail) ---
+  // --- connectors (multi-provider: every method takes the provider id) ---
+  // The connector catalog: every registered connector with its kinds, display
+  // names, logos and capabilities. Drives all connector UI so it's catalog- not
+  // Google-driven. Stable for the life of the app.
+  getConnectorCatalog: () => json<ConnectorCatalog>("/api/connectors/catalog"),
   getConnectors: () => json<ConnectorStatus>("/api/connectors"),
-  saveGoogleCredentials: (clientId: string, clientSecret: string) =>
-    json<ConnectorStatus>("/api/connectors/google/credentials", {
+  // Save a connector's credentials. OAuth connectors send the OAuth client
+  // (clientId/clientSecret); basic connectors send their `auth.fields` values.
+  saveCredentials: (provider: string, fields: Record<string, string>) =>
+    json<ConnectorStatus>(`/api/connectors/${provider}/credentials`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId, clientSecret }),
+      body: JSON.stringify(fields),
     }),
-  startGoogleAuth: () =>
-    json<AuthStartResponse>("/api/connectors/google/auth/start", { method: "POST" }),
+  startAuth: (provider: string) =>
+    json<AuthStartResponse>(`/api/connectors/${provider}/auth/start`, { method: "POST" }),
   configureConnectorKind: (
+    provider: string,
     kind: ConnectorKind,
     config: {
       enabled?: boolean;
@@ -477,31 +494,39 @@ export const api = {
       reset?: boolean;
     },
   ) =>
-    json<ConnectorStatus>(`/api/connectors/google/${kind}/config`, {
+    json<ConnectorStatus>(`/api/connectors/${provider}/${kind}/config`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(config),
     }),
-  syncConnectorKind: (kind: ConnectorKind) =>
-    json<SyncKindResponse>(`/api/connectors/google/${kind}/sync`, { method: "POST" }),
-  // The user's Google calendars, for the multi-calendar picker (#68).
-  listGoogleCalendars: () =>
-    json<{ calendars: CalendarListEntry[] }>("/api/connectors/google/calendars"),
-  disconnectGoogle: () => json<DisconnectResponse>("/api/connectors/google", { method: "DELETE" }),
-  // Google Tasks (read + write). List task lists, and create a task in Google.
-  listGoogleTaskLists: () => json<{ lists: TaskList[] }>("/api/connectors/google/tasks/lists"),
-  createGoogleTask: (input: { taskListId?: string; title: string; notes?: string; due?: string }) =>
-    json<{ task: Task }>("/api/connectors/google/tasks/create", {
+  syncConnectorKind: (provider: string, kind: ConnectorKind) =>
+    json<SyncKindResponse>(`/api/connectors/${provider}/${kind}/sync`, { method: "POST" }),
+  // The provider's calendars, for the multi-calendar picker (#68).
+  listCalendars: (provider: string) =>
+    json<{ calendars: CalendarListEntry[] }>(`/api/connectors/${provider}/calendars`),
+  disconnect: (provider: string) =>
+    json<DisconnectResponse>(`/api/connectors/${provider}`, { method: "DELETE" }),
+  // Tasks (read + write). List task lists, and create / complete a task.
+  listTaskLists: (provider: string) =>
+    json<{ lists: TaskList[] }>(`/api/connectors/${provider}/tasks/lists`),
+  createTask: (
+    provider: string,
+    input: { taskListId?: string; title: string; notes?: string; due?: string },
+  ) =>
+    json<{ task: Task }>(`/api/connectors/${provider}/tasks/create`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
     }),
-  completeGoogleTask: (taskId: string, taskListId: string, completed = true) =>
-    json<{ task: Task }>(`/api/connectors/google/tasks/${encodeURIComponent(taskId)}/complete`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ taskListId, completed }),
-    }),
+  completeTask: (provider: string, taskId: string, taskListId: string, completed = true) =>
+    json<{ task: Task }>(
+      `/api/connectors/${provider}/tasks/${encodeURIComponent(taskId)}/complete`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ taskListId, completed }),
+      },
+    ),
   // Synced calendar events for the `@`-mention picker (empty if not connected).
   listCalendarEvents: (q = "", limit = 25) =>
     json<ListCalendarEventsResponse>(

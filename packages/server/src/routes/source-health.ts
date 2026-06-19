@@ -7,14 +7,6 @@ import { routeSchema } from "../route-schema.js";
 
 const tags = ["source-health"];
 
-/** Product label per connector kind — non-technical, matches the Sources tab. */
-const KIND_LABELS: Record<string, string> = {
-  contacts: "Contacts",
-  calendar: "Calendar events",
-  gmail: "Emails",
-  tasks: "Tasks",
-};
-
 /** Map a connector's coverage state → a user-facing health label. */
 function connectorHealth(
   enabled: boolean,
@@ -37,8 +29,6 @@ function connectorHealth(
  * per-connector sync/reset endpoints.
  */
 export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext): void {
-  const google = connectorRegistry.get("google");
-
   app.get(
     "/api/source-health",
     {
@@ -77,56 +67,62 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
         watcherError,
       };
 
-      // --- Connectors ---
-      const account = ctx.store.getConnectorAccount("google");
-      const connected = Boolean(account?.refresh_token || account?.access_token);
-      const kinds: Array<{
-        kind: "contacts" | "calendar" | "gmail" | "tasks";
-        label: string;
-        health: "healthy" | "degraded" | "disconnected";
-        enabled: boolean;
-        state: CoverageState;
-        counts: {
-          indexed: number;
-          failed: number;
-          skipped: number;
-          deleted: number;
-          pending: number;
+      // --- Connectors (per-provider, driven entirely by the registry) ---
+      const providers = connectorRegistry.list().map((connector) => {
+        const provider = connector.manifest.id;
+        const account = ctx.store.getConnectorAccount(provider);
+        const connected = Boolean(account?.refresh_token || account?.access_token);
+        const kinds = account
+          ? connector.manifest.kinds.map((manifest) => {
+              const kind = manifest.kind;
+              const state = ctx.store.getSyncState(account.id, kind);
+              const config = ctx.store.getSyncConfig(account.id, kind);
+              const stats = ctx.store.connectorCoverageStats(account.id, kind);
+              const coverageState = deriveCoverageState(config);
+              const enabled = state?.enabled === 1;
+              const last = config.lastSync;
+              return {
+                kind,
+                // The kind's own display name is the product label — no hardcoded map.
+                label: manifest.displayName,
+                health: connectorHealth(enabled, coverageState),
+                enabled,
+                state: coverageState,
+                counts: {
+                  indexed: stats.itemCount,
+                  failed: last?.failed ?? 0,
+                  skipped: last?.skipped ?? 0,
+                  deleted: last?.deleted ?? 0,
+                  pending: 0,
+                },
+                lastSuccessAt: last?.okAt ?? null,
+                lastFailureAt: last?.errorAt ?? null,
+                lastError: last?.error ?? null,
+              };
+            })
+          : [];
+        const anyDegraded = kinds.some((k) => k.health === "degraded");
+        const health: "healthy" | "degraded" | "disconnected" = !connected
+          ? "disconnected"
+          : anyDegraded
+            ? "degraded"
+            : "healthy";
+        return {
+          provider,
+          displayName: connector.manifest.displayName,
+          connected,
+          accountEmail: account?.account_email ?? null,
+          health,
+          kinds,
         };
-        lastSuccessAt: string | null;
-        lastFailureAt: string | null;
-        lastError: string | null;
-      }> = [];
-      if (account && google) {
-        for (const manifest of google.manifest.kinds) {
-          const kind = manifest.kind as "contacts" | "calendar" | "gmail" | "tasks";
-          const state = ctx.store.getSyncState(account.id, kind);
-          const config = ctx.store.getSyncConfig(account.id, kind);
-          const stats = ctx.store.connectorCoverageStats(account.id, kind);
-          const coverageState = deriveCoverageState(config);
-          const enabled = state?.enabled === 1;
-          const last = config.lastSync;
-          kinds.push({
-            kind,
-            label: KIND_LABELS[kind] ?? kind,
-            health: connectorHealth(enabled, coverageState),
-            enabled,
-            state: coverageState,
-            counts: {
-              indexed: stats.itemCount,
-              failed: last?.failed ?? 0,
-              skipped: last?.skipped ?? 0,
-              deleted: last?.deleted ?? 0,
-              pending: 0,
-            },
-            lastSuccessAt: last?.okAt ?? null,
-            lastFailureAt: last?.errorAt ?? null,
-            lastError: last?.error ?? null,
-          });
-        }
-      }
-      const anyDegraded = kinds.some((k) => k.health === "degraded");
-      const connectorsHealth = !connected ? "disconnected" : anyDegraded ? "degraded" : "healthy";
+      });
+      // Section header aggregate across every provider: degraded wins, then any
+      // connected provider makes the section "healthy", else "disconnected".
+      const connectorsHealth = providers.some((p) => p.health === "degraded")
+        ? "degraded"
+        : providers.some((p) => p.connected)
+          ? "healthy"
+          : "disconnected";
 
       // --- Pipeline / queues (reuse the #18 aggregate) ---
       const queues = ctx.store.ingestQueueMetrics();
@@ -164,10 +160,8 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
       return sourceHealth.SourceHealthResponse.parse({
         localFolders,
         connectors: {
-          connected,
-          accountEmail: account?.account_email ?? null,
           health: connectorsHealth,
-          kinds,
+          providers,
         },
         pipeline: { health: pipelineHealth, running, pending, failed, deadLetter },
         runningJobs,

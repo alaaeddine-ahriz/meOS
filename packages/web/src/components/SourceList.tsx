@@ -1,21 +1,15 @@
-import { Calendar, ChevronDown, Contact, FileText, Mail, type LucideIcon } from "lucide-react";
+import { ChevronDown, FileText } from "lucide-react";
 import { Source, Sources, SourcesContent, SourcesTrigger } from "@/components/ai-elements/sources";
+import { useConnectorCatalog } from "@/hooks/use-connector-catalog";
 import { isRevealablePath, isTauri, openExternal, revealInFinder } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import type { SourceRef } from "../api.js";
 
-/** Provider chip presentation for a connector source (icon + deep-link). */
-const CONNECTOR_ICONS: Record<string, LucideIcon> = {
-  "google:contacts": Contact,
-  "google:calendar": Calendar,
-  "google:gmail": Mail,
-};
-
 /**
  * Collapsible list of the documents an answer or wiki page draws on. File
- * sources reveal the original in Finder (desktop only); connector sources
- * (Google Contacts/Calendar/Gmail) are clickable chips that open the underlying
- * item in the system browser.
+ * sources reveal the original in Finder (desktop only); connector sources are
+ * clickable chips (with the service's brand logo from the catalog) that open the
+ * underlying item in the system browser.
  */
 export function SourceList({
   sources,
@@ -24,6 +18,7 @@ export function SourceList({
   sources: SourceRef[];
   defaultOpen?: boolean;
 }) {
+  const catalog = useConnectorCatalog();
   if (sources.length === 0) return null;
 
   return (
@@ -39,13 +34,14 @@ export function SourceList({
       </SourcesTrigger>
       <SourcesContent>
         {sources.map((source) => {
-          const ConnectorIcon = source.type ? CONNECTOR_ICONS[source.type] : undefined;
-          // A connector chip links out to Google when its path holds a URL.
+          // A connector source is one the catalog recognises by its source type;
+          // it gets the service's brand logo and links out when its path is a URL.
+          const isConnector = source.type ? Boolean(catalog.kindOf(source.type)) : false;
           const linkUrl =
-            ConnectorIcon && source.path && /^https?:\/\//.test(source.path) ? source.path : null;
-          const revealable = !ConnectorIcon && isTauri && isRevealablePath(source.path);
+            isConnector && source.path && /^https?:\/\//.test(source.path) ? source.path : null;
+          const revealable = !isConnector && isTauri && isRevealablePath(source.path);
           const clickable = Boolean(linkUrl) || revealable;
-          const Icon = ConnectorIcon ?? FileText;
+          const Icon = isConnector ? catalog.brandForSourceType(source.type!).Logo : FileText;
           // Structure-aware locator (#14): show the section/page the citation
           // points at, when retrieval surfaced it. Backward-compatible: a source
           // without metadata renders exactly as before.

@@ -21,7 +21,8 @@ describe("GET /api/source-health (#87)", () => {
     // No folders watched and nothing connected on a fresh install.
     expect(parsed.localFolders.folders).toEqual([]);
     expect(parsed.localFolders.health).toBe("disconnected");
-    expect(parsed.connectors.connected).toBe(false);
+    const google = parsed.connectors.providers.find((p) => p.provider === "google")!;
+    expect(google.connected).toBe(false);
     expect(parsed.connectors.health).toBe("disconnected");
     expect(parsed.runningJobs).toEqual([]);
     expect(parsed.recentFailures).toEqual([]);
@@ -41,13 +42,15 @@ describe("GET /api/source-health (#87)", () => {
 
     const res = await server.app.inject({ method: "GET", url: "/api/source-health" });
     const parsed = sourceHealth.SourceHealthResponse.parse(res.json());
-    expect(parsed.connectors.connected).toBe(true);
-    const gmail = parsed.connectors.kinds.find((k) => k.kind === "gmail");
+    const google = parsed.connectors.providers.find((p) => p.provider === "google")!;
+    expect(google.connected).toBe(true);
+    const gmail = google.kinds.find((k) => k.kind === "gmail");
     expect(gmail).toBeDefined();
     expect(gmail!.enabled).toBe(true);
-    // Never synced yet → idle, and the kind carries a product label.
+    // Never synced yet → idle, and the kind carries a product label drawn from the
+    // kind manifest's displayName (no hardcoded KIND_LABELS map anymore).
     expect(gmail!.state).toBe("idle");
-    expect(gmail!.label).toBe("Emails");
+    expect(gmail!.label).toBe("Gmail");
   });
 
   it("surfaces a dead-letter ingest job as a retryable recent failure", async () => {

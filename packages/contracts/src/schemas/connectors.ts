@@ -142,14 +142,24 @@ export const ConnectorKindStatusSchema = z.object({
   coverage: ConnectorCoverageSchema.optional(),
 });
 
-/** GET /api/connectors and the response of most connector mutations. */
+/** The live status of one connected (or connectable) provider account. */
+export const ProviderStatusSchema = z.object({
+  /** The provider id, matching a catalog connector (e.g. "google"). */
+  provider: z.string(),
+  connected: z.boolean(),
+  accountEmail: z.string().nullable(),
+  hasCredentials: z.boolean(),
+  kinds: z.array(ConnectorKindStatusSchema),
+});
+
+/**
+ * GET /api/connectors and the response of most connector mutations. Multi-provider:
+ * one {@link ProviderStatusSchema} per registered connector (an ARRAY, not a record,
+ * to dodge the Fastify record-serialization pitfall). The web app joins each entry
+ * to the catalog by `provider` for branding.
+ */
 export const ConnectorStatusSchema = z.object({
-  google: z.object({
-    connected: z.boolean(),
-    accountEmail: z.string().nullable(),
-    hasCredentials: z.boolean(),
-    kinds: z.array(ConnectorKindStatusSchema),
-  }),
+  providers: z.array(ProviderStatusSchema),
 });
 
 /** PUT /api/connectors/google/credentials */
@@ -309,6 +319,7 @@ export type IndexMode = z.infer<typeof IndexModeSchema>;
 export type CoverageState = z.infer<typeof CoverageStateSchema>;
 export type ConnectorKind = z.infer<typeof ConnectorKindSchema>;
 export type ConnectorKindStatus = z.infer<typeof ConnectorKindStatusSchema>;
+export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type ConnectorStatus = z.infer<typeof ConnectorStatusSchema>;
 export type ConnectorCoverage = z.infer<typeof ConnectorCoverageSchema>;
 export type CalendarListEntry = z.infer<typeof CalendarListEntrySchema>;

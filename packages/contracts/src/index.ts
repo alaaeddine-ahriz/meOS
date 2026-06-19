@@ -103,6 +103,7 @@ export type {
   GmailContentMode,
   IndexMode,
   KindCapabilities,
+  ProviderStatus,
   Task,
   TaskList,
 } from "./schemas/connectors.js";
@@ -111,6 +112,7 @@ export type {
   SourceCounts,
   LocalFoldersHealth,
   ConnectorHealth,
+  ConnectorAccountHealth,
   ConnectorsHealth,
   RunningJob,
   RecentFailure,
