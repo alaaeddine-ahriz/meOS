@@ -123,7 +123,17 @@ export const AgentCommitItem = z.object({
 });
 export const AgentCommitSkip = z.object({
   slug: z.string(),
-  reason: z.enum(["unchanged", "missing", "empty", "frontmatter", "not-found"]),
+  reason: z.enum([
+    "unchanged",
+    "missing",
+    "empty",
+    "frontmatter",
+    "not-found",
+    // The slug resolves to an entity that no source NAMES, so it warrants no page
+    // (a bare directory/contact reference). Reported only for explicitly-requested
+    // slugs; the no-slug drain filters these silently.
+    "not-page-worthy",
+  ]),
 });
 export const AgentCommitResponse = z.object({
   committed: z.array(AgentCommitItem),

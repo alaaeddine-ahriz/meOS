@@ -923,7 +923,7 @@ describe("connector coverage state + structured sync metrics (#88)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(35);
+    expect(migrations.length).toBe(36);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -994,7 +994,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(35);
+    expect(migrations.length).toBe(36);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1076,7 +1076,7 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
   });
 });
 
-describe("connectors complement the wiki as references, not pages", () => {
+describe("content connectors name entities (pages); directory connectors stay references", () => {
   function setup() {
     const db = openDatabase(":memory:");
     const store = new KnowledgeStore(db);
@@ -1150,12 +1150,33 @@ describe("connectors complement the wiki as references, not pages", () => {
       extraction: {
         entities: [{ name: "Grace Hopper", type: "person", aliases: [], summary: "Engineer." }],
         relationships: [],
+        // Three normal facts from a wiki-eligible source clear the richness bar.
         observations: [
           {
             entity: "Grace Hopper",
             claim: "Grace Hopper leads the compiler effort.",
             kind: "fact",
             sourceQuote: "Grace Hopper leads the compiler effort.",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+          {
+            entity: "Grace Hopper",
+            claim: "Grace Hopper coordinates the language working group.",
+            kind: "fact",
+            sourceQuote: "Grace Hopper coordinates the language working group.",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+          {
+            entity: "Grace Hopper",
+            claim: "Grace Hopper authored the project's design memo.",
+            kind: "fact",
+            sourceQuote: "Grace Hopper authored the project's design memo.",
             validFrom: null,
             validUntil: null,
             confidence: 0.8,
@@ -1208,6 +1229,138 @@ describe("connectors complement the wiki as references, not pages", () => {
     await wiki.regenerateStale();
     expect(store.getEntity(person.id)!.wiki_stale).toBe(0);
     expect(wiki.readPage(store.getEntity(person.id)!)).toBeNull();
+
+    cleanup();
+  });
+
+  it("a place richly described by a content connector (calendar) earns a page, source on-device", async () => {
+    const { store, pipeline, cleanup } = setup();
+    // No contact, no document — the only mentions of this place are calendar facts.
+    // A calendar source is a content connector (private, on-device); with enough
+    // substance (the richness clause) it warrants a page in the local wiki. The
+    // Casablanca case — but a thin one-line mention would NOT (see the next test).
+    await pipeline.ingestExtraction({
+      type: "google:calendar",
+      title: "Flight AT 721 to Casablanca",
+      content: "Flight AT 721 to Casablanca",
+      path: "https://calendar.google.com/event/abc",
+      extraction: {
+        entities: [{ name: "Casablanca", type: "place", aliases: [], summary: "A city." }],
+        relationships: [],
+        // Three normal facts from this content connector clear the richness bar.
+        observations: [
+          {
+            entity: "Casablanca",
+            claim: "Traveled to Casablanca on flight AT 721.",
+            kind: "fact",
+            sourceQuote: "Flight AT 721 to Casablanca",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+          {
+            entity: "Casablanca",
+            claim: "Casablanca is the destination of flight AT 721.",
+            kind: "fact",
+            sourceQuote: "Flight AT 721 to Casablanca",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+          {
+            entity: "Casablanca",
+            claim: "The Casablanca trip is booked on Royal Air Maroc.",
+            kind: "fact",
+            sourceQuote: "Flight AT 721 to Casablanca",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+        ],
+      },
+    });
+
+    const place = store.findEntityByName("Casablanca")!;
+    // Content-connector backing → page-worthy, so it surfaces in the index + graph.
+    expect(store.entityWarrantsWikiPage(place.id)).toBe(true);
+    expect(store.wikiPageEntityIds().has(place.id)).toBe(true);
+    // The calendar source stays on-device — wiki-eligible but never synced/exported.
+    const calendar = store.sourcesForEntity(place.id).find((s) => s.type === "google:calendar")!;
+    const v = store.sourceVisibility(calendar.id);
+    expect(v.wikiEligible).toBe(true);
+    expect(v.syncable).toBe(false);
+    expect(v.exportable).toBe(false);
+
+    cleanup();
+  });
+
+  it("a thin one-off mention stays a searchable source; a 2nd source graduates it (gate B)", async () => {
+    const { store, pipeline, wiki, cleanup } = setup();
+    // One calendar event names a brand exactly once: a single source, a single fact,
+    // no relationships. This is the overcrowding case — it must NOT mint a page.
+    const onceFromCalendar = {
+      type: "google:calendar",
+      title: "Demo of Acme Widget",
+      content: "Demo of Acme Widget",
+      path: "https://calendar.google.com/event/w1",
+      extraction: {
+        entities: [
+          { name: "Acme Widget", type: "concept" as const, aliases: [], summary: "A product." },
+        ],
+        relationships: [],
+        observations: [
+          {
+            entity: "Acme Widget",
+            claim: "Saw a demo of Acme Widget.",
+            kind: "fact",
+            sourceQuote: "Demo of Acme Widget",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal" as const,
+          },
+        ],
+      },
+    };
+    await pipeline.ingestExtraction(onceFromCalendar);
+
+    const widget = store.findEntityByName("Acme Widget")!;
+    // Below the relevance bar (1 source, 1 fact, 0 rels) → no page, just a source.
+    expect(store.entityWarrantsWikiPage(widget.id)).toBe(false);
+    expect(store.wikiPageEntityIds().has(widget.id)).toBe(false);
+    await wiki.regenerateStale();
+    expect(wiki.readPage(store.getEntity(widget.id)!)).toBeNull();
+    // …but it stays fully searchable as a source-linked entity.
+    expect(store.sourcesForEntity(widget.id).length).toBeGreaterThan(0);
+
+    // A SECOND source names it → recurrence clears the bar → it graduates to a page.
+    await pipeline.ingestExtraction({
+      type: "google:gmail",
+      title: "Acme Widget pricing",
+      content: "Acme Widget pricing",
+      path: "https://mail.google.com/mail/u/0/#all/w2",
+      extraction: {
+        entities: [{ name: "Acme Widget", type: "concept", aliases: [], summary: "A product." }],
+        relationships: [],
+        observations: [
+          {
+            entity: "Acme Widget",
+            claim: "Received Acme Widget pricing.",
+            kind: "fact",
+            sourceQuote: "Acme Widget pricing",
+            validFrom: null,
+            validUntil: null,
+            confidence: 0.8,
+            sensitivity: "normal",
+          },
+        ],
+      },
+    });
+    expect(store.entityWarrantsWikiPage(widget.id)).toBe(true);
+    expect(store.wikiPageEntityIds().has(widget.id)).toBe(true);
 
     cleanup();
   });
@@ -1397,18 +1550,21 @@ describe("connector manifest hygiene — scales without drift", () => {
     }
   });
 
-  it("private-by-default kinds inherit off-wiki/off-sync visibility from the registry", () => {
+  it("private-by-default kinds inherit off-sync visibility from the registry", () => {
     // Proves register() injected each built-in connector's privacy defaults — a new
-    // connector's data stays off the wiki + off portable artifacts with no extra wiring.
+    // connector's data stays off portable artifacts with no extra wiring. Private is
+    // now decoupled from the wiki: private content feeds the LOCAL wiki, and only
+    // directory/identity kinds (contacts) are additionally kept off it.
     for (const connector of connectorRegistry.list()) {
       for (const k of connector.manifest.kinds) {
         if (k.private === false) continue;
         const v = defaultVisibilityForType(k.sourceType);
-        expect(v.wikiEligible, `${k.sourceType} wikiEligible`).toBe(false);
+        // Off portable artifacts, but still usable locally (searchable + answerable).
         expect(v.syncable, `${k.sourceType} syncable`).toBe(false);
         expect(v.exportable, `${k.sourceType} exportable`).toBe(false);
-        // Still usable locally — searchable + answerable.
         expect(v.searchable && v.answerable, `${k.sourceType} searchable+answerable`).toBe(true);
+        // Content connectors feed the local wiki; directory/identity kinds do not.
+        expect(v.wikiEligible, `${k.sourceType} wikiEligible`).toBe(k.directory !== true);
       }
     }
   });

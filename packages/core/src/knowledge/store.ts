@@ -2839,21 +2839,29 @@ export class KnowledgeStore {
     return true;
   }
 
-  // A wiki page is warranted only when an entity has at least one *page-worthy*
-  // fact or edge: an active, non-private observation from a wiki-eligible or
-  // sourceless origin, or an active edge from such an origin. Connector sources
-  // (contacts/calendar/gmail) are wiki_eligible = 0, so a person known only
-  // through a contact/email/calendar has no page-worthy backing — and neither does
-  // a "name only" contact, which has no facts at all. Both are kept out of the
-  // wiki (page, index, graph) while staying searchable, and merge into a real page
-  // once a document mentions them.
+  // A wiki page is warranted only when an entity is *relevant* enough to hold its
+  // own page — not merely named once. Being named by a single source keeps the
+  // entity searchable (it stays a source), but a page is earned only when the
+  // entity clears a relevance bar, so the wiki stays a map of what matters rather
+  // than a page per passing mention. The bar (gate B) is met when ANY holds, over
+  // wiki-eligible (or sourceless) backing only — connector content counts, but a
+  // bare contact/calendar mention on its own does not:
+  //   • recurrence    — named by ≥2 distinct sources, OR
+  //   • connectedness — ≥2 active relationships, OR
+  //   • richness      — ≥3 active, non-private facts.
+  // A sub-threshold entity stays a searchable reference and graduates to a page
+  // automatically the moment a second source names it, it gains a second link, or
+  // it accrues a third fact. Tunable: the 2/2/3 constants below are the only knobs.
   private static readonly HAS_PAGE_WORTHY_SQL = `(
-    EXISTS (SELECT 1 FROM observations o LEFT JOIN sources s ON s.id = o.source_id
-             WHERE o.entity_id = e.id AND o.status = 'active' AND o.sensitivity = 'normal'
-               AND (o.source_id IS NULL OR s.wiki_eligible = 1))
-    OR EXISTS (SELECT 1 FROM relationships r LEFT JOIN sources s ON s.id = r.source_id
-                WHERE (r.from_entity = e.id OR r.to_entity = e.id) AND r.status = 'active'
-                  AND (r.source_id IS NULL OR s.wiki_eligible = 1))
+    (SELECT COUNT(DISTINCT o.source_id) FROM observations o LEFT JOIN sources s ON s.id = o.source_id
+       WHERE o.entity_id = e.id AND o.status = 'active' AND o.sensitivity = 'normal'
+         AND (o.source_id IS NULL OR s.wiki_eligible = 1)) >= 2
+    OR (SELECT COUNT(*) FROM relationships r LEFT JOIN sources s ON s.id = r.source_id
+         WHERE (r.from_entity = e.id OR r.to_entity = e.id) AND r.status = 'active'
+           AND (r.source_id IS NULL OR s.wiki_eligible = 1)) >= 2
+    OR (SELECT COUNT(*) FROM observations o LEFT JOIN sources s ON s.id = o.source_id
+         WHERE o.entity_id = e.id AND o.status = 'active' AND o.sensitivity = 'normal'
+           AND (o.source_id IS NULL OR s.wiki_eligible = 1)) >= 3
   )`;
 
   /**

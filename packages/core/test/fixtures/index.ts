@@ -42,7 +42,9 @@ export const adaDocumentReprise: TextDocumentFixture = {
 
 /**
  * The canonical extraction for {@link adaDocument}: two entities, one
- * relationship, two observations. Matches the `knowledge_extraction` schema.
+ * relationship, four observations (three about Ada). Three non-private facts
+ * about Ada clear the page-worthiness richness bar so she earns a wiki page.
+ * Matches the `knowledge_extraction` schema.
  */
 export const adaExtraction = {
   entities: [
@@ -66,6 +68,26 @@ export const adaExtraction = {
       claim: "Ada Lovelace wrote the first published algorithm.",
       kind: "fact",
       sourceQuote: "Ada Lovelace wrote the first published algorithm.",
+      validFrom: null,
+      validUntil: null,
+      confidence: 0.5,
+      sensitivity: "normal",
+    },
+    {
+      entity: "Ada Lovelace",
+      claim: "Ada Lovelace corresponded with Charles Babbage about the engine.",
+      kind: "fact",
+      sourceQuote: null,
+      validFrom: null,
+      validUntil: null,
+      confidence: 0.5,
+      sensitivity: "normal",
+    },
+    {
+      entity: "Ada Lovelace",
+      claim: "Ada Lovelace is regarded as the first computer programmer.",
+      kind: "fact",
+      sourceQuote: null,
       validFrom: null,
       validUntil: null,
       confidence: 0.5,

@@ -7,7 +7,10 @@
  * none of them name a specific provider.
  */
 
-import { registerPrivateSourceTypes } from "../knowledge/visibility.js";
+import {
+  registerDirectorySourceTypes,
+  registerPrivateSourceTypes,
+} from "../knowledge/visibility.js";
 import type { Connector, KindManifest } from "./framework.js";
 import { googleConnector } from "./google/connector.js";
 import { imapConnector } from "./imap/connector.js";
@@ -22,11 +25,15 @@ export class ConnectorRegistry {
   /** Register (or replace) a connector under its manifest id. */
   register(connector: Connector): void {
     this.byId.set(connector.manifest.id, connector);
-    // Privacy defaults track the registry: a kind is private unless it opts out,
-    // so a new connector's data inherits the safe (off-wiki, off-sync) defaults
-    // straight from its manifest — no edit to knowledge/visibility.ts.
+    // Privacy + wiki defaults track the registry, straight from the manifest — no
+    // edit to knowledge/visibility.ts. A kind is private (off-sync/export) unless
+    // it opts out, and a kind is directory-only (off-wiki) when it opts in with
+    // `directory: true` (an address book vs. content that names entities).
     registerPrivateSourceTypes(
       connector.manifest.kinds.filter((k) => k.private !== false).map((k) => k.sourceType),
+    );
+    registerDirectorySourceTypes(
+      connector.manifest.kinds.filter((k) => k.directory === true).map((k) => k.sourceType),
     );
   }
 

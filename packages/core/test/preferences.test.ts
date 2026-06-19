@@ -116,6 +116,8 @@ describe("knowledge preferences (#86)", () => {
       // A page-worthy person and a page-worthy place (active, normal, sourceless obs).
       const person = store.createEntity({ name: "Ada", type: "person", summary: "x" });
       const place = store.createEntity({ name: "Berlin", type: "place", summary: "y" });
+      // Each entity needs ≥3 active, non-private facts to clear the wiki
+      // page-worthiness bar (gate B); a single thin mention no longer qualifies.
       store.insertObservation({
         entityId: person.id,
         text: "Ada leads Orion.",
@@ -123,8 +125,32 @@ describe("knowledge preferences (#86)", () => {
         confidence: 0.8,
       });
       store.insertObservation({
+        entityId: person.id,
+        text: "Ada is an engineer.",
+        kind: "fact",
+        confidence: 0.8,
+      });
+      store.insertObservation({
+        entityId: person.id,
+        text: "Ada lives in Berlin.",
+        kind: "fact",
+        confidence: 0.8,
+      });
+      store.insertObservation({
         entityId: place.id,
         text: "Berlin is a city.",
+        kind: "fact",
+        confidence: 0.8,
+      });
+      store.insertObservation({
+        entityId: place.id,
+        text: "Berlin is the capital of Germany.",
+        kind: "fact",
+        confidence: 0.8,
+      });
+      store.insertObservation({
+        entityId: place.id,
+        text: "Berlin has about 3.7 million residents.",
         kind: "fact",
         confidence: 0.8,
       });
@@ -141,9 +167,9 @@ describe("knowledge preferences (#86)", () => {
       expect(ids.has(place.id)).toBe(false);
       expect(store.entityWarrantsWikiPage(place.id)).toBe(false);
 
-      // The place entity + its observation are NOT deleted (non-destructive).
+      // The place entity + its observations are NOT deleted (non-destructive).
       expect(store.getEntity(place.id)).toBeTruthy();
-      expect(store.activeObservations(place.id).length).toBe(1);
+      expect(store.activeObservations(place.id).length).toBe(3);
 
       // Re-enable everything → place reappears.
       store.setKnowledgePreferences(defaultPreferences());

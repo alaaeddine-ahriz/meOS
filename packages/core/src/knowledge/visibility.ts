@@ -15,11 +15,11 @@
  *
  * Defaults are applied at source creation by type (see DEFAULTS below). They can
  * later be overridden per source, but the per-type defaults encode the privacy
- * stance: connector data (Google contacts/calendar/gmail) is private by default
- * — searchable and answerable, but never pushed to a remote or an export; profile
- * context is searchable/answerable but kept out of the wiki and out of sync/export;
- * everything else (local files, uploads, vault notes, conversations, sessions) is
- * fully permissive.
+ * stance: connector data (Google calendar/gmail/tasks, IMAP) is private by default
+ * — searchable, answerable, and wiki-eligible for the *local* wiki, but never
+ * pushed to a remote or an export; directory/identity connectors (contacts) and
+ * profile context additionally stay out of the wiki; everything else (local files,
+ * uploads, vault notes, conversations, sessions) is fully permissive.
  */
 export interface SourceVisibility {
   searchable: boolean;
@@ -70,6 +70,39 @@ export function isConnectorSourceType(type: string): boolean {
   return privateSourceTypes.has(type);
 }
 
+/**
+ * Built-in directory/identity source types: connector kinds that only record that
+ * an entity *exists* (an address book), as opposed to content that *names* entities
+ * in context (a calendar event, an email, a task, a note). Directory sources never
+ * warrant a standalone wiki page on their own — a contact known to nothing else
+ * stays searchable but pageless until some content source mentions it, at which
+ * point it earns a page (and the directory link surfaces as a service chip).
+ *
+ * Like {@link CONNECTOR_SOURCE_TYPES} this is a BOOTSTRAP seed: connectors inject
+ * their own directory kinds via {@link registerDirectorySourceTypes} at registry
+ * time (a kind opts in with `directory: true` in its manifest), so a new directory
+ * connector gets the right wiki defaults from its manifest — no edit to this file.
+ */
+export const DIRECTORY_SOURCE_TYPES = ["google:contacts"] as const;
+
+/** The live set of directory/identity source types: the seed + connector-registered. */
+const directorySourceTypes = new Set<string>(DIRECTORY_SOURCE_TYPES);
+
+/**
+ * Register source types that are directory/identity-only (an address book): their
+ * facts keep an entity searchable but never, by themselves, warrant a wiki page.
+ * Called by the connector registry as connectors register, so the wiki default
+ * tracks the registry instead of a hardcoded list.
+ */
+export function registerDirectorySourceTypes(types: Iterable<string>): void {
+  for (const t of types) directorySourceTypes.add(t);
+}
+
+/** Whether a source `type` is directory/identity-only (contacts-like). */
+export function isDirectorySourceType(type: string): boolean {
+  return directorySourceTypes.has(type);
+}
+
 /** The profile-context source type (kept in sync with the server's profile route). */
 export const PROFILE_SOURCE_TYPE = "profile_context";
 
@@ -89,16 +122,24 @@ export const MEETING_SOURCE_TYPE = "meeting";
  *   file / watch / upload / image / text    ✓      ✓     ✓    ✓     ✓      ✓
  *   conversation / session / vault          ✓      ✓     ✓    ✓     ✓      ✓
  *   meeting                                 ✓      ✓     ✓    ✓     ✓      ✓
- *   google:contacts|calendar|gmail          ✓      ✓     ✗    ✗     ✗      ✓
+ *   google:calendar|gmail|tasks, imap       ✓      ✓     ✓    ✗     ✗      ✓
+ *   google:contacts (directory)             ✓      ✓     ✗    ✗     ✗      ✓
  *   profile_context                         ✓      ✓     ✗    ✗     ✗      ✓
  */
 export function defaultVisibilityForType(type: string): SourceVisibility {
   if (privateSourceTypes.has(type)) {
-    // Connector data complements the wiki as a *reference*, not as content: it is
-    // searchable + answerable, but kept out of page prose (wiki) and off portable
-    // artifacts (sync/export). A person known only from a contact/email never
-    // earns a page — the link surfaces as a service chip on existing pages instead.
-    return { ...ALL_TRUE, wikiEligible: false, syncable: false, exportable: false };
+    // Connector data stays on-device — never pushed to a remote or an export
+    // (sync/export off). It DOES feed the *local* wiki, though: a calendar event,
+    // an email, or a task that names an entity is content about that entity, so it
+    // earns a page (any source that names it). The exception is directory/identity
+    // kinds (contacts): an address-book entry only records that a person exists, so
+    // it stays searchable but pageless until some content source mentions them.
+    return {
+      ...ALL_TRUE,
+      wikiEligible: !directorySourceTypes.has(type),
+      syncable: false,
+      exportable: false,
+    };
   }
   if (type === PROFILE_SOURCE_TYPE) {
     // Profile docs: feed retrieval, but not the wiki and not sync/export.

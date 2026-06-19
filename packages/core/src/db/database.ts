@@ -935,6 +935,25 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE wiki_runs ADD COLUMN author TEXT NOT NULL DEFAULT 'in-app';
   `,
+
+  // 36 — any source that names an entity earns it a page (revises migrations 28+30).
+  //
+  // Migration 28 kept ALL connector content off the wiki (wiki_eligible=0), so a
+  // place, brand, or person known only from a calendar event or an email never
+  // earned a page even though the source literally NAMES it. We now distinguish
+  // *content* connectors (calendar/gmail/tasks, IMAP — a source that mentions an
+  // entity in context) from *directory* connectors (contacts — an address book that
+  // only records that a person exists). Content connectors become wiki-eligible:
+  // their facts feed the LOCAL wiki, while staying private — never synced/exported
+  // (syncable/exportable are unchanged here). Contacts stay wiki_eligible=0, so a
+  // bare contact remains searchable but pageless until a content source mentions
+  // them. Mirrors the new defaultVisibilityForType so existing rows match freshly
+  // created ones; idempotent (plain UPDATE), and on a DB with none of these source
+  // types it is a harmless no-op.
+  `
+  UPDATE sources SET wiki_eligible = 1
+    WHERE type IN ('google:calendar', 'google:gmail', 'google:tasks', 'imap:messages');
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

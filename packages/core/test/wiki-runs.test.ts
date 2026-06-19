@@ -70,6 +70,16 @@ describe("wiki-run transcripts", () => {
       text: "Ada wrote the first algorithm.",
       confidence: 0.9,
     });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Ada collaborated with Charles Babbage on the Analytical Engine.",
+      confidence: 0.9,
+    });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Ada was a 19th-century English mathematician.",
+      confidence: 0.9,
+    });
 
     // A stub agent that emits reasoning + a tool call, then writes the page.
     const llm = new StubLlmClient({
@@ -112,6 +122,16 @@ describe("wiki-run transcripts", () => {
     const store = new KnowledgeStore(db);
     const entity = store.createEntity({ type: "person", name: "Grace Hopper" });
     store.insertObservation({ entityId: entity.id, text: "Coined 'debugging'.", confidence: 0.9 });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Developed the first compiler.",
+      confidence: 0.9,
+    });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Was a US Navy rear admiral.",
+      confidence: 0.9,
+    });
 
     const llm = new StubLlmClient({
       onAgent: async () => {

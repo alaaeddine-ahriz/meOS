@@ -53,7 +53,7 @@ describe("IngestionPipeline", () => {
 
     const ada = store.findEntityByName("Ada")!; // resolved via alias
     expect(ada.name).toBe("Ada Lovelace");
-    expect(store.activeObservations(ada.id)).toHaveLength(1);
+    expect(store.activeObservations(ada.id)).toHaveLength(3);
     expect(store.relationshipsFor(ada.id)).toHaveLength(1);
 
     // wiki page written to disk with frontmatter and generated body
@@ -78,8 +78,10 @@ describe("IngestionPipeline", () => {
 
     const ada = store.findEntityByName("Ada Lovelace")!;
     const observations = store.activeObservations(ada.id);
-    expect(observations).toHaveLength(1);
-    expect(observations[0]!.confidence).toBeCloseTo(0.65, 5);
+    // The three Ada facts reinforce rather than duplicate: re-ingesting the same
+    // capture leaves three observations (not six), each bumped in confidence.
+    expect(observations).toHaveLength(3);
+    for (const o of observations) expect(o.confidence).toBeCloseTo(0.65, 5);
   });
 
   it("flags unsupported files in the inbox instead of failing", async () => {
