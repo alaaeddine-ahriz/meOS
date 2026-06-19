@@ -185,7 +185,7 @@ describe("meeting notes (#26)", () => {
   });
 
   it("migration 26: migrates a v24-shape DB cleanly, adding meeting tables", () => {
-    expect(migrations.length).toBe(34);
+    expect(migrations.length).toBe(35);
     const file = path.join(tmpDir, `v24-${Date.now()}.db`);
     // Stand up a DB at exactly user_version 24 (pre-meeting-notes).
     const raw = new Database(file);

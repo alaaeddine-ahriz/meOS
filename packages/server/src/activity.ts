@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import { createLogger } from "@meos/core";
-import type { KnowledgeStore, WikiRunHook, WikiRunSink, WikiRunStart } from "@meos/core";
+import type {
+  KnowledgeStore,
+  WikiRunAuthor,
+  WikiRunHook,
+  WikiRunSink,
+  WikiRunStart,
+} from "@meos/core";
 
 const log = createLogger("activity");
 
@@ -12,7 +18,14 @@ const log = createLogger("activity");
  * what gets persisted so live and replayed transcripts render identically.
  */
 export type ActivityStreamEvent =
-  | { type: "run-start"; runId: number; name: string; entityType: string; slug: string }
+  | {
+      type: "run-start";
+      runId: number;
+      name: string;
+      entityType: string;
+      slug: string;
+      author: WikiRunAuthor;
+    }
   | {
       type: "event";
       runId: number;
@@ -78,6 +91,7 @@ export class ActivityBus {
       name: start.name,
       entityType: start.type,
       slug: start.slug,
+      author: "in-app",
     });
 
     // Persist coalesced rows (consecutive reasoning/text deltas merge into one),
@@ -134,4 +148,46 @@ export class ActivityBus {
       },
     };
   };
+
+  /**
+   * Record a completed external-agent action (a page commit or a fact submission)
+   * as a one-shot run. The agent's reasoning happens in its own coding tool, so we
+   * capture the OUTCOME — a single summary line — rather than a live transcript.
+   * Persisted + broadcast exactly like an in-app run, but marked `author: "agent"`
+   * so the Activity feed can tell the two paths apart. Best-effort: a failure to
+   * record never breaks the agent's request.
+   */
+  recordExternalRun(input: {
+    entityId: number | null;
+    name: string;
+    type: string;
+    slug: string | null;
+    sourceIds: number[];
+    summary: string;
+  }): void {
+    try {
+      const runId = this.store.createWikiRun({
+        entityId: input.entityId,
+        name: input.name,
+        type: input.type,
+        slug: input.slug,
+        sourceIds: input.sourceIds,
+        author: "agent",
+      });
+      this.publish({
+        type: "run-start",
+        runId,
+        name: input.name,
+        entityType: input.type,
+        slug: input.slug ?? "",
+        author: "agent",
+      });
+      this.store.appendWikiRunEvent(runId, { seq: 0, kind: "text", payload: input.summary });
+      this.publish({ type: "event", runId, kind: "text", payload: input.summary });
+      this.store.finishWikiRun(runId, "done");
+      this.publish({ type: "run-finish", runId, status: "done" });
+    } catch (error) {
+      log.error({ err: error }, "failed to record external agent run");
+    }
+  }
 }

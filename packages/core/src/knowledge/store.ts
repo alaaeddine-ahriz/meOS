@@ -641,6 +641,9 @@ export interface WikiChange {
 }
 
 /** A single agentic wiki-maintainer run (one page regeneration). */
+/** Who drove a wiki run: the in-app maintainer, or the user's own coding agent. */
+export type WikiRunAuthor = "in-app" | "agent";
+
 export interface WikiRunRow {
   id: number;
   entity_id: number | null;
@@ -649,6 +652,7 @@ export interface WikiRunRow {
   type: string;
   slug: string | null;
   status: "running" | "done" | "failed";
+  author: WikiRunAuthor;
   created_at: string;
   finished_at: string | null;
 }
@@ -2971,19 +2975,26 @@ export class KnowledgeStore {
 
   /** Open a run for a page regeneration; events are appended as the agent works. */
   createWikiRun(input: {
-    entityId: number;
+    entityId: number | null;
     name: string;
     type: string;
-    slug: string;
+    slug: string | null;
     sourceIds: number[];
+    author?: WikiRunAuthor;
   }): number {
     return Number(
       this.db
         .prepare(
-          "INSERT INTO wiki_runs (entity_id, source_id, name, type, slug) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO wiki_runs (entity_id, source_id, name, type, slug, author) VALUES (?, ?, ?, ?, ?, ?)",
         )
-        .run(input.entityId, input.sourceIds[0] ?? null, input.name, input.type, input.slug)
-        .lastInsertRowid,
+        .run(
+          input.entityId,
+          input.sourceIds[0] ?? null,
+          input.name,
+          input.type,
+          input.slug,
+          input.author ?? "in-app",
+        ).lastInsertRowid,
     );
   }
 

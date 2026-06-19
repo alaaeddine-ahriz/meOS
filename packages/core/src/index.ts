@@ -117,6 +117,7 @@ export type {
   WikiMaintenanceMode,
   WikiPageMeta,
   WikiPageWithVector,
+  WikiRunAuthor,
   WikiRunEventKind,
   WikiRunEventRow,
   WikiRunRow,

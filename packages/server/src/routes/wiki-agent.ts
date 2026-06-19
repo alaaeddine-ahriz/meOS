@@ -226,6 +226,15 @@ export function registerWikiAgentRoutes(app: FastifyInstance, ctx: AppContext): 
             kind: result.change.kind,
             quality: result.check.quality,
           });
+          // Surface the agent's work in the Activity feed (labelled agent-authored).
+          ctx.activity.recordExternalRun({
+            entityId: entity.id,
+            name: entity.name,
+            type: entity.type,
+            slug: entity.slug,
+            sourceIds: result.change.sourceIds,
+            summary: `Page ${result.change.kind} by your coding agent (external maintenance).`,
+          });
         } else if (result.skipped) {
           skipped.push({ slug: entity.slug, reason: result.skipped });
         }
@@ -407,6 +416,21 @@ export function registerWikiAgentRoutes(app: FastifyInstance, ctx: AppContext): 
         .map((id) => ctx.store.getEntity(id))
         .filter((e): e is EntityRow => e !== undefined)
         .map((e) => ({ id: e.id, name: e.name, slug: e.slug }));
+
+      // Show the agent's extraction in the Activity feed (labelled agent-authored).
+      if (observations.length > 0 || rejected.length > 0) {
+        ctx.activity.recordExternalRun({
+          entityId: null,
+          name: source.title,
+          type: source.type ?? "source",
+          slug: null,
+          sourceIds: [body.sourceId],
+          summary:
+            `${observations.length} fact(s) extracted from "${source.title}" by your coding agent` +
+            `${rejected.length ? ` (${rejected.length} rejected)` : ""}.` +
+            `${staleEntities.length ? ` Updated: ${staleEntities.map((e) => e.name).join(", ")}.` : ""}`,
+        });
+      }
 
       return wikiAgent.AgentFactsResponse.parse({
         sourceId: body.sourceId,

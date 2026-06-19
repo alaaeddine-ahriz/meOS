@@ -1,4 +1,4 @@
-import { wikiAgent } from "@meos/contracts";
+import { activity, wikiAgent } from "@meos/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
@@ -259,5 +259,74 @@ describe("Option 2 — agent-supplied extraction", () => {
       },
     });
     expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("Activity feed records agent actions", () => {
+  it("a commit creates an agent-authored run", async () => {
+    const { store } = server.ctx;
+    const entity = store.createEntity({ type: "person", name: "Activity Commit Person" });
+    const src = store.createSource({ type: "file", title: "notes", content: "..." });
+    store.insertObservation({
+      entityId: entity.id,
+      text: "Activity Commit Person leads Orion.",
+      sourceId: src,
+    });
+    await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/write",
+      payload: { slug: entity.slug, body: "Activity Commit Person leads the Orion project." },
+    });
+    await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/commit",
+      payload: { slugs: [entity.slug] },
+    });
+
+    const res = await server.app.inject({ method: "GET", url: "/api/activity" });
+    const parsed = activity.ActivityResponse.parse(res.json());
+    const run = parsed.runs.find((r) => r.name === "Activity Commit Person");
+    expect(run).toBeDefined();
+    expect(run!.author).toBe("agent");
+    expect(run!.status).toBe("done");
+  });
+
+  it("a fact submission creates an agent-authored run", async () => {
+    const { store } = server.ctx;
+    const text = "Babbage built the Difference Engine.";
+    const sourceId = store.createSource({
+      type: "file",
+      title: "Activity facts source",
+      content: text,
+    });
+    store.createSourceRevision({ sourceId, normalizedContent: text, status: "active" });
+    await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/facts",
+      payload: {
+        sourceId,
+        extraction: {
+          entities: [{ name: "Babbage", type: "person", aliases: [], summary: "Inventor." }],
+          relationships: [],
+          observations: [
+            {
+              entity: "Babbage",
+              claim: "Babbage built the Difference Engine",
+              kind: "fact",
+              sourceQuote: "Babbage built the Difference Engine.",
+              validFrom: null,
+              validUntil: null,
+              confidence: 0.9,
+              sensitivity: "normal",
+            },
+          ],
+        },
+      },
+    });
+
+    const res = await server.app.inject({ method: "GET", url: "/api/activity" });
+    const parsed = activity.ActivityResponse.parse(res.json());
+    const run = parsed.runs.find((r) => r.name === "Activity facts source" && r.author === "agent");
+    expect(run).toBeDefined();
   });
 });

@@ -927,6 +927,14 @@ export const migrations: readonly string[] = [
   ALTER TABLE wiki_pages ADD COLUMN body_hash TEXT;
   ALTER TABLE wiki_pages ADD COLUMN authored_by TEXT NOT NULL DEFAULT 'in-app';
   `,
+
+  // 35 — who authored a wiki run. The Activity feed records the in-app maintainer's
+  // page regenerations as runs; external maintenance (a user's own coding agent)
+  // now records its commits + fact submissions as runs too. This column lets the
+  // feed label and tell the two apart. Existing rows are the in-app maintainer.
+  `
+  ALTER TABLE wiki_runs ADD COLUMN author TEXT NOT NULL DEFAULT 'in-app';
+  `,
 ];
 
 export type MeosDatabase = Database.Database;
