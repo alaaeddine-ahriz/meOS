@@ -2,6 +2,7 @@ import { chat as chatSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import { buildContextPack, ChatService, LlmError, loadProfileContext } from "@meos/core";
 import type { AppContext } from "../context.js";
+import { runCodingAgent } from "../coding-agent-command.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { isProfileCommand, runProfileCommand } from "../profile-command.js";
 import { routeSchema } from "../route-schema.js";
@@ -91,7 +92,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  app.post<{ Body: { conversationId?: number; message: string } }>(
+  app.post<{ Body: { conversationId?: number; message: string; agent?: boolean } }>(
     "/api/chat",
     {
       schema: routeSchema({
@@ -132,6 +133,30 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
       const send = (event: object) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 
       send({ type: "start", conversationId });
+
+      // Agent mode: drive the user's local coding agent (Claude Code) for this
+      // turn instead of the knowledge-base assistant. It can run for minutes, so
+      // (a) wire an abort to client disconnect — tab close / in-app navigation /
+      // the Stop button all close the socket, which kills the child — and (b)
+      // keep the connection alive through long, silent tool steps with a
+      // heartbeat (the client skips `: ping` comment frames).
+      if (body.agent) {
+        const controller = new AbortController();
+        const onClose = () => controller.abort();
+        request.raw.on("close", onClose);
+        const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
+        try {
+          await runCodingAgent(ctx, conversationId, message, send, controller.signal);
+          send({ type: "done" });
+        } catch (error) {
+          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        } finally {
+          clearInterval(heartbeat);
+          request.raw.off("close", onClose);
+        }
+        reply.raw.end();
+        return;
+      }
 
       // Slash commands are app directives, not questions — handle them before the
       // retrieval/answer pipeline. `/profile <instruction>` edits the profile lens.

@@ -1,5 +1,5 @@
 import type { ChatStatus } from "ai";
-import { FileText, Library, Paperclip, X } from "lucide-react";
+import { FileText, Library, Paperclip, Terminal, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -144,6 +144,16 @@ type AgentPart =
       state: ToolState;
     };
 
+/** Render a failed tool's output as plain text for the error panel. */
+function toErrorText(output: unknown): string {
+  if (typeof output === "string") return output;
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return "Tool failed.";
+  }
+}
+
 /** Merge a reasoning delta into the trailing reasoning part, or open a new one. */
 function appendReasoning(parts: AgentPart[], text: string): AgentPart[] {
   const last = parts[parts.length - 1];
@@ -159,6 +169,7 @@ function settleTool(
   toolCallId: string | undefined,
   toolName: string,
   output: unknown,
+  isError?: boolean,
 ): AgentPart[] {
   const next = [...parts];
   for (let i = next.length - 1; i >= 0; i--) {
@@ -166,7 +177,7 @@ function settleTool(
     if (part.kind !== "tool" || part.output !== undefined) continue;
     const matches = toolCallId ? part.toolCallId === toolCallId : part.toolName === toolName;
     if (matches) {
-      next[i] = { ...part, output, state: "output-available" };
+      next[i] = { ...part, output, state: isError ? "output-error" : "output-available" };
       return next;
     }
   }
@@ -185,7 +196,17 @@ const TOOL_LABELS: Record<string, string> = {
 function toolArg(input: unknown): string | null {
   if (input && typeof input === "object") {
     const record = input as Record<string, unknown>;
-    const value = record.query ?? record.entity ?? record.name;
+    // Knowledge tools key on query/entity/name; coding-agent tools (Bash, Read,
+    // Edit, Glob, Grep…) key on command/file_path/path/pattern/description.
+    const value =
+      record.query ??
+      record.entity ??
+      record.name ??
+      record.command ??
+      record.file_path ??
+      record.path ??
+      record.pattern ??
+      record.description;
     if (typeof value === "string" && value.trim()) return value;
   }
   return null;
@@ -210,9 +231,18 @@ export function ChatView() {
   const [liveGraph, setLiveGraph] = useState<
     ReadonlyMap<number, { nodes: GraphNode[]; links: GraphLink[] }>
   >(new Map());
+  // which assistant turns were driven by the coding agent (Claude Code), keyed by
+  // index — only changes the "working…" label while the answer is still empty
+  const [agentTurns, setAgentTurns] = useState<ReadonlyMap<number, boolean>>(new Map());
+  // agent mode lives here (not in Composer) so it stays on across the empty→
+  // conversation transition, where a fresh Composer instance is mounted
+  const [agentMode, setAgentMode] = useState(false);
   // set when the stream itself assigns the conversation id, so the id change
   // doesn't trigger a refetch that would clobber the in-flight reply
   const streamAssignedId = useRef(false);
+  // Aborts the in-flight turn's fetch — fired on Stop, conversation switch, and
+  // unmount. Closing the socket triggers the server to kill any agent child.
+  const abortRef = useRef<AbortController | null>(null);
   // the wiki page opened beside the chat (a [[link]] click) — null when closed
   const [wikiPanelSlug, setWikiPanelSlug] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -224,14 +254,21 @@ export function ChatView() {
       .catch(() => {});
   }, []);
 
+  // Abort an in-flight run when the chat view unmounts (in-app navigation) so a
+  // long agent run doesn't keep executing in the background after the user leaves.
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   useEffect(() => {
     if (streamAssignedId.current) {
       streamAssignedId.current = false;
       return;
     }
+    // Switching conversations cancels any run still streaming into the old one.
+    abortRef.current?.abort();
     setLiveSources(new Map());
     setLiveTrace(new Map());
     setLiveGraph(new Map());
+    setAgentTurns(new Map());
     setError(null);
     setStatus("ready");
     if (activeId === null) {
@@ -296,10 +333,14 @@ export function ChatView() {
 
   const busy = status === "submitted" || status === "streaming";
 
-  const send = async (text: string) => {
+  const send = async (text: string, agent?: boolean) => {
     const assistantIndex = messages.length + 1;
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     setError(null);
     setStatus("submitted");
+    if (agent) setAgentTurns((current) => new Map(current).set(assistantIndex, true));
     setMessages((current) => [
       ...current,
       { id: -1, role: "user", content: text, created_at: "" },
@@ -307,7 +348,7 @@ export function ChatView() {
     ]);
 
     try {
-      for await (const event of streamChat(text, activeId ?? undefined)) {
+      for await (const event of streamChat(text, activeId ?? undefined, agent, controller.signal)) {
         if (event.type === "start") {
           if (event.conversationId !== activeId) {
             streamAssignedId.current = true;
@@ -344,6 +385,7 @@ export function ChatView() {
                 event.toolCallId,
                 event.toolName,
                 event.output,
+                event.isError,
               ),
             ),
           );
@@ -365,7 +407,14 @@ export function ChatView() {
       }
       setStatus((current) => (current === "error" ? current : "ready"));
     } catch (e) {
-      failTurn({ message: e instanceof Error ? e.message : String(e) });
+      // An abort (Stop button, navigation, or a new turn) isn't an error — settle quietly.
+      if (controller.signal.aborted) {
+        setStatus((current) => (current === "error" ? current : "ready"));
+      } else {
+        failTurn({ message: e instanceof Error ? e.message : String(e) });
+      }
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
 
@@ -395,7 +444,15 @@ export function ChatView() {
             </div>
 
             <div className="mt-7">
-              <Composer status={status} busy={busy} onSend={send} entities={entities} />
+              <Composer
+                status={status}
+                busy={busy}
+                onSend={send}
+                onStop={() => abortRef.current?.abort()}
+                entities={entities}
+                agentMode={agentMode}
+                onAgentModeChange={setAgentMode}
+              />
             </div>
 
             <div className="mt-5">
@@ -467,7 +524,9 @@ export function ChatView() {
                               })()
                             ) : trace && trace.length > 0 ? null : (
                               <Shimmer className="text-sm" duration={1.6}>
-                                Consulting the knowledge base…
+                                {agentTurns.get(index)
+                                  ? "Running Claude Code…"
+                                  : "Consulting the knowledge base…"}
                               </Shimmer>
                             )}
                             {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
@@ -487,7 +546,15 @@ export function ChatView() {
 
           <div className="px-6 pb-5 pt-1">
             <div className="mx-auto max-w-2xl">
-              <Composer status={status} busy={busy} onSend={send} entities={entities} />
+              <Composer
+                status={status}
+                busy={busy}
+                onSend={send}
+                onStop={() => abortRef.current?.abort()}
+                entities={entities}
+                agentMode={agentMode}
+                onAgentModeChange={setAgentMode}
+              />
             </div>
           </div>
         </div>
@@ -542,7 +609,11 @@ function AgentTrace({ trace, streaming }: { trace: AgentPart[]; streaming: boole
             />
             <ToolContent>
               <ToolInput input={part.input} />
-              <ToolOutput output={part.output} />
+              {part.state === "output-error" ? (
+                <ToolOutput errorText={toErrorText(part.output)} />
+              ) : (
+                <ToolOutput output={part.output} />
+              )}
             </ToolContent>
           </Tool>
         );
@@ -619,12 +690,20 @@ function Composer({
   status,
   busy,
   onSend,
+  onStop,
   entities,
+  agentMode,
+  onAgentModeChange,
 }: {
   status: ChatStatus;
   busy: boolean;
-  onSend: (text: string) => void;
+  onSend: (text: string, agent?: boolean) => void;
+  onStop: () => void;
   entities: EntitySummary[];
+  // Agent mode routes the turn to the local coding agent (Claude Code) instead
+  // of the knowledge-base assistant. Owned by ChatView so it stays sticky.
+  agentMode: boolean;
+  onAgentModeChange: (on: boolean) => void;
 }) {
   const [wikiRefs, setWikiRefs] = useState<EntitySummary[]>([]);
   const [fileRefs, setFileRefs] = useState<FileRef[]>([]);
@@ -707,7 +786,7 @@ function Composer({
     if (wikiRefs.length > 0) parts.push(wikiRefs.map((e) => `[[${e.name}]]`).join(" "));
     for (const file of fileRefs) parts.push(`<file name="${file.name}">\n${file.text}\n</file>`);
     if (text) parts.push(text);
-    onSend(parts.join("\n\n"));
+    onSend(parts.join("\n\n"), agentMode);
     setWikiRefs([]);
     setFileRefs([]);
   };
@@ -786,7 +865,11 @@ function Composer({
           <PromptInputBody>
             <PromptInputTextarea
               onKeyDown={onCommandKeyDown}
-              placeholder="Ask your second brain…  (type / for commands)"
+              placeholder={
+                agentMode
+                  ? "Tell Claude Code what to build, edit, or run…"
+                  : "Ask your second brain…  (type / for commands)"
+              }
               className="min-h-12 text-[15px] text-paper placeholder:text-dim"
             />
           </PromptInputBody>
@@ -806,9 +889,27 @@ function Composer({
                   </PromptInputActionMenuItem>
                 </PromptInputActionMenuContent>
               </PromptInputActionMenu>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onAgentModeChange(!agentMode)}
+                aria-pressed={agentMode}
+                title="Run the local coding agent (Claude Code) for this turn"
+                className={cn(
+                  "h-7 gap-1.5 rounded-lg px-2 text-[12px] font-medium",
+                  agentMode
+                    ? "bg-lamp/15 text-lamp hover:bg-lamp/20 hover:text-lamp"
+                    : "text-dim hover:bg-card hover:text-paper",
+                )}
+              >
+                <Terminal className="size-3.5" />
+                Agent
+              </Button>
             </PromptInputTools>
             <PromptInputSubmit
               status={status}
+              onStop={onStop}
               className="rounded-lg bg-lamp text-ink hover:bg-lamp/85"
             />
           </PromptInputFooter>

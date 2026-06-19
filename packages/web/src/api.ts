@@ -627,11 +627,14 @@ export const api = {
 export async function* streamChat(
   message: string,
   conversationId?: number,
+  agent?: boolean,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatEvent> {
   const response = await fetch(API_BASE + "/api/chat", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, conversationId }),
+    body: JSON.stringify({ message, conversationId, agent }),
+    signal,
   });
   if (!response.ok || !response.body) {
     throw new Error(`chat failed: ${response.status}`);

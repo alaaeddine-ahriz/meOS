@@ -45,6 +45,12 @@ export const EndConversationResponse = z.object({ crystallizing: z.boolean() });
 export const ChatBody = z.object({
   conversationId: z.number().optional(),
   message: z.string().min(1),
+  /**
+   * Route this turn to the local coding agent (Claude Code) instead of the
+   * knowledge-base chat. The agent's reasoning, tool calls, and answer stream
+   * back over the same SSE frame vocabulary, so the chat UI renders it natively.
+   */
+  agent: z.boolean().optional(),
 });
 
 /** Frames emitted on the /api/chat SSE stream. */
@@ -63,6 +69,8 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
     toolCallId: z.string().optional(),
     toolName: z.string(),
     output: z.unknown(),
+    /** Set by coding-agent tools whose execution failed, so the UI shows an error state. */
+    isError: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("graph"),
