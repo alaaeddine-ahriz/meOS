@@ -1,19 +1,20 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { runClaudeCodeAgent } from "@meos/core";
+import { getCodingAgent, type McpServerSpec } from "@meos/core";
 import type { AppContext } from "./context.js";
 
 const require = createRequire(import.meta.url);
 
 /**
- * Agent mode: route a chat turn to the user's local coding agent (Claude Code)
- * instead of the knowledge-base assistant. The run's reasoning, tool calls, and
- * answer are forwarded over the SAME SSE frame vocabulary the chat already
- * speaks (`reasoning` / `tool-call` / `tool-result` / `delta`), so the existing
- * chat UI renders it with no new components. The conversation is persisted like
- * any other (user turn + final answer), so agent turns survive a reload; the
- * CLI session id is remembered per conversation so follow-up turns `--resume` it.
+ * Agent mode: route a chat turn to one of the user's local coding agents (Claude
+ * Code, Codex, Cursor, Gemini, Copilot) instead of the knowledge-base assistant.
+ * The run's reasoning, tool calls, and answer are forwarded over the SAME SSE
+ * frame vocabulary the chat already speaks (`reasoning` / `tool-call` /
+ * `tool-result` / `delta`), so the existing chat UI renders any agent with no new
+ * components. The conversation is persisted like any other (user turn + final
+ * answer), so agent turns survive a reload; the CLI session id is remembered per
+ * conversation AND per agent so follow-up turns resume the right session.
  */
 
 type Send = (event: Record<string, unknown>) => void;
@@ -26,17 +27,24 @@ interface AgentSettings {
 }
 
 const SETTINGS_KEY = "coding-agent";
-const sessionKey = (conversationId: number) => `coding-agent:session:${conversationId}`;
+const sessionKey = (conversationId: number, agentId: string) =>
+  `coding-agent:session:${agentId}:${conversationId}`;
 
 /** Override the per-turn model with one supplied by the request, else the stored default. */
-function resolveRun(ctx: AppContext, conversationId: number, modelOverride?: string) {
+function resolveRun(
+  ctx: AppContext,
+  conversationId: number,
+  agentId: string,
+  modelOverride?: string,
+) {
   const settings = ctx.store.getSetting<AgentSettings>(SETTINGS_KEY) ?? {};
   // Default to a dedicated workspace under the data dir — a contained, writable
   // place for the agent (which runs with permissions bypassed) to do its work.
   const cwd = settings.cwd?.trim() || path.join(ctx.config.dataDir, "coding-agent");
   fs.mkdirSync(cwd, { recursive: true });
   const model = modelOverride?.trim() || settings.model?.trim() || undefined;
-  const resumeSessionId = ctx.store.getSetting<string>(sessionKey(conversationId)) ?? undefined;
+  const resumeSessionId =
+    ctx.store.getSetting<string>(sessionKey(conversationId, agentId)) ?? undefined;
   return { cwd, model, resumeSessionId };
 }
 
@@ -63,7 +71,9 @@ function resolveMcpEntry(spec: string): { command: string; args: string[] } | nu
  * than authenticating anything itself. Returns null only when NO MCP entry can be
  * located, so the run proceeds tool-less.
  */
-function buildMeosMcp(ctx: AppContext): { mcpConfig: string; appendSystemPrompt: string } | null {
+function buildMeosMcp(
+  ctx: AppContext,
+): { servers: Record<string, McpServerSpec>; systemPrompt: string } | null {
   const wiki = resolveMcpEntry("@meos/wiki-mcp");
   const connectors = resolveMcpEntry("@meos/wiki-mcp/connectors");
   if (!wiki && !connectors) {
@@ -74,13 +84,15 @@ function buildMeosMcp(ctx: AppContext): { mcpConfig: string; appendSystemPrompt:
     return null;
   }
   const env = { MEOS_SERVER_URL: `http://127.0.0.1:${ctx.config.server.port}` };
-  const mcpServers: Record<string, { command: string; args: string[]; env: typeof env }> = {};
-  if (wiki) mcpServers.meos = { command: wiki.command, args: wiki.args, env };
+  // Canonical, agent-neutral server map. Each agent definition translates this
+  // into its own MCP wiring (Claude's --mcp-config JSON, Codex's config.toml,
+  // Cursor/Gemini project config files, Copilot's --additional-mcp-config).
+  const servers: Record<string, McpServerSpec> = {};
+  if (wiki) servers.meos = { command: wiki.command, args: wiki.args, env };
   if (connectors) {
-    mcpServers["meos-connectors"] = { command: connectors.command, args: connectors.args, env };
+    servers["meos-connectors"] = { command: connectors.command, args: connectors.args, env };
   }
-  const mcpConfig = JSON.stringify({ mcpServers });
-  return { mcpConfig, appendSystemPrompt: MEOS_SYSTEM_PROMPT };
+  return { servers, systemPrompt: MEOS_SYSTEM_PROMPT };
 }
 
 /** Tells the agent the meOS tools exist and when to reach for them. */
@@ -123,13 +135,20 @@ export async function runCodingAgent(
   send: Send,
   signal?: AbortSignal,
   model?: string,
+  agentId?: string,
 ): Promise<void> {
   const prompt = message.trim();
   const firstTurn = ctx.store.listMessages(conversationId).length === 0;
   ctx.store.addMessage(conversationId, "user", prompt);
   if (firstTurn) ctx.store.setConversationTitle(conversationId, prompt.slice(0, 80));
 
-  const { cwd, model: runModel, resumeSessionId } = resolveRun(ctx, conversationId, model);
+  // Pick the requested agent (defaults to Claude Code — the original behaviour).
+  const agent = getCodingAgent(agentId);
+  const {
+    cwd,
+    model: runModel,
+    resumeSessionId,
+  } = resolveRun(ctx, conversationId, agent.id, model);
   // Give the agent meOS's own wiki/knowledge tools, pointed at this server.
   const meos = buildMeosMcp(ctx);
 
@@ -143,14 +162,15 @@ export async function runCodingAgent(
   const sourcesById = new Map<number, AgentSource>();
   const pagesBySlug = new Map<string, AgentPage>();
 
-  for await (const event of runClaudeCodeAgent({
+  for await (const event of agent.run({
     prompt,
     cwd,
     model: runModel,
-    resumeSessionId,
+    // Only resume when this agent supports it (e.g. Gemini's headless mode can't).
+    resumeSessionId: agent.supportsResume ? resumeSessionId : undefined,
     signal,
-    mcpConfig: meos?.mcpConfig,
-    appendSystemPrompt: meos?.appendSystemPrompt,
+    mcpServers: meos?.servers,
+    systemPrompt: meos?.systemPrompt,
   })) {
     switch (event.type) {
       // session/init carries the model + cwd, but we don't surface it: the trace
@@ -186,14 +206,15 @@ export async function runCodingAgent(
       case "result":
         sawResult = true;
         resultText = event.text;
-        if (event.isError) failure = failureMessage(event.subtype, event.text);
+        if (event.isError) failure = failureMessage(agent.label, event.subtype, event.text);
         // Some turns speak only through the final result (no streamed text blocks)
         // — stream it now so the live answer matches what gets persisted.
         if (!reply.trim() && event.text) {
           reply += event.text;
           send({ type: "delta", text: event.text });
         }
-        if (event.sessionId) ctx.store.setSetting(sessionKey(conversationId), event.sessionId);
+        if (event.sessionId)
+          ctx.store.setSetting(sessionKey(conversationId, agent.id), event.sessionId);
         break;
       case "error":
         failure = event.message;
@@ -209,7 +230,7 @@ export async function runCodingAgent(
   // clear it so the next turn in this conversation starts fresh instead of
   // re-resuming a dead id forever.
   if (!sawResult && resumeSessionId) {
-    ctx.store.setSetting(sessionKey(conversationId), null);
+    ctx.store.setSetting(sessionKey(conversationId, agent.id), null);
   }
 
   const answer = reply.trim() || resultText.trim();
@@ -405,13 +426,13 @@ export function collectMeosReferences(
   }
 }
 
-/** A human-facing reason for a failed Claude Code run, derived from the CLI's result subtype. */
-function failureMessage(subtype: string, text: string): string {
+/** A human-facing reason for a failed agent run, derived from the CLI's result subtype. */
+function failureMessage(label: string, subtype: string, text: string): string {
   if (subtype === "error_max_turns") {
-    return "Claude Code stopped: it reached the turn limit, so this answer may be incomplete.";
+    return `${label} stopped: it reached the turn limit, so this answer may be incomplete.`;
   }
   if (subtype === "error_during_execution") {
-    return text.trim() || "Claude Code stopped: an error occurred during the run.";
+    return text.trim() || `${label} stopped: an error occurred during the run.`;
   }
-  return text.trim() || "Claude Code run failed.";
+  return text.trim() || `${label} run failed.`;
 }

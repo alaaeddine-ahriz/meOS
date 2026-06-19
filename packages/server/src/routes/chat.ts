@@ -1,6 +1,12 @@
 import { chat as chatSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
-import { buildContextPack, ChatService, LlmError, loadProfileContext } from "@meos/core";
+import {
+  buildContextPack,
+  ChatService,
+  listAgents,
+  LlmError,
+  loadProfileContext,
+} from "@meos/core";
 import type { AppContext } from "../context.js";
 import { runCodingAgent } from "../coding-agent-command.js";
 import { httpError, parseOrThrow } from "../errors.js";
@@ -92,7 +98,29 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  app.post<{ Body: { conversationId?: number; message: string; agent?: boolean; model?: string } }>(
+  // Every supported coding agent + whether it's installed here — drives the
+  // chat's agent picker (installed ones selectable, the rest greyed out).
+  app.get(
+    "/api/coding-agents",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List supported coding agents and their install status",
+        response: chatSchema.CodingAgentsResponse,
+      }),
+    },
+    async () => chatSchema.CodingAgentsResponse.parse({ agents: listAgents() }),
+  );
+
+  app.post<{
+    Body: {
+      conversationId?: number;
+      message: string;
+      agent?: boolean;
+      agentId?: string;
+      model?: string;
+    };
+  }>(
     "/api/chat",
     {
       schema: routeSchema({
@@ -150,7 +178,15 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         reply.raw.on("close", onClose);
         const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
         try {
-          await runCodingAgent(ctx, conversationId, message, send, controller.signal, body.model);
+          await runCodingAgent(
+            ctx,
+            conversationId,
+            message,
+            send,
+            controller.signal,
+            body.model,
+            body.agentId,
+          );
           send({ type: "done" });
         } catch (error) {
           send({ type: "error", message: error instanceof Error ? error.message : String(error) });

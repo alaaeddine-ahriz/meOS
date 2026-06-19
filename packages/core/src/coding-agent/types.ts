@@ -92,3 +92,94 @@ export type ClaudeAgentEvent =
       durationMs: number;
     }
   | { type: "error"; message: string };
+
+/**
+ * The normalized event type, agent-agnostic. `ClaudeAgentEvent` is the original
+ * name (kept as an alias so existing callers/tests don't churn); new code should
+ * prefer `AgentEvent`, since Codex/Cursor/Gemini/Copilot map onto the same shape.
+ */
+export type AgentEvent = ClaudeAgentEvent;
+
+/**
+ * Maps one external CLI's stdout stream onto {@link AgentEvent}s: one line in →
+ * zero or more events out. `flush` is called once after the last line, letting a
+ * text-only adapter (whose CLI has no terminal `result` line) synthesize one.
+ */
+export interface StreamAdapter {
+  push(line: string): AgentEvent[];
+  flush?(): AgentEvent[];
+}
+
+/** The coding agents meOS knows how to drive. Detection narrows this to those installed. */
+export type CodingAgentId = "claude" | "codex" | "cursor" | "gemini" | "copilot";
+
+/** A stdio MCP server to inject into an agent run (the canonical, agent-neutral shape). */
+export interface McpServerSpec {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+}
+
+/** The per-turn input every agent's `run` accepts — provider-neutral. */
+export interface AgentRunInput {
+  /** The user's instruction for this turn. */
+  prompt: string;
+  /** Working directory the agent operates in. */
+  cwd: string;
+  /** Model id (each agent maps it to its own `--model`-style flag). */
+  model?: string;
+  /** Resume a prior session so a conversation stays coherent (ignored if unsupported). */
+  resumeSessionId?: string;
+  /** meOS MCP servers to expose (name → spec). Each agent injects these its own way. */
+  mcpServers?: Record<string, McpServerSpec>;
+  /** Guidance teaching the agent about the injected meOS tools (appended or prepended). */
+  systemPrompt?: string;
+  /** Abort the run (kills the child) — wired to client disconnect. */
+  signal?: AbortSignal;
+  /** Override the binary spawned (defaults to the definition's `bin`). Mainly for tests. */
+  bin?: string;
+}
+
+/**
+ * A coding agent meOS can drive in chat. One definition per CLI: it knows its
+ * binary, the models it offers, and — in `run` — how to build its argv, inject
+ * meOS's MCP tools, and parse its stream. Adding an agent is adding one of these.
+ */
+export interface CodingAgentDefinition {
+  id: CodingAgentId;
+  /** Display name in the picker, e.g. "Claude Code". */
+  label: string;
+  /** Default binary name probed on PATH for detection. */
+  bin: string;
+  /** Shown when the binary isn't found — how to install it. */
+  installHint: string;
+  /** Models the picker offers for this agent (full ids the CLI forwards verbatim). */
+  models: ReadonlyArray<{ value: string; label: string }>;
+  /** The model selected by default. */
+  defaultModel: string;
+  /**
+   * False for agents that can't stream a structured trace headlessly (today only
+   * GitHub Copilot, whose `-p` mode emits plain text): the chat shows the answer
+   * but no live reasoning/tool steps.
+   */
+  streaming: boolean;
+  /** Whether this agent can resume a prior session non-interactively. */
+  supportsResume: boolean;
+  /** Args used to probe the binary's identity (defaults to `["--version"]`). */
+  versionArgs?: readonly string[];
+  /** Run one turn, yielding normalized events. Owns argv, MCP injection, and parsing. */
+  run(input: AgentRunInput): AsyncIterable<AgentEvent>;
+}
+
+/** A coding agent as exposed to the UI (no `run`/internal fields). */
+export interface CodingAgentSummary {
+  id: CodingAgentId;
+  label: string;
+  models: ReadonlyArray<{ value: string; label: string }>;
+  defaultModel: string;
+  streaming: boolean;
+  /** Whether the CLI is installed AND verified on this machine. */
+  installed: boolean;
+  /** How to install it — shown for not-installed agents. */
+  installHint: string;
+}

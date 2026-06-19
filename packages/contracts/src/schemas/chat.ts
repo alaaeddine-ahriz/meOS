@@ -46,18 +46,39 @@ export const ChatBody = z.object({
   conversationId: z.number().optional(),
   message: z.string().min(1),
   /**
-   * Route this turn to the local coding agent (Claude Code) instead of the
-   * knowledge-base chat. The agent's reasoning, tool calls, and answer stream
-   * back over the same SSE frame vocabulary, so the chat UI renders it natively.
+   * Route this turn to a local coding agent instead of the knowledge-base chat.
+   * The agent's reasoning, tool calls, and answer stream back over the same SSE
+   * frame vocabulary, so the chat UI renders it natively.
    */
   agent: z.boolean().optional(),
   /**
+   * Which coding agent to run (`claude` | `codex` | `cursor` | `gemini` |
+   * `copilot`). Only meaningful when `agent` is set; absent falls back to the
+   * server default (Claude Code). Validated against the installed agents server-side.
+   */
+  agentId: z.string().optional(),
+  /**
    * The model the coding agent should run with this turn (passed to the CLI as
-   * `--model`). Typically a version-proof alias (`opus` | `sonnet` | `haiku`).
-   * Only meaningful when `agent` is set; absent falls back to the stored default.
+   * `--model`). Only meaningful when `agent` is set; absent falls back to the
+   * chosen agent's default model.
    */
   model: z.string().optional(),
 });
+
+/** GET /api/coding-agents — every supported coding agent + whether it's installed here. */
+export const CodingAgentSummarySchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  models: z.array(z.object({ value: z.string(), label: z.string() })),
+  defaultModel: z.string(),
+  /** False for agents that can't stream a live trace headlessly (answer only). */
+  streaming: z.boolean(),
+  /** Whether the CLI is installed AND verified on this machine. */
+  installed: z.boolean(),
+  /** How to install it — shown for not-installed agents. */
+  installHint: z.string(),
+});
+export const CodingAgentsResponse = z.object({ agents: z.array(CodingAgentSummarySchema) });
 
 /** Frames emitted on the /api/chat SSE stream. */
 export const ChatEventSchema = z.discriminatedUnion("type", [
@@ -109,3 +130,4 @@ export type Conversation = z.infer<typeof ConversationSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type ChatEvent = z.infer<typeof ChatEventSchema>;
 export type LlmErrorKind = z.infer<typeof LlmErrorKindSchema>;
+export type CodingAgentSummary = z.infer<typeof CodingAgentSummarySchema>;
