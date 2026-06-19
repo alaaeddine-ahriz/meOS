@@ -152,3 +152,112 @@ describe("GET/PUT /api/wiki/agent/mode", () => {
     expect(res.statusCode).toBe(400);
   });
 });
+
+describe("Option 2 — agent-supplied extraction", () => {
+  /** A source that is indexed (has an active revision) but carries no facts yet. */
+  function seedIndexedSource(title: string, text: string): number {
+    const { store } = server.ctx;
+    const sourceId = store.createSource({ type: "file", title, content: text });
+    store.createSourceRevision({ sourceId, normalizedContent: text, status: "active" });
+    return sourceId;
+  }
+
+  it("lists indexed sources that have no facts yet", async () => {
+    const sourceId = seedIndexedSource("Unextracted notes", "Ada Lovelace leads Orion.");
+    const res = await server.app.inject({ method: "GET", url: "/api/wiki/agent/sources" });
+    expect(res.statusCode).toBe(200);
+    const parsed = wikiAgent.AgentSourcesResponse.parse(res.json());
+    expect(parsed.sources.some((s) => s.id === sourceId)).toBe(true);
+  });
+
+  it("extract-context returns the source text + the schema guide", async () => {
+    const sourceId = seedIndexedSource("Ctx notes", "Babbage designed the Analytical Engine.");
+    const res = await server.app.inject({
+      method: "GET",
+      url: `/api/wiki/agent/extract-context/${sourceId}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const parsed = wikiAgent.AgentExtractContextResponse.parse(res.json());
+    expect(parsed.text).toContain("Analytical Engine");
+    expect(parsed.schemaGuide).toContain("observations");
+  });
+
+  it("rejects a non-verbatim quote, merges the verbatim one, and clears the source from the queue", async () => {
+    const text = "Ada Lovelace leads the Orion project. She reviews the scheduling module.";
+    const sourceId = seedIndexedSource("Facts notes", text);
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/facts",
+      payload: {
+        sourceId,
+        extraction: {
+          entities: [{ name: "Ada Lovelace", type: "person", aliases: [], summary: "Engineer." }],
+          relationships: [],
+          observations: [
+            {
+              entity: "Ada Lovelace",
+              claim: "Ada Lovelace leads the Orion project",
+              kind: "fact",
+              sourceQuote: "Ada Lovelace leads the Orion project.",
+              validFrom: null,
+              validUntil: null,
+              confidence: 0.9,
+              sensitivity: "normal",
+            },
+            {
+              entity: "Ada Lovelace",
+              claim: "Ada Lovelace founded NASA",
+              kind: "fact",
+              sourceQuote: "Ada Lovelace founded NASA in 1958.",
+              validFrom: null,
+              validUntil: null,
+              confidence: 0.5,
+              sensitivity: "normal",
+            },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const parsed = wikiAgent.AgentFactsResponse.parse(res.json());
+    // The hallucinated quote is dropped; the verbatim one merges.
+    expect(parsed.rejected).toHaveLength(1);
+    expect(parsed.rejected[0]!.claim).toContain("NASA");
+    expect(parsed.accepted.observations).toBe(1);
+    expect(parsed.newObservations).toBeGreaterThanOrEqual(1);
+    expect(parsed.staleEntities.some((e) => e.name === "Ada Lovelace")).toBe(true);
+
+    // Now that it has facts, the source drops out of the extraction queue.
+    const after = await server.app.inject({ method: "GET", url: "/api/wiki/agent/sources" });
+    const afterParsed = wikiAgent.AgentSourcesResponse.parse(after.json());
+    expect(afterParsed.sources.some((s) => s.id === sourceId)).toBe(false);
+  });
+
+  it("rejects an invalid observation kind with a 400 (canonical schema enforced)", async () => {
+    const sourceId = seedIndexedSource("Bad kind", "Some text about a thing.");
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/wiki/agent/facts",
+      payload: {
+        sourceId,
+        extraction: {
+          entities: [],
+          relationships: [],
+          observations: [
+            {
+              entity: "Thing",
+              claim: "A thing exists",
+              kind: "not-a-real-kind",
+              sourceQuote: null,
+              validFrom: null,
+              validUntil: null,
+              confidence: 0.5,
+              sensitivity: "normal",
+            },
+          ],
+        },
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});

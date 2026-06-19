@@ -541,6 +541,22 @@ export class IngestionPipeline {
         revisionId,
       );
 
+      // External wiki maintenance (#wiki-agent, Option 2): the user's own coding
+      // agent owns extraction too. The source is parsed + indexed above (so it
+      // stays searchable), so skip the paid in-app LLM extraction and leave it to
+      // the agent — the source surfaces in the agent's extraction queue (an active
+      // revision with no observations) until the agent submits facts. The job
+      // completes terminally ("done"); it is NOT a failure to retry.
+      if (store.getWikiMaintenanceMode() === "external") {
+        store.updateInboxItem(
+          inboxItemId,
+          "done",
+          "Indexed — awaiting agent extraction (external wiki maintenance).",
+          sourceId,
+        );
+        return { inboxItemId, sourceId, sourceRevisionId: revisionId, status: "done" };
+      }
+
       // The semantic-extraction stage. It is wrapped separately so its failure
       // doesn't undo the search index above: the source stays searchable, the
       // revision is parked `incomplete`, and the durable worker can retry just

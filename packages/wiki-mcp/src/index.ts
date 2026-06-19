@@ -14,10 +14,13 @@ import { z } from "zod";
 
 import {
   getContext,
+  getExtractContext,
   getMode,
   getQueue,
+  getSources,
   postCheck,
   postCommit,
+  postFacts,
   postWrite,
   putMode,
   type WikiMaintenanceMode,
@@ -156,6 +159,79 @@ server.registerTool(
     },
   },
   ({ mode }) => run(() => (mode === undefined ? getMode() : putMode(mode as WikiMaintenanceMode))),
+);
+
+// --- Option 2: extraction (offload fact-finding too) ------------------
+// In 'external' mode meOS indexes a source but skips the paid extraction; these
+// tools let you do it. Loop: wiki_sources -> wiki_extract_context -> read the
+// text -> wiki_submit_facts -> the entities you touched appear in wiki_queue.
+
+/** The fact payload, mirroring meOS's extraction schema (re-validated server-side). */
+const extractionInput = z.object({
+  entities: z.array(
+    z.object({
+      name: z.string(),
+      type: z.enum(["person", "project", "organisation", "concept", "place", "decision"]),
+      aliases: z.array(z.string()),
+      summary: z.string(),
+      relevance: z.enum(["high", "medium", "low"]).optional(),
+      relevanceReason: z.string().optional(),
+    }),
+  ),
+  relationships: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })),
+  observations: z.array(
+    z.object({
+      entity: z.string(),
+      claim: z.string(),
+      kind: z.string(),
+      sourceQuote: z.string().nullable().describe("VERBATIM sentence from the source, or null"),
+      validFrom: z.string().nullable(),
+      validUntil: z.string().nullable(),
+      confidence: z.number(),
+      sensitivity: z.enum(["normal", "private", "secret"]),
+    }),
+  ),
+});
+
+server.registerTool(
+  "wiki_sources",
+  {
+    description:
+      "List indexed sources that have no facts yet — the extraction queue (only " +
+      "populated in 'external' mode, where meOS indexes a source but leaves the " +
+      "LLM extraction to you). Returns each source's id, type, title, and link.",
+    inputSchema: {},
+  },
+  () => run(() => getSources()),
+);
+
+server.registerTool(
+  "wiki_extract_context",
+  {
+    description:
+      "Fetch a source's normalized text plus the exact fact schema to emit. Read " +
+      "the text, then produce facts grounded ONLY in it. Every observation's " +
+      "sourceQuote must be copied VERBATIM from the text — non-verbatim quotes are " +
+      "rejected. Submit with wiki_submit_facts.",
+    inputSchema: { sourceId: z.number().describe("Source id from wiki_sources") },
+  },
+  ({ sourceId }) => run(() => getExtractContext(sourceId)),
+);
+
+server.registerTool(
+  "wiki_submit_facts",
+  {
+    description:
+      "Submit extracted facts for a source. meOS validates the verbatim quotes " +
+      "and merges the survivors through the SAME entity-resolution + provenance " +
+      "pipeline as its own extractor, then flags the touched entities' pages " +
+      "stale (pick them up with wiki_queue). Returns accepted/rejected counts.",
+    inputSchema: {
+      sourceId: z.number().describe("Source id the facts were extracted from"),
+      extraction: extractionInput,
+    },
+  },
+  ({ sourceId, extraction }) => run(() => postFacts(sourceId, extraction)),
 );
 
 async function main(): Promise<void> {

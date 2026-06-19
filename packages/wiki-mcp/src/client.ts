@@ -94,3 +94,17 @@ export function getMode(): Promise<unknown> {
 export function putMode(mode: WikiMaintenanceMode): Promise<unknown> {
   return request("PUT", "/api/wiki/agent/mode", { mode });
 }
+
+// --- Option 2: agent-supplied extraction ------------------------------
+
+export function getSources(): Promise<unknown> {
+  return request("GET", "/api/wiki/agent/sources");
+}
+
+export function getExtractContext(sourceId: number): Promise<unknown> {
+  return request("GET", `/api/wiki/agent/extract-context/${encodeURIComponent(String(sourceId))}`);
+}
+
+export function postFacts(sourceId: number, extraction: unknown): Promise<unknown> {
+  return request("POST", "/api/wiki/agent/facts", { sourceId, extraction });
+}

@@ -82,6 +82,29 @@ These are non-negotiable. They match exactly what the in-app maintainer follows.
   and is summarising it for you.
 - Relationships woven into the prose as \`[[backlinks]]\`, not dumped in a list.
 
+## Extracting facts (optional, \`external\` mode only)
+
+By default meOS extracts the facts itself and you only write prose. If the user
+has put maintenance in **\`external\`** mode, meOS *indexes* a new source but
+leaves the fact-extraction to you too — so you own both halves of the pipeline.
+
+This loop runs *before* the prose loop above:
+
+1. **\`wiki_sources\`** — list sources that are indexed but have no facts yet.
+2. **\`wiki_extract_context\`** \`{ sourceId }\` — get the source's text and the
+   exact fact schema to emit.
+3. Read the text and produce facts: \`entities\`, \`relationships\`, and
+   \`observations\`. Every observation's **\`sourceQuote\` must be copied VERBATIM**
+   from the text — a quote that isn't found verbatim is **rejected** (that's how
+   provenance stays trustworthy). Make claims atomic and third-person.
+4. **\`wiki_submit_facts\`** \`{ sourceId, extraction }\` — meOS runs the same
+   entity-resolution, char-span, redaction, and dedup as its own extractor, then
+   flags the touched entities' pages stale. They now appear in \`wiki_queue\`, and
+   you continue with the prose loop above.
+
+Never invent facts the text doesn't support, and respect the same privacy rule —
+don't lift private contact details into a claim that will reach a page.
+
 ## Shared status — don't fight the in-app path
 
 meOS may also rewrite these pages itself (the "in-app" path), and the two share

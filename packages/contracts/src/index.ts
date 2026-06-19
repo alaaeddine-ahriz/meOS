@@ -161,6 +161,11 @@ export type AgentCheckResponse = z.infer<typeof wikiAgentSchemas.AgentCheckRespo
 export type AgentWriteResponse = z.infer<typeof wikiAgentSchemas.AgentWriteResponse>;
 export type AgentCommitResponse = z.infer<typeof wikiAgentSchemas.AgentCommitResponse>;
 export type AgentModeResponse = z.infer<typeof wikiAgentSchemas.AgentModeResponse>;
+export type AgentSourcesResponse = z.infer<typeof wikiAgentSchemas.AgentSourcesResponse>;
+export type AgentExtractContextResponse = z.infer<
+  typeof wikiAgentSchemas.AgentExtractContextResponse
+>;
+export type AgentFactsResponse = z.infer<typeof wikiAgentSchemas.AgentFactsResponse>;
 
 export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
 export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;

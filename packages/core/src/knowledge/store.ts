@@ -1716,6 +1716,42 @@ export class KnowledgeStore {
   }
 
   /**
+   * Sources that are indexed (an active revision exists) but carry no facts yet —
+   * the agent's extraction queue under external wiki maintenance (#wiki-agent,
+   * Option 2). "No facts" is judged via the provenance link (observation_sources),
+   * so a source that only reinforced existing facts still counts as extracted.
+   * Newest first, bounded.
+   */
+  sourcesAwaitingExtraction(
+    limit = 100,
+  ): Array<{ id: number; type: string; title: string; path: string | null; created_at: string }> {
+    return this.db
+      .prepare(
+        `SELECT s.id, s.type, s.title, s.path, s.created_at
+         FROM sources s
+         WHERE EXISTS (
+                 SELECT 1 FROM source_revisions r
+                 WHERE r.source_id = s.id AND r.status = 'active'
+               )
+           AND NOT EXISTS (
+                 SELECT 1 FROM observations o WHERE o.source_id = s.id
+               )
+           AND NOT EXISTS (
+                 SELECT 1 FROM observation_sources os WHERE os.source_id = s.id
+               )
+         ORDER BY s.id DESC
+         LIMIT ?`,
+      )
+      .all(limit) as Array<{
+      id: number;
+      type: string;
+      title: string;
+      path: string | null;
+      created_at: string;
+    }>;
+  }
+
+  /**
    * Look up a cached partial extraction (#15) by its full version-keyed identity.
    * A hit lets map-reduce skip the LLM call for that section; a miss (any version
    * component changed, or never extracted) returns undefined so it recomputes.

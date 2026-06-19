@@ -136,6 +136,97 @@ export const AgentCommitResponse = z.object({
 export const AgentModeBody = z.object({ mode: WikiMaintenanceMode });
 export const AgentModeResponse = z.object({ mode: WikiMaintenanceMode });
 
+// --- Option 2: agent-supplied extraction ------------------------------
+// The agent reads a source's text and emits structured facts; meOS validates
+// (verbatim source quotes) and merges them through the SAME entity-resolution +
+// provenance pipeline as the in-app extractor, so all features are preserved.
+
+/** GET /api/wiki/agent/sources — indexed sources that have no facts yet. */
+export const AgentSourceItem = z.object({
+  id: z.number(),
+  type: z.string(),
+  title: z.string(),
+  link: z.string().nullable(),
+  createdAt: z.string().nullable(),
+});
+export const AgentSourcesResponse = z.object({ sources: z.array(AgentSourceItem) });
+
+/** Path param for the source-scoped extraction endpoints. */
+export const AgentSourceParams = z.object({ id: z.string().min(1) });
+
+/** GET /api/wiki/agent/extract-context/:id — the text + the schema to emit. */
+export const AgentExtractContextResponse = z.object({
+  source: z.object({
+    id: z.number(),
+    type: z.string(),
+    title: z.string(),
+    link: z.string().nullable(),
+  }),
+  /** The normalized source text the agent extracts facts from. */
+  text: z.string(),
+  /** Human-readable guide to the fact schema the agent must produce. */
+  schemaGuide: z.string(),
+  instructions: z.string(),
+});
+
+/**
+ * The extraction the agent submits — mirrors `@meos/core` extractionSchema. `kind`
+ * is a free string here; the canonical observation-kind enum lives in core and is
+ * re-validated server-side (an invalid kind is a 400). The entity-type and
+ * sensitivity enums are fixed, so they are mirrored exactly.
+ */
+export const AgentExtractionSchema = z.object({
+  entities: z.array(
+    z.object({
+      name: z.string(),
+      type: z.enum(["person", "project", "organisation", "concept", "place", "decision"]),
+      aliases: z.array(z.string()),
+      summary: z.string(),
+      relevance: z.enum(["high", "medium", "low"]).optional(),
+      relevanceReason: z.string().optional(),
+    }),
+  ),
+  relationships: z.array(z.object({ from: z.string(), to: z.string(), label: z.string() })),
+  observations: z.array(
+    z.object({
+      entity: z.string(),
+      claim: z.string(),
+      kind: z.string(),
+      /** The exact supporting sentence, copied VERBATIM from the source. */
+      sourceQuote: z.string().nullable(),
+      validFrom: z.string().nullable(),
+      validUntil: z.string().nullable(),
+      confidence: z.number(),
+      sensitivity: z.enum(["normal", "private", "secret"]),
+    }),
+  ),
+});
+
+/** POST /api/wiki/agent/facts */
+export const AgentFactsBody = z.object({
+  sourceId: z.number(),
+  extraction: AgentExtractionSchema,
+});
+export const AgentRejectedFact = z.object({
+  entity: z.string(),
+  claim: z.string(),
+  reason: z.string(),
+});
+export const AgentFactsResponse = z.object({
+  sourceId: z.number(),
+  accepted: z.object({
+    entities: z.number(),
+    observations: z.number(),
+    relationships: z.number(),
+  }),
+  /** Of the accepted observations, how many were genuinely new (vs reinforcing). */
+  newObservations: z.number(),
+  /** Observations dropped before merge — chiefly non-verbatim source quotes. */
+  rejected: z.array(AgentRejectedFact),
+  /** Entities whose page is now stale and ready for the composition loop. */
+  staleEntities: z.array(z.object({ id: z.number(), name: z.string(), slug: z.string() })),
+});
+
 export type WikiMaintenanceModeValue = z.infer<typeof WikiMaintenanceMode>;
 export type AgentQueue = z.infer<typeof AgentQueueResponse>;
 export type AgentContext = z.infer<typeof AgentContextResponse>;

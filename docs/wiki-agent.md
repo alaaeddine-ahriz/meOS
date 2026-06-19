@@ -73,6 +73,31 @@ The agent writes **body prose only** — never the YAML frontmatter (meOS owns
 low-confidence ones, and never transcribes private contact details (the wiki is
 git-synced and shareable).
 
+## Extracting facts too (optional)
+
+Everything above offloads **page composition** (facts → prose). You can also
+offload **extraction** (raw source → facts), so essentially all of meOS's
+recurring LLM cost moves to your subscription. meOS still does the
+correctness-critical, deterministic work — entity-resolution, char-span
+provenance, secret redaction, and dedup.
+
+In `external` mode, when a new source arrives meOS parses and indexes it (so it
+stays searchable) but **skips the paid LLM extraction**, leaving it for you:
+
+1. **`wiki_sources`** — sources that are indexed but have no facts yet.
+2. **`wiki_extract_context`** `{ sourceId }` — the source's text plus the exact
+   fact schema to emit.
+3. Produce `entities`, `relationships`, and `observations`. Every observation's
+   **`sourceQuote` must be copied verbatim** from the text.
+4. **`wiki_submit_facts`** `{ sourceId, extraction }` — meOS validates the quotes
+   (a non-verbatim quote is rejected) and merges the rest through the **same
+   pipeline as its own extractor**, then flags the touched pages stale. They show
+   up in `wiki_queue`, and you continue with the prose loop.
+
+Because the verbatim-quote gate and the shared merge run server-side, a
+hallucinated or mis-quoted fact is rejected before it can enter the graph — so
+"keep the underlying facts and sources" still holds.
+
 ## Shared status and idempotency
 
 The work queue is shared. `wiki_stale` is the same ledger the in-app path uses,
@@ -104,7 +129,9 @@ on — search, embeddings, relationships, source provenance — is unaffected.
 subscription does the writing. meOS spends nothing on the rewrite when mode is
 `external`.
 
-**What about extraction — pulling facts out of new sources?** That's still done
-in-app for now. The external-agent path covers **page composition** (the prose).
-Agent-supplied facts are a planned drop-in on the same plumbing, not part of this
-release.
+**What about extraction — pulling facts out of new sources?** You can offload
+that too (see "Extracting facts too" above). In `external` mode meOS indexes a
+source but leaves the LLM extraction to your agent via `wiki_sources` →
+`wiki_extract_context` → `wiki_submit_facts`. meOS still runs entity-resolution,
+provenance, and dedup deterministically, and rejects any fact whose source quote
+isn't verbatim. In `in-app` mode, extraction stays in-app as before.

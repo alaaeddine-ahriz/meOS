@@ -1,5 +1,11 @@
 import { wiki, wikiAgent } from "@meos/contracts";
-import { temporalTag, type EntityRow } from "@meos/core";
+import {
+  extractionSchema,
+  mergeExtraction,
+  OBSERVATION_KINDS,
+  temporalTag,
+  type EntityRow,
+} from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import { commitWikiChanges, type AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
@@ -261,4 +267,163 @@ export function registerWikiAgentRoutes(app: FastifyInstance, ctx: AppContext): 
       return wikiAgent.AgentModeResponse.parse({ mode });
     },
   );
+
+  // --- Option 2: agent-supplied extraction ----------------------------
+  // Under external maintenance the in-app pipeline indexes a source but skips the
+  // paid LLM extraction (see ingest/pipeline.ts). These endpoints let the agent do
+  // that extraction; submitted facts flow through the SAME merge as the in-app
+  // extractor, so entity-resolution, provenance, and dedup are identical.
+
+  // The extraction queue: indexed sources that have no facts yet.
+  app.get(
+    "/api/wiki/agent/sources",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Sources awaiting fact extraction",
+        response: wikiAgent.AgentSourcesResponse,
+      }),
+    },
+    async () => {
+      const sources = ctx.store.sourcesAwaitingExtraction().map((s) => ({
+        id: s.id,
+        type: s.type,
+        title: s.title,
+        link: s.path,
+        createdAt: s.created_at,
+      }));
+      return wikiAgent.AgentSourcesResponse.parse({ sources });
+    },
+  );
+
+  // The source's normalized text + the exact fact schema the agent must emit.
+  app.get<{ Params: { id: string } }>(
+    "/api/wiki/agent/extract-context/:id",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Text + schema to extract facts from a source",
+        params: wikiAgent.AgentSourceParams,
+        response: wikiAgent.AgentExtractContextResponse,
+      }),
+    },
+    async (request) => {
+      const { id: rawId } = parseOrThrow(wikiAgent.AgentSourceParams, request.params, "params");
+      const id = Number(rawId);
+      if (!Number.isInteger(id)) throw httpError.badRequest("Invalid source id");
+      const source = ctx.store.getSource(id);
+      if (!source) throw httpError.notFound("No such source");
+      const revision = ctx.store.activeRevision(id);
+      const text = revision?.normalized_content ?? ctx.store.getSourceRawContent(id) ?? "";
+
+      return wikiAgent.AgentExtractContextResponse.parse({
+        source: {
+          id: source.id,
+          type: source.type ?? "file",
+          title: source.title,
+          link: source.path ?? null,
+        },
+        text,
+        schemaGuide: [
+          "Emit JSON with three arrays:",
+          "- entities: { name, type (person|project|organisation|concept|place|decision), aliases[], summary }",
+          "- relationships: { from, to, label }   (from/to are exact entity names)",
+          "- observations: { entity, claim, kind, sourceQuote, validFrom, validUntil, confidence, sensitivity }",
+          "",
+          `Valid observation 'kind' values: ${OBSERVATION_KINDS.join(", ")}.`,
+          "'sensitivity' is one of: normal | private | secret.",
+          "'confidence' is 0..1. 'validFrom'/'validUntil'/'sourceQuote' may be null.",
+        ].join("\n"),
+        instructions: [
+          "Extract only facts grounded in the text above — never invent or infer beyond it.",
+          "Each observation's 'sourceQuote' MUST be copied VERBATIM from the text; a quote not",
+          "found verbatim is rejected (this is how provenance stays trustworthy).",
+          "Write atomic, self-contained, third-person claims. Then submit via wiki_submit_facts.",
+        ].join("\n"),
+      });
+    },
+  );
+
+  // Validate + merge agent-extracted facts through the canonical pipeline.
+  app.post(
+    "/api/wiki/agent/facts",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Submit extracted facts for a source",
+        body: wikiAgent.AgentFactsBody,
+        response: wikiAgent.AgentFactsResponse,
+      }),
+    },
+    async (request) => {
+      const body = parseOrThrow(wikiAgent.AgentFactsBody, request.body, "body");
+      const source = ctx.store.getSource(body.sourceId);
+      if (!source) throw httpError.notFound("No such source");
+
+      // Re-validate against the canonical core schema (authoritative enum for
+      // observation 'kind'), so the agent's facts match what the merge expects.
+      const parsed = extractionSchema.safeParse(body.extraction);
+      if (!parsed.success) {
+        throw httpError.badRequest(
+          `Invalid extraction: ${parsed.error.issues
+            .slice(0, 5)
+            .map((i) => `${i.path.join(".")}: ${i.message}`)
+            .join("; ")}`,
+        );
+      }
+      const extraction = parsed.data;
+
+      const revision = ctx.store.activeRevision(body.sourceId);
+      const sourceText =
+        revision?.normalized_content ?? ctx.store.getSourceRawContent(body.sourceId) ?? "";
+
+      // Provenance gate: every non-null sourceQuote must appear VERBATIM in the
+      // source (whitespace-normalized, case-insensitive) — drop hallucinated ones.
+      const haystack = normalizeWhitespace(sourceText);
+      const rejected: Array<{ entity: string; claim: string; reason: string }> = [];
+      const observations = extraction.observations.filter((o) => {
+        if (o.sourceQuote === null) return true;
+        if (haystack.includes(normalizeWhitespace(o.sourceQuote))) return true;
+        rejected.push({
+          entity: o.entity,
+          claim: o.claim,
+          reason: "sourceQuote not found verbatim in the source",
+        });
+        return false;
+      });
+
+      // Merge through the SAME pipeline as the in-app extractor: entity-resolution,
+      // locateQuote char spans, secret redaction, dedup/reinforcement, stale flags.
+      const merge = await mergeExtraction(
+        ctx.store,
+        ctx.embedder,
+        { ...extraction, observations },
+        body.sourceId,
+        sourceText,
+      );
+      for (const id of merge.staleEntityIds) ctx.store.recordStaleSource(id, body.sourceId);
+
+      const staleEntities = merge.staleEntityIds
+        .map((id) => ctx.store.getEntity(id))
+        .filter((e): e is EntityRow => e !== undefined)
+        .map((e) => ({ id: e.id, name: e.name, slug: e.slug }));
+
+      return wikiAgent.AgentFactsResponse.parse({
+        sourceId: body.sourceId,
+        accepted: {
+          entities: extraction.entities.length,
+          observations: observations.length,
+          relationships: extraction.relationships.length,
+        },
+        newObservations: merge.newObservationIds.length,
+        rejected,
+        staleEntities,
+      });
+    },
+  );
+}
+
+/** Collapse whitespace runs + lowercase, for a tolerant verbatim-quote check. */
+function normalizeWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
