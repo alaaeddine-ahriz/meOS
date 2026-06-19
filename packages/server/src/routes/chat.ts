@@ -92,7 +92,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  app.post<{ Body: { conversationId?: number; message: string; agent?: boolean } }>(
+  app.post<{ Body: { conversationId?: number; message: string; agent?: boolean; model?: string } }>(
     "/api/chat",
     {
       schema: routeSchema({
@@ -150,7 +150,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         reply.raw.on("close", onClose);
         const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
         try {
-          await runCodingAgent(ctx, conversationId, message, send, controller.signal);
+          await runCodingAgent(ctx, conversationId, message, send, controller.signal, body.model);
           send({ type: "done" });
         } catch (error) {
           send({ type: "error", message: error instanceof Error ? error.message : String(error) });

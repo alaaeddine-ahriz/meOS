@@ -198,10 +198,14 @@ async function resetPayload() {
 async function installRuntimeDeps() {
   const core = await readJson(path.join(pkgDir("core"), "package.json"));
   const server = await readJson(path.join(pkgDir("server"), "package.json"));
-  const deps = { ...core.dependencies, ...server.dependencies };
+  // wiki-mcp is vendored too (it's spawned as the agent's meOS MCP server), so
+  // fold in its runtime deps (the MCP SDK) — otherwise it can't resolve them.
+  const wikiMcp = await readJson(path.join(pkgDir("wiki-mcp"), "package.json"));
+  const deps = { ...core.dependencies, ...server.dependencies, ...wikiMcp.dependencies };
   // Workspace packages are vendored locally below, not pulled from a registry.
   delete deps["@meos/core"];
   delete deps["@meos/contracts"];
+  delete deps["@meos/wiki-mcp"];
 
   const app = path.join(payload, "app");
   await fs.writeFile(
@@ -254,6 +258,18 @@ async function vendorBuilds() {
   await fs.cp(
     path.join(pkgDir("contracts"), "package.json"),
     path.join(contractsDest, "package.json"),
+  );
+
+  // @meos/wiki-mcp: the stdio MCP server the coding agent spawns to reach the
+  // meOS wiki/knowledge tools. Resolved at runtime via require.resolve.
+  const wikiMcpDest = path.join(app, "node_modules", "@meos", "wiki-mcp");
+  await fs.mkdir(wikiMcpDest, { recursive: true });
+  await fs.cp(path.join(pkgDir("wiki-mcp"), "dist"), path.join(wikiMcpDest, "dist"), {
+    recursive: true,
+  });
+  await fs.cp(
+    path.join(pkgDir("wiki-mcp"), "package.json"),
+    path.join(wikiMcpDest, "package.json"),
   );
 
   await fs.cp(path.join(pkgDir("server"), "dist"), path.join(app, "server", "dist"), {

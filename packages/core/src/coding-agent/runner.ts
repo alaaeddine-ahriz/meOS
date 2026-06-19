@@ -19,9 +19,13 @@ import {
  * stops iterating. A terminal `error` event is yielded if the CLI is missing,
  * fails to spawn, or exits without emitting a `result`.
  */
-export async function* runClaudeCodeAgent(opts: ClaudeRunOptions): AsyncIterable<ClaudeAgentEvent> {
-  const bin = opts.bin ?? "claude";
-  const args = [
+/**
+ * Build the `claude` CLI argument vector for a run. Pure (no spawn, no I/O) so
+ * the flag wiring — model, MCP config, appended system prompt, resume — can be
+ * unit-tested without shelling out.
+ */
+export function buildClaudeArgs(opts: ClaudeRunOptions): string[] {
+  return [
     "-p",
     "--output-format",
     "stream-json",
@@ -32,8 +36,17 @@ export async function* runClaudeCodeAgent(opts: ClaudeRunOptions): AsyncIterable
     opts.model ?? DEFAULT_MODEL,
     "--max-turns",
     String(opts.maxTurns ?? DEFAULT_MAX_TURNS),
+    // Merge our MCP servers with the user's own (no --strict-mcp-config), so the
+    // agent gets meOS's wiki/knowledge tools on top of whatever it already has.
+    ...(opts.mcpConfig ? ["--mcp-config", opts.mcpConfig] : []),
+    ...(opts.appendSystemPrompt ? ["--append-system-prompt", opts.appendSystemPrompt] : []),
     ...(opts.resumeSessionId ? ["--resume", opts.resumeSessionId] : []),
   ];
+}
+
+export async function* runClaudeCodeAgent(opts: ClaudeRunOptions): AsyncIterable<ClaudeAgentEvent> {
+  const bin = opts.bin ?? "claude";
+  const args = buildClaudeArgs(opts);
 
   let child: ChildProcessWithoutNullStreams;
   try {
