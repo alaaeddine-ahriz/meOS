@@ -87,11 +87,18 @@ export async function searchContacts(
   query: string,
   limit = 10,
 ): Promise<ContactItem[]> {
-  const params = new URLSearchParams({
-    query,
-    readMask: PERSON_FIELDS,
-    pageSize: String(Math.min(Math.max(limit, 1), 30)),
-  });
+  const pageSize = String(Math.min(Math.max(limit, 1), 30));
+  // People search is cache-backed and lazily warmed: Google documents that clients
+  // should prime it with an empty-query request first, else the first real search
+  // against a cold cache can return zero results — which the agent would surface as
+  // "no contact matched". Fire the warmup best-effort and ignore any failure.
+  try {
+    const warmup = new URLSearchParams({ query: "", readMask: PERSON_FIELDS, pageSize });
+    await googleGet<unknown>(`${BASE}/people:searchContacts?${warmup.toString()}`, accessToken);
+  } catch {
+    // best-effort warmup — proceed to the real query regardless
+  }
+  const params = new URLSearchParams({ query, readMask: PERSON_FIELDS, pageSize });
   const data = await googleGet<{ results?: Array<{ person?: Person }> }>(
     `${BASE}/people:searchContacts?${params.toString()}`,
     accessToken,

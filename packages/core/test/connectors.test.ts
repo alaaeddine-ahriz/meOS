@@ -12,7 +12,7 @@ import { mapCalendarEvent } from "../src/connectors/map/calendar.js";
 import { mapContact } from "../src/connectors/map/contacts.js";
 import { mapGmailMessage } from "../src/connectors/map/gmail.js";
 import { mapTask } from "../src/connectors/map/tasks.js";
-import { createTask, fetchTasksDelta } from "../src/connectors/google/tasks.js";
+import { createTask, fetchTasksDelta, listTasks } from "../src/connectors/google/tasks.js";
 import { googleConnector } from "../src/connectors/google/connector.js";
 import type {
   CalendarEventItem,
@@ -387,6 +387,8 @@ describe("GoogleConnector agent tools (live fetch/search)", () => {
               status: "cancelled",
               start: { dateTime: "2026-06-21T00:00:00Z" },
             },
+            // A startless event must sink to the end, not jump to the front.
+            { id: "n", summary: "Startless sync", status: "confirmed" },
           ],
         };
       }
@@ -404,11 +406,12 @@ describe("GoogleConnector agent tools (live fetch/search)", () => {
     expect(call).toContain("orderBy=startTime");
     expect(call).toContain("q=sync");
     expect(decodeURIComponent(call)).toContain("timeMin=2026-06-19T00:00:00Z");
-    // Cancelled event dropped; survivors rendered soonest-first.
+    // Cancelled event dropped; survivors rendered soonest-first, startless last.
     expect(out).toContain("Event: Sooner sync");
     expect(out).toContain("Event: Later sync");
     expect(out).not.toContain("Cancelled sync");
     expect(out.indexOf("Sooner sync")).toBeLessThan(out.indexOf("Later sync"));
+    expect(out.indexOf("Later sync")).toBeLessThan(out.indexOf("Startless sync"));
   });
 
   it("list_tasks returns open tasks soonest-due first; includeCompleted flips the flag", async () => {
@@ -442,13 +445,59 @@ describe("GoogleConnector agent tools (live fetch/search)", () => {
     const out = await callTool(tools, "list_tasks", {});
     const openCall = seen.find((u) => u.includes("/lists/list1/tasks"))!;
     expect(openCall).toContain("showCompleted=false");
+    // Open-only must also keep hidden (first-party-completed) tasks out.
+    expect(openCall).toContain("showHidden=false");
     // Dated tasks ahead of undated, soonest-due first.
     expect(out.indexOf("Sooner task")).toBeLessThan(out.indexOf("Later task"));
     expect(out.indexOf("Later task")).toBeLessThan(out.indexOf("Undated task"));
 
     seen.length = 0;
     await callTool(tools, "list_tasks", { includeCompleted: true });
-    expect(seen.find((u) => u.includes("/lists/list1/tasks"))!).toContain("showCompleted=true");
+    const completedCall = seen.find((u) => u.includes("/lists/list1/tasks"))!;
+    expect(completedCall).toContain("showCompleted=true");
+    // showHidden must also flip true, else tasks completed in Google's own apps
+    // (marked hidden) stay invisible.
+    expect(completedCall).toContain("showHidden=true");
+  });
+
+  it("listTasks pages each list to completion before applying the due-sort + cap", async () => {
+    stubFetch((url) => {
+      if (url.includes("/users/@me/lists")) return { items: [{ id: "list1", title: "Inbox" }] };
+      if (url.includes("/lists/list1/tasks")) {
+        // Google returns manual/position order: the soonest-due task sits on page 2,
+        // behind a far-future task on page 1. Paging must follow nextPageToken to the
+        // end before the global sort, or the cap would keep the wrong task.
+        if (url.includes("pageToken=p2")) {
+          return {
+            items: [
+              {
+                id: "soon",
+                title: "Soonest",
+                status: "needsAction",
+                due: "2026-06-20T00:00:00.000Z",
+              },
+            ],
+          };
+        }
+        return {
+          items: [
+            {
+              id: "far",
+              title: "Farthest",
+              status: "needsAction",
+              due: "2027-01-01T00:00:00.000Z",
+            },
+          ],
+          nextPageToken: "p2",
+        };
+      }
+      return {};
+    });
+
+    // Even with max=1 — where a count-bounded loop would stop after page 1 and
+    // return "far" — the genuine soonest task wins because paging finishes first.
+    const tasks = await listTasks("tok", { max: 1 });
+    expect(tasks.map((t) => t.externalId)).toEqual(["soon"]);
   });
 
   it("create_task adds to the primary list and confirms what it created", async () => {
@@ -501,7 +550,11 @@ describe("GoogleConnector agent tools (live fetch/search)", () => {
     const tools = googleConnector.agentTools(agentCtx(["contacts"]));
     const out = await callTool(tools, "lookup_contact", { query: "grace" });
 
-    expect(seen.find((u) => u.includes("/people:searchContacts"))!).toContain("query=grace");
+    const searchCalls = seen.filter((u) => u.includes("/people:searchContacts"));
+    // A warmup (empty query) primes the cache before the real query — two calls.
+    expect(searchCalls.length).toBe(2);
+    expect(searchCalls[0]).toContain("query=&");
+    expect(searchCalls[1]).toContain("query=grace");
     expect(out).toContain("Contact: Grace Hopper");
     expect(out).toContain("grace@example.com");
   });

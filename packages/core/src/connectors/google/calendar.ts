@@ -153,8 +153,10 @@ export async function searchCalendarEvents(
     }
   }
 
-  // Merge across calendars by start time, then cap the combined result.
-  all.sort((a, b) => (a.start ?? "").localeCompare(b.start ?? ""));
+  // Merge across calendars by start time, then cap the combined result. A missing
+  // start sinks to the end (a high sentinel) rather than jumping to the front.
+  const startKey = (s: string | null | undefined) => s ?? "￿";
+  all.sort((a, b) => startKey(a.start).localeCompare(startKey(b.start)));
   return all.slice(0, max);
 }
 
