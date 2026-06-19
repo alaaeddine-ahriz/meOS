@@ -135,6 +135,67 @@ export async function fetchTasksDelta(
   return { items, deletions, nextSyncToken: highWater };
 }
 
+/**
+ * Live read of the user's tasks for the chat agent (NOT the sync path): the
+ * incomplete tasks across the given lists (or all lists), soonest-due first, with
+ * completed/hidden/deleted noise dropped. Separate from {@link fetchTasksDelta},
+ * which is the cursor-driven incremental pull — this hands the agent a clean,
+ * current to-do snapshot it can read back or pick a task from before acting.
+ */
+export async function listTasks(
+  accessToken: string,
+  opts?: { taskListIds?: string[]; includeCompleted?: boolean; max?: number },
+): Promise<TaskItem[]> {
+  const allLists = await listTaskLists(accessToken);
+  const wanted = opts?.taskListIds?.length
+    ? allLists.filter((l) => opts.taskListIds!.includes(l.id))
+    : allLists;
+  const includeCompleted = opts?.includeCompleted ?? false;
+  const max = Math.min(Math.max(opts?.max ?? 50, 1), 100);
+
+  const items: TaskItem[] = [];
+  for (const list of wanted) {
+    let pageToken: string | undefined;
+    do {
+      const params = new URLSearchParams({
+        maxResults: "100",
+        showCompleted: String(includeCompleted),
+        showHidden: "false",
+        showDeleted: "false",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+      const data = await googleGet<TasksResponse>(
+        `${BASE}/lists/${encodeURIComponent(list.id)}/tasks?${params.toString()}`,
+        accessToken,
+      );
+      for (const task of data.items ?? []) {
+        if (!task.deleted) items.push(normalize(task, list));
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken && items.length < max);
+  }
+
+  // Soonest-due first; undated tasks sink to the end.
+  items.sort((a, b) => {
+    if (a.due && b.due) return a.due.localeCompare(b.due);
+    if (a.due) return -1;
+    if (b.due) return 1;
+    return 0;
+  });
+  return items.slice(0, max);
+}
+
+/**
+ * Google Tasks requires `due` as an RFC3339 timestamp (it keeps only the date
+ * part). A bare `YYYY-MM-DD` — what the chat agent or a date picker naturally
+ * produces — is rejected, so widen it to a full UTC timestamp; pass anything
+ * already timestamped through untouched.
+ */
+function normalizeDue(due?: string | null): string | undefined {
+  if (!due) return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(due) ? `${due}T00:00:00.000Z` : due;
+}
+
 /** Create a new task in `taskListId`. Returns the created task, normalized. */
 export async function createTask(
   accessToken: string,
@@ -143,7 +204,8 @@ export async function createTask(
 ): Promise<TaskItem> {
   const body: Record<string, unknown> = { title: input.title };
   if (input.notes) body.notes = input.notes;
-  if (input.due) body.due = input.due;
+  const due = normalizeDue(input.due);
+  if (due) body.due = due;
   const created = await googleWrite<RawTask>(
     `${BASE}/lists/${encodeURIComponent(taskListId)}/tasks`,
     accessToken,

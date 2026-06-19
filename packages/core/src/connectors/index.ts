@@ -45,10 +45,16 @@ export {
   refreshAccessToken,
   revokeToken,
 } from "./google/oauth.js";
-export { fetchContactsDelta, fetchSelf } from "./google/people.js";
-export { fetchCalendarDelta, fetchCalendarList } from "./google/calendar.js";
+export { fetchContactsDelta, fetchSelf, searchContacts } from "./google/people.js";
+export { fetchCalendarDelta, fetchCalendarList, searchCalendarEvents } from "./google/calendar.js";
 export { fetchGmailDelta, searchThreadsText } from "./google/gmail.js";
-export { completeTask, createTask, fetchTasksDelta, listTaskLists } from "./google/tasks.js";
+export {
+  completeTask,
+  createTask,
+  fetchTasksDelta,
+  listTaskLists,
+  listTasks,
+} from "./google/tasks.js";
 export { mapContact } from "./map/contacts.js";
 export { mapCalendarEvent } from "./map/calendar.js";
 export { mapGmailMessage } from "./map/gmail.js";

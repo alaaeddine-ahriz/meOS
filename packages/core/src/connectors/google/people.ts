@@ -77,6 +77,32 @@ export async function fetchSelf(accessToken: string): Promise<SelfIdentity> {
 }
 
 /**
+ * Live contact lookup for the chat agent (NOT the sync path): search the user's
+ * contacts by name, email, phone, or organisation and return the matches'
+ * details. Uses People `searchContacts`, which matches the query against each
+ * person's names, nicknames, emails, phone numbers, and organisations.
+ */
+export async function searchContacts(
+  accessToken: string,
+  query: string,
+  limit = 10,
+): Promise<ContactItem[]> {
+  const params = new URLSearchParams({
+    query,
+    readMask: PERSON_FIELDS,
+    pageSize: String(Math.min(Math.max(limit, 1), 30)),
+  });
+  const data = await googleGet<{ results?: Array<{ person?: Person }> }>(
+    `${BASE}/people:searchContacts?${params.toString()}`,
+    accessToken,
+  );
+  return (data.results ?? [])
+    .map((r) => r.person)
+    .filter((p): p is Person => Boolean(p))
+    .map(normalize);
+}
+
+/**
  * Pull contacts changed since `syncToken` (or all, on first run), following
  * pagination. Returns the items, the next cursor to persist, and deletions. A
  * stale cursor surfaces as `fullResync` so the caller re-pulls from scratch.
