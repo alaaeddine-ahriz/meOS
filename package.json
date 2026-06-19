@@ -28,7 +28,8 @@
     "dev:container": "docker compose -f docker/docker-compose.dev.yml up",
     "audit": "pnpm audit --prod",
     "audit:licenses": "pnpm licenses list --prod",
-    "prepare": "simple-git-hooks"
+    "prepare": "simple-git-hooks",
+    "connector:new": "node scripts/new-connector.mjs"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
