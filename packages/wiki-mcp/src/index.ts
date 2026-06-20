@@ -26,6 +26,16 @@ import {
   putMode,
   type WikiMaintenanceMode,
 } from "./client.js";
+import { registerGeneratedTools } from "./generated.js";
+
+const DEFAULT_BASE_URL = "http://127.0.0.1:4321";
+
+/** The meOS server this MCP proxies to; same resolution as client.ts. */
+function serverBaseUrl(): string {
+  const raw = process.env.MEOS_SERVER_URL?.trim();
+  const url = raw && raw.length > 0 ? raw : DEFAULT_BASE_URL;
+  return url.replace(/\/+$/, "");
+}
 
 type ToolResult = {
   content: { type: "text"; text: string }[];
@@ -250,7 +260,31 @@ server.registerTool(
   ({ sourceId, extraction }) => run(() => postFacts(sourceId, extraction)),
 );
 
+/**
+ * The curated wiki tools registered above. Passed to the generator as the reserved
+ * set so a generated projection never shadows a hand-tuned maintenance tool (e.g. a
+ * future `GET /api/search` exposure can't replace `wiki_search`). Kept in sync by
+ * hand — small and stable — rather than introspecting the SDK's private registry.
+ */
+const CURATED_TOOL_NAMES = [
+  "wiki_search",
+  "wiki_queue",
+  "wiki_context",
+  "wiki_check",
+  "wiki_write",
+  "wiki_commit",
+  "wiki_mode",
+  "wiki_sources",
+  "wiki_extract_context",
+  "wiki_submit_facts",
+] as const;
+
 async function main(): Promise<void> {
+  // Project the app's annotated API onto MCP, AFTER the curated tools so a name
+  // collision keeps the curated tool. Best-effort: an unreachable server registers
+  // none and the curated wiki workflow still works offline.
+  await registerGeneratedTools(server, serverBaseUrl(), CURATED_TOOL_NAMES);
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }

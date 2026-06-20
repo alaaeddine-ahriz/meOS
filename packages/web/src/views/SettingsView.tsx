@@ -16,6 +16,7 @@ import {
   Palette as PaletteIcon,
   Plug,
   RefreshCw,
+  Route,
   Search,
   Settings2,
   Shapes,
@@ -73,11 +74,15 @@ import {
   type EntityTypeName,
   type GitCommit,
   type GitStatus,
+  type GroupRoute,
+  type IntelligenceRouting,
   type KnowledgePreferences,
   type LlmProvider,
   type LlmSettings,
   type ObservationKindName,
   type ProviderStatus,
+  type RoutingAgent,
+  type TaskGroup,
   type WatchedFolder,
 } from "../api.js";
 
@@ -107,6 +112,7 @@ type TabId =
   | "profile"
   | "appearance"
   | "intelligence"
+  | "routing"
   | "folders"
   | "connectors"
   | "knowledge"
@@ -142,6 +148,13 @@ const GROUPS: Array<{ heading: string; items: SettingsItem[] }> = [
         icon: Sparkles,
         blurb: "The model that reads, writes and answers.",
         hint: "The language model MeOS uses to read sources, write the wiki, and answer in chat. Choose a provider and model, or point at a local server.",
+      },
+      {
+        id: "routing",
+        label: "Routing",
+        icon: Route,
+        blurb: "Run each kind of work on the cloud API or a local agent.",
+        hint: "Choose, per kind of work, whether MeOS uses its cloud API or a local coding agent (Claude Code, Codex, …). Agent runs are billed to your subscription, not MeOS's API budget.",
       },
     ],
   },
@@ -552,6 +565,7 @@ export function SettingsView() {
               {tab === "profile" && <ProfileSection />}
               {tab === "appearance" && <AppearanceSection />}
               {tab === "intelligence" && <IntelligenceSection />}
+              {tab === "routing" && <IntelligenceRoutingSection />}
               {tab === "folders" && <FoldersSection />}
               {tab === "connectors" && <ConnectorsSection />}
               {tab === "knowledge" && <KnowledgeSection />}
@@ -1161,6 +1175,300 @@ function MaintainerPicker({
         <p role="alert" className="text-sm text-ember">
           ⚠ {error}
         </p>
+      )}
+    </div>
+  );
+}
+
+// --- Intelligence routing (#native-agent-intelligence) -----------------------
+// Route each task group's LLM work to the cloud API or a local coding agent.
+
+type RouteSource = GroupRoute["source"];
+
+const ROUTE_SOURCES: Array<{ value: RouteSource; label: string; icon: LucideIcon }> = [
+  { value: "auto", label: "Auto", icon: Sparkles },
+  { value: "api", label: "API", icon: Cloud },
+  { value: "agent", label: "Agent", icon: Bot },
+];
+
+/** The three routed task families, in display order, with what each covers. */
+const ROUTING_GROUPS: Array<{ id: TaskGroup; label: string; blurb: string }> = [
+  {
+    id: "background",
+    label: "Background",
+    blurb: "Extraction, detection, digests, OCR, and crystallization.",
+  },
+  { id: "wiki", label: "Wiki", blurb: "Page maintenance — turning sources into prose." },
+  { id: "assistant", label: "Assistant", blurb: "Drafting and editing your profile." },
+];
+
+/**
+ * Choose, per task group, whether its LLM work runs on the cloud API or a local
+ * coding agent — backed by GET/PUT `/api/intelligence-routing`. Agent runs are
+ * free on the user's own subscription; `"auto"` picks a local agent when one is
+ * installed, else the API. Each group can pin its own agent + model, or fall
+ * back to a workspace-wide default agent.
+ */
+function IntelligenceRoutingSection() {
+  const [routing, setRouting] = useState<IntelligenceRouting | null>(null);
+  const [agents, setAgents] = useState<RoutingAgent[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api
+      .getIntelligenceRouting()
+      .then((r) => {
+        setRouting(r.routing);
+        setAgents(r.agents);
+      })
+      .catch((e) => setLoadError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  // Edit one group's route in place; a change clears the saved flag so the Save
+  // affordance reappears.
+  const setGroup = (group: TaskGroup, next: GroupRoute) => {
+    setSaved(false);
+    setRouting((prev) => (prev ? { ...prev, [group]: next } : prev));
+  };
+
+  const setDefaultAgent = (next: { agentId?: string; model?: string }) => {
+    setSaved(false);
+    setRouting((prev) => (prev ? { ...prev, defaultAgent: next } : prev));
+  };
+
+  const save = async () => {
+    if (!routing) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+    try {
+      const r = await api.putIntelligenceRouting(routing);
+      setRouting(r.routing);
+      setAgents(r.agents);
+      setSaved(true);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!routing) {
+    return (
+      <section className="flex flex-col gap-4">
+        <PanelIntro>{loadError ?? "Loading routing…"}</PanelIntro>
+      </section>
+    );
+  }
+
+  const installedCount = agents.filter((a) => a.installed).length;
+
+  return (
+    <section className="flex flex-col gap-8">
+      <div className="flex flex-col gap-1.5">
+        <PanelIntro>
+          Agent runs are <span className="text-paper">free on your subscription</span>, not billed to
+          MeOS&apos;s API budget. <span className="font-mono text-faded">Auto</span> uses a local
+          coding agent when one is installed, and the cloud API otherwise.
+        </PanelIntro>
+        <p className="font-mono text-[11px] text-dim">
+          {installedCount === 0
+            ? "No coding agents detected — install one (Claude Code, Codex, …) to route work locally."
+            : `${installedCount} coding agent${installedCount === 1 ? "" : "s"} installed.`}
+        </p>
+      </div>
+
+      {ROUTING_GROUPS.map((group) => (
+        <RoutingGroupCard
+          key={group.id}
+          label={group.label}
+          blurb={group.blurb}
+          route={routing[group.id]}
+          agents={agents}
+          onChange={(next) => setGroup(group.id, next)}
+        />
+      ))}
+
+      <div className="flex flex-col gap-2">
+        <div>
+          <p className="text-sm text-paper">Default coding agent</p>
+          <p className="mt-0.5 text-[13px] text-dim">
+            The agent (and model) a group falls back to when it doesn&apos;t pin its own — and what{" "}
+            <span className="font-mono">Auto</span> reaches for when it runs locally.
+          </p>
+        </div>
+        <AgentModelPicker
+          agents={agents}
+          agentId={routing.defaultAgent?.agentId}
+          model={routing.defaultAgent?.model}
+          onAgent={(agentId, model) => setDefaultAgent({ agentId, model })}
+          onModel={(model) => setDefaultAgent({ ...routing.defaultAgent, model })}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          onClick={() => void save()}
+          disabled={saving}
+          className={actionButtonClass}
+        >
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        {saved && (
+          <span className="flex items-center gap-1.5 text-sm text-moss">
+            <Check className="size-3.5" /> Routing saved.
+          </span>
+        )}
+      </div>
+
+      {saveError && (
+        <p role="alert" className="text-sm text-ember">
+          ⚠ {saveError}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * One task group's routing control: a source segmented control, its description,
+ * and — when the source pins (or auto-prefers) an agent — an agent + model
+ * picker. `"api"` needs no agent; `"agent"`/`"auto"` reveal the picker (optional
+ * for `"auto"`, which otherwise falls back to the default agent).
+ */
+function RoutingGroupCard({
+  label,
+  blurb,
+  route,
+  agents,
+  onChange,
+}: {
+  label: string;
+  blurb: string;
+  route: GroupRoute;
+  agents: RoutingAgent[];
+  onChange: (next: GroupRoute) => void;
+}) {
+  const showAgent = route.source === "agent" || route.source === "auto";
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border border-line bg-card/30 p-4">
+      <div className="flex flex-col gap-1">
+        <Segmented<RouteSource>
+          label={label}
+          value={route.source}
+          options={ROUTE_SOURCES}
+          onChange={(source) => onChange({ ...route, source })}
+        />
+        <p className="text-[13px] text-dim">{blurb}</p>
+      </div>
+
+      {showAgent && (
+        <AgentModelPicker
+          agents={agents}
+          agentId={route.agentId}
+          model={route.model}
+          optional={route.source === "auto"}
+          onAgent={(agentId, model) => onChange({ ...route, agentId, model })}
+          onModel={(model) => onChange({ ...route, model })}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Pick a coding agent (chip row, not-installed agents disabled with their
+ * `installHint` as a tooltip) and one of its models (a {@link Combobox} over the
+ * agent's `models`). Choosing an agent seeds its `defaultModel`. When `optional`,
+ * an explicit "Use the default agent" choice clears the pin.
+ */
+function AgentModelPicker({
+  agents,
+  agentId,
+  model,
+  optional,
+  onAgent,
+  onModel,
+}: {
+  agents: RoutingAgent[];
+  agentId?: string;
+  model?: string;
+  optional?: boolean;
+  onAgent: (agentId: string | undefined, model: string | undefined) => void;
+  onModel: (model: string) => void;
+}) {
+  const selected = agents.find((a) => a.id === agentId);
+  // The chosen agent's models for the picker; keep an unknown saved model
+  // selectable so an offline refresh can't drop the user's pin.
+  const modelOptions = selected?.models.map((m) => m.value) ?? [];
+  const options = model && !modelOptions.includes(model) ? [model, ...modelOptions] : modelOptions;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-1.5">
+        {optional && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onAgent(undefined, undefined)}
+            className={cn(
+              "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
+              !agentId && "border-lamp-dim text-paper",
+            )}
+          >
+            Default agent
+          </Button>
+        )}
+        {agents.map((agent) => {
+          const active = agentId === agent.id;
+          const chip = (
+            <Button
+              key={agent.id}
+              variant="outline"
+              size="sm"
+              disabled={!agent.installed}
+              onClick={() => onAgent(agent.id, agent.defaultModel)}
+              className={cn(
+                "border-line bg-transparent text-faded hover:bg-transparent hover:text-paper",
+                active && "border-lamp-dim text-paper",
+                !agent.installed && "opacity-50",
+              )}
+            >
+              {agent.label}
+            </Button>
+          );
+          // Not-installed agents stay visible but disabled, with the install
+          // command surfaced on hover so the user knows how to enable them.
+          return agent.installed ? (
+            chip
+          ) : (
+            <Tooltip key={agent.id}>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>{chip}</span>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs font-normal normal-case tracking-normal text-pretty">
+                Not installed — {agent.installHint}
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <Combobox
+          value={model ?? ""}
+          onChange={onModel}
+          options={options}
+          allowCustom
+          placeholder="Choose a model"
+          searchPlaceholder="Search or type a model…"
+          emptyText="No matching models."
+          className={cn(comboboxClass, "min-w-0")}
+        />
       )}
     </div>
   );

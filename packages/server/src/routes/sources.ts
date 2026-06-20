@@ -20,6 +20,8 @@ export function registerSourceRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "List locally-indexed connector items",
         response: sources.ListSourcesResponse,
+        // Exposed over MCP so an agent can browse indexed connector items.
+        mcp: { expose: true, name: "sources", safety: "read" },
       }),
     },
     async () => sources.ListSourcesResponse.parse({ sources: ctx.store.listIndexedSources() }),
@@ -33,6 +35,8 @@ export function registerSourceRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "One indexed item with its links",
         params: NumericIdParam,
         response: sources.SourceDetailResponse,
+        // Exposed over MCP so an agent can read one indexed item and its links.
+        mcp: { expose: true, name: "sources_get", safety: "read" },
       }),
     },
     async (request) => {

@@ -38,6 +38,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "List scheduled agent tasks",
         response: schema.AgentTasksResponse,
+        // Exposed over MCP so an agent can list scheduled tasks.
+        mcp: { expose: true, name: "agent_tasks", safety: "read" },
       }),
     },
     async () => schema.AgentTasksResponse.parse({ tasks: ctx.store.listAgentTasks() }),
@@ -55,6 +57,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Detect the connectors referenced by an instruction",
         body: schema.AnalyzeAgentTaskBody,
         response: schema.AnalyzeAgentTaskResponse,
+        // Exposed over MCP: stateless detection (no mutation) — schedule + connectors from text.
+        mcp: { expose: true, name: "agent_tasks_analyze", safety: "read" },
       }),
     },
     async (request) => {
@@ -76,6 +80,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Create a scheduled agent task",
         body: schema.CreateAgentTaskBody,
         response: { 201: schema.AgentTaskResponse },
+        // Exposed over MCP: create a saved scheduled task (reversible — editable/deletable).
+        mcp: { expose: true, safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -121,6 +127,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Get a task with its recent runs",
         params: schema.AgentTaskIdParam,
         response: schema.AgentTaskDetailResponse,
+        // Exposed over MCP so an agent can read a task and its recent runs.
+        mcp: { expose: true, name: "agent_tasks_get", safety: "read" },
       }),
     },
     async (request) => {
@@ -143,6 +151,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         params: schema.AgentTaskIdParam,
         body: schema.UpdateAgentTaskBody,
         response: schema.AgentTaskResponse,
+        // Exposed over MCP: edit a saved task (reversible).
+        mcp: { expose: true, name: "agent_tasks_update", safety: "write" },
       }),
     },
     async (request) => {
@@ -201,6 +211,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Delete a scheduled agent task",
         params: schema.AgentTaskIdParam,
         response: schema.DeleteAgentTaskResponse,
+        // Destructive: removes the task + its conversation — recorded but never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request) => {
@@ -217,6 +229,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Run a task now",
         params: schema.AgentTaskIdParam,
         response: { 202: schema.RunAgentTaskResponse },
+        // Exposed over MCP: trigger a task run now (the runner guards double-runs).
+        mcp: { expose: true, name: "agent_tasks_run", safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -243,6 +257,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "List a task's runs",
         params: schema.AgentTaskIdParam,
         response: schema.AgentTaskRunsResponse,
+        // Exposed over MCP so an agent can read a task's run history.
+        mcp: { expose: true, name: "agent_tasks_runs", safety: "read" },
       }),
     },
     async (request) => {

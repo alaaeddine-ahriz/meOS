@@ -15,6 +15,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Latest digest",
         response: digestSchema.DigestResponse,
+        // Exposed over MCP so an agent can read the most recent consolidation digest.
+        mcp: { expose: true, name: "digest_latest", safety: "read" },
       }),
     },
     async () => {
@@ -33,6 +35,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Run consolidation job",
         response: { 202: digestSchema.ConsolidateResponse },
+        // Exposed over MCP: enqueue the consolidation job (background, re-runnable).
+        mcp: { expose: true, name: "jobs_consolidate", safety: "write" },
       }),
     },
     async (_request, reply) => {
@@ -57,6 +61,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "List unresolved contradictions",
         response: digestSchema.ContradictionsResponse,
+        // Exposed over MCP so an agent can see open contradictions + proposed resolutions.
+        mcp: { expose: true, name: "contradictions", safety: "read" },
       }),
     },
     async () =>
@@ -77,6 +83,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "Recent audit log",
         querystring: digestSchema.AuditQuery,
         response: digestSchema.AuditResponse,
+        // Exposed over MCP so an agent can review the automated-memory audit trail.
+        mcp: { expose: true, name: "audit", safety: "read" },
       }),
     },
     async (request) => {
@@ -94,6 +102,8 @@ export function registerDigestRoutes(app: FastifyInstance, ctx: AppContext): voi
         params: digestSchema.ResolveContradictionParams,
         body: digestSchema.ResolveContradictionBody,
         response: digestSchema.ResolveContradictionResponse,
+        // Exposed over MCP: accept/override a contradiction's resolution (auditable).
+        mcp: { expose: true, name: "contradictions_resolve", safety: "write" },
       }),
     },
     async (request, reply) => {

@@ -18,10 +18,12 @@ export * from "./schemas/common.js";
 // write `wiki.WikiPageResponse`, and the most commonly shared types are also
 // re-exported directly below for ergonomic `z.infer` consumption in the client.
 export * as agentTasks from "./schemas/agent-tasks.js";
+export * as agentTools from "./schemas/agent-tools.js";
 export * as ingest from "./schemas/ingest.js";
 export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";
 export * as wikiAgent from "./schemas/wiki-agent.js";
+export * as knowledge from "./schemas/knowledge.js";
 export * as staleFacts from "./schemas/stale-facts.js";
 export * as vault from "./schemas/vault.js";
 export * as chat from "./schemas/chat.js";
@@ -30,6 +32,7 @@ export * as digest from "./schemas/digest.js";
 export * as outputs from "./schemas/outputs.js";
 export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
+export * as intelligence from "./schemas/intelligence.js";
 export * as preferences from "./schemas/preferences.js";
 export * as connectors from "./schemas/connectors.js";
 export * as sources from "./schemas/sources.js";
@@ -104,6 +107,12 @@ export type {
   WatchedFolder,
 } from "./schemas/settings.js";
 export type {
+  TaskGroup,
+  GroupRoute,
+  IntelligenceRouting,
+  RoutingAgent,
+} from "./schemas/intelligence.js";
+export type {
   EntityTypeName,
   ObservationKindName,
   KnowledgePreset,
@@ -166,6 +175,7 @@ import type * as connectorsSchemas from "./schemas/connectors.js";
 import type * as digestSchemas from "./schemas/digest.js";
 import type * as gitSchemas from "./schemas/git.js";
 import type * as ingestSchemas from "./schemas/ingest.js";
+import type * as intelligenceSchemas from "./schemas/intelligence.js";
 import type * as meetingsSchemas from "./schemas/meetings.js";
 import type * as outputsSchemas from "./schemas/outputs.js";
 import type * as preferencesSchemas from "./schemas/preferences.js";
@@ -255,6 +265,10 @@ export type ResetResponse = z.infer<typeof settingsSchemas.ResetResponse>;
 
 export type KnowledgePreferencesResponse = z.infer<
   typeof preferencesSchemas.KnowledgePreferencesSchema
+>;
+
+export type IntelligenceRoutingResponse = z.infer<
+  typeof intelligenceSchemas.IntelligenceRoutingResponse
 >;
 
 export type AuthStartResponse = z.infer<typeof connectorsSchemas.AuthStartResponse>;

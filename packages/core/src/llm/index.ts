@@ -250,6 +250,18 @@ export function extractionModelId(config: MeosConfig): string {
 }
 
 export { AiSdkClient } from "./ai-sdk.js";
+export { CodingAgentLlmClient } from "./coding-agent-client.js";
+export type { CodingAgentLlmClientOptions } from "./coding-agent-client.js";
+export {
+  DEFAULT_GROUP_ROUTE,
+  DEFAULT_ROUTING_AGENT_ID,
+  defaultIntelligenceRouting,
+  resolveGroupClient,
+  resolvedAgentId,
+  TASK_GROUPS,
+  withRoutingDefaults,
+} from "./intelligence-routing.js";
+export type { GroupRoute, IntelligenceRouting, TaskGroup } from "./intelligence-routing.js";
 export { listProviderModels } from "./discover.js";
 export type { CloudProvider, ModelListing } from "./discover.js";
 export {

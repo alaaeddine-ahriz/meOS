@@ -32,6 +32,41 @@ const errorResponses = {
   500: errorRef,
 } as const;
 
+/**
+ * How dangerous a route is to call blind, used to gate auto-exposure over MCP.
+ * A coding agent calling generated tools needs this to reason about consent:
+ *  - `"read"`   — pure reads (GET-like): always safe to expose and auto-call.
+ *  - `"write"`  — creates/updates state but is reversible/idempotent enough to
+ *                 expose; the agent should still narrate what it's doing.
+ *  - `"destructive"` — irreversible (deletes, merges, resets). NEVER auto-exposed
+ *                 by the manifest (see {@link buildToolManifest}); a later, explicitly
+ *                 human-gated surface can opt these in, but the generated projection
+ *                 deliberately omits them so an agent can't quietly destroy data.
+ */
+export type McpSafety = "read" | "write" | "destructive";
+
+/**
+ * Opt-in MCP annotation for a route. The MCP surface is a GENERATED projection of
+ * the annotated HTTP API: a route is exposed as an agent-callable tool ONLY when
+ * it sets `expose: true` here — callers opt in, nothing is exposed by default. The
+ * resolved value is attached to the Fastify schema as the `x-mcp` vendor extension
+ * (see {@link routeSchema}), where the manifest builder's `onRoute` hook reads it.
+ */
+export interface RouteMcpAnnotation {
+  /** Expose this route as a generated MCP tool. Omitted/false ⇒ not exposed. */
+  expose?: boolean;
+  /**
+   * Override the derived tool name (e.g. `"wiki_list"`). Omit to let the manifest
+   * derive a stable name from the method + path (POST /api/vault/note → `vault_note_create`).
+   */
+  name?: string;
+  /** Danger class gating auto-exposure; `"destructive"` is never auto-exposed. */
+  safety?: McpSafety;
+}
+
+/** The `x-mcp` vendor-extension key carrying the resolved {@link RouteMcpAnnotation}. */
+export const MCP_EXTENSION_KEY = "x-mcp" as const;
+
 export interface RouteSchemaParts {
   /** OpenAPI tag(s) grouping this route in the docs. */
   tags?: string[];
@@ -48,7 +83,25 @@ export interface RouteSchemaParts {
    * treated as the 200 response.
    */
   response?: z.ZodType | Partial<Record<number, z.ZodType>>;
+  /**
+   * Opt-in MCP exposure for this route. Omit to keep the route OFF the generated
+   * MCP surface (the default policy is "not exposed"). A route joins the surface
+   * only by explicitly setting `{ expose: true, safety }`; `safety: "destructive"`
+   * is recorded but still filtered out of the auto-generated manifest.
+   */
+  mcp?: RouteMcpAnnotation;
 }
+
+/**
+ * A Fastify schema augmented with the resolved `x-mcp` vendor extension. Fastify
+ * and `@fastify/swagger` pass unknown `x-` keys through untouched — into both the
+ * route's `onRoute` `routeOptions.schema` (where the manifest hook reads it) and
+ * the emitted `/api/openapi.json` (where it self-documents the MCP surface) — so a
+ * single annotation drives both without a parallel registry.
+ */
+export type FastifySchemaWithMcp = FastifySchema & {
+  [MCP_EXTENSION_KEY]?: RouteMcpAnnotation;
+};
 
 /**
  * Build a Fastify `schema` object from contract Zod schemas so `/api/openapi.json`
@@ -58,9 +111,15 @@ export interface RouteSchemaParts {
  * package. Attaching JSON schema (rather than switching Fastify to a full zod
  * type-provider) is enough to satisfy "OpenAPI generated from schemas" while
  * leaving request validation to the handlers' `parseOrThrow` calls.
+ *
+ * When a route opts into MCP via `mcp`, the resolved annotation is attached as the
+ * `x-mcp` vendor extension. Fastify keeps unknown `x-` keys on the schema, so the
+ * same object reaches the manifest's `onRoute` hook (which derives the tool) and
+ * the OpenAPI spec (where it documents the MCP surface) — one annotation, two
+ * consumers, no parallel bookkeeping.
  */
-export function routeSchema(parts: RouteSchemaParts): FastifySchema {
-  const schema: FastifySchema = {};
+export function routeSchema(parts: RouteSchemaParts): FastifySchemaWithMcp {
+  const schema: FastifySchemaWithMcp = {};
   if (parts.tags) schema.tags = parts.tags;
   if (parts.summary) schema.summary = parts.summary;
   if (parts.body) schema.body = toJson(parts.body);
@@ -78,6 +137,11 @@ export function routeSchema(parts: RouteSchemaParts): FastifySchema {
     }
   }
   schema.response = response;
+
+  // Carry the opt-in MCP annotation through as a vendor extension. Only routes
+  // that explicitly set `mcp` are annotated; everything else stays off the
+  // generated MCP surface by default.
+  if (parts.mcp) schema[MCP_EXTENSION_KEY] = parts.mcp;
 
   return schema;
 }

@@ -1,4 +1,5 @@
 import { connectors as connectorsSchema } from "@meos/contracts";
+import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import {
   completeTask,
@@ -180,6 +181,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "Connector status",
         response: connectorsSchema.ConnectorStatusSchema,
+        // Exposed over MCP so an agent can see which connectors are connected + their coverage.
+        mcp: { expose: true, name: "connectors", safety: "read" },
       }),
     },
     async () => connectorsSchema.ConnectorStatusSchema.parse(statusView()),
@@ -196,6 +199,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "Save a connector's credentials",
         response: connectorsSchema.ConnectorStatusSchema,
+        // Destructive: persists secrets / changes auth — recorded but never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request) => {
@@ -368,6 +373,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Configure a connector kind",
         body: connectorsSchema.ConfigureKindBody,
         response: connectorsSchema.ConnectorStatusSchema,
+        // Destructive: a reset/coverage change can wipe the sync cursor + re-import — never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request) => {
@@ -452,6 +459,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "List a connector's calendars",
         response: connectorsSchema.ListCalendarsResponse,
+        // Exposed over MCP so an agent can read the account's available calendars.
+        mcp: { expose: true, name: "connectors_calendars", safety: "read" },
       }),
     },
     async (request) => {
@@ -474,6 +483,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "Sync a connector kind now",
         response: { 202: connectorsSchema.SyncKindResponse },
+        // Exposed over MCP: trigger a sync of one kind now (idempotent pull).
+        mcp: { expose: true, name: "connectors_sync", safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -510,6 +521,15 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   // List the account's task lists — for the sync-selection + default-list picker.
   app.get<{ Params: { provider: string } }>(
     "/api/connectors/:provider/tasks/lists",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "List a connector's task lists",
+        response: connectorsSchema.TaskListsResponse,
+        // Exposed over MCP so an agent can read the account's task lists.
+        mcp: { expose: true, name: "connectors_tasks_lists", safety: "read" },
+      }),
+    },
     async (request) => {
       const token = await taskAccessToken(request.params.provider);
       try {
@@ -528,51 +548,80 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
   app.post<{
     Params: { provider: string };
     Body: { taskListId?: string; title?: string; notes?: string; due?: string };
-  }>("/api/connectors/:provider/tasks/create", async (request, reply) => {
-    const provider = request.params.provider;
-    const body = parseOrThrow(connectorsSchema.CreateTaskBody, request.body, "body");
-    const token = await taskAccessToken(provider);
-    let taskListId = body.taskListId;
-    try {
-      if (!taskListId) {
-        // No list specified — fall back to the account's first (default) list.
-        const lists = await listTaskLists(token);
-        taskListId = lists[0]?.id;
-        if (!taskListId) throw httpError.badRequest("No task list is available");
+  }>(
+    "/api/connectors/:provider/tasks/create",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Create a task via a connector",
+        body: connectorsSchema.CreateTaskBody,
+        response: { 201: connectorsSchema.CreateTaskResponse },
+        // Exposed over MCP: the connector's explicit write capability (a real task is created).
+        mcp: { expose: true, name: "connectors_task_create", safety: "write" },
+      }),
+    },
+    async (request, reply) => {
+      const provider = request.params.provider;
+      const body = parseOrThrow(connectorsSchema.CreateTaskBody, request.body, "body");
+      const token = await taskAccessToken(provider);
+      let taskListId = body.taskListId;
+      try {
+        if (!taskListId) {
+          // No list specified — fall back to the account's first (default) list.
+          const lists = await listTaskLists(token);
+          taskListId = lists[0]?.id;
+          if (!taskListId) throw httpError.badRequest("No task list is available");
+        }
+        const task = await createTask(token, taskListId, {
+          title: body.title,
+          notes: body.notes,
+          due: body.due ?? null,
+        });
+        // Pull the new task into the graph promptly (best-effort; non-blocking).
+        ctx.connectors.enqueueSync(provider, "tasks");
+        return reply.code(201).send({ task });
+      } catch (err) {
+        if (err && typeof err === "object" && "statusCode" in err) throw err;
+        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
       }
-      const task = await createTask(token, taskListId, {
-        title: body.title,
-        notes: body.notes,
-        due: body.due ?? null,
-      });
-      // Pull the new task into the graph promptly (best-effort; non-blocking).
-      ctx.connectors.enqueueSync(provider, "tasks");
-      return reply.code(201).send({ task });
-    } catch (err) {
-      if (err && typeof err === "object" && "statusCode" in err) throw err;
-      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
-    }
-  });
+    },
+  );
 
   // WRITE PATH: mark a task completed (or reopen it).
   app.post<{
     Params: { provider: string; taskId: string };
     Body: { taskListId?: string; completed?: boolean };
-  }>("/api/connectors/:provider/tasks/:taskId/complete", async (request) => {
-    const provider = request.params.provider;
-    const token = await taskAccessToken(provider);
-    const taskId = request.params.taskId;
-    const body = request.body ?? {};
-    if (!body.taskListId) throw httpError.validation("taskListId is required");
-    try {
-      const task = await completeTask(token, body.taskListId, taskId, body.completed !== false);
-      ctx.connectors.enqueueSync(provider, "tasks");
-      return { task };
-    } catch (err) {
-      if (err && typeof err === "object" && "statusCode" in err) throw err;
-      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
-    }
-  });
+  }>(
+    "/api/connectors/:provider/tasks/:taskId/complete",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Complete (or reopen) a task via a connector",
+        body: z.object({
+          taskListId: z.string(),
+          completed: z.boolean().optional(),
+        }),
+        response: connectorsSchema.CreateTaskResponse,
+        // Exposed over MCP: mark a task done / reopen it (reversible by re-calling).
+        mcp: { expose: true, name: "connectors_task_complete", safety: "write" },
+      }),
+    },
+    async (request) => {
+      const provider = request.params.provider;
+      const token = await taskAccessToken(provider);
+      const taskId = request.params.taskId;
+      const body = request.body ?? {};
+      if (!body.taskListId) throw httpError.validation("taskListId is required");
+      try {
+        const task = await completeTask(token, body.taskListId, taskId, body.completed !== false);
+        ctx.connectors.enqueueSync(provider, "tasks");
+        return { task };
+      } catch (err) {
+        if (err && typeof err === "object" && "statusCode" in err) throw err;
+        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+      }
+    },
+  );
 
   // Disconnect: revoke the token, stop timers, forget the account.
   app.delete<{ Params: { provider: string } }>(
@@ -582,6 +631,8 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         tags,
         summary: "Disconnect a connector",
         response: connectorsSchema.DisconnectResponse,
+        // Destructive: revokes tokens + forgets the account — recorded but never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request) => {

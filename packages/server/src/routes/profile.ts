@@ -116,6 +116,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Get profile",
         response: profileSchema.ProfileDataSchema,
+        // Exposed over MCP so an agent can read the user's profile sections.
+        mcp: { expose: true, safety: "read" },
       }),
     },
     async () => profileSchema.ProfileDataSchema.parse(profileView(ctx)),
@@ -131,6 +133,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         params: profileSchema.ProfileIdParam,
         body: profileSchema.SaveProfileSectionBody,
         response: profileSchema.ProfileDataSchema,
+        // Exposed over MCP: overwrite one section (prior version is snapshotted).
+        mcp: { expose: true, name: "profile_section_save", safety: "write" },
       }),
     },
     async (request) => {
@@ -154,6 +158,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Apply a reviewed profile proposal",
         body: profileSchema.ApplyProfileBody,
         response: profileSchema.ApplyProfileResponse,
+        // Exposed over MCP: persist changed sections (each prior version snapshotted).
+        mcp: { expose: true, name: "profile_apply", safety: "write" },
       }),
     },
     async (request) => {
@@ -196,7 +202,9 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         const mediaType = imageMediaType(filename);
         let parsed: { title: string; text: string } | null;
         if (mediaType) {
-          const text = await readImage(ctx.llm, filename, {
+          // Image OCR is background work (high-volume, latency-tolerant), routed
+          // with ingestion's other extraction calls.
+          const text = await readImage(ctx.llmFor("background"), filename, {
             mediaType,
             data: buffer.toString("base64"),
           });
@@ -219,7 +227,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
 
       try {
         const proposal = await draftProfileFromContext({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents: stored,
         });
@@ -244,6 +252,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Draft a profile from the wiki",
         response: profileSchema.ProfileProposalResponse,
+        // Exposed over MCP: returns a proposal only (nothing is applied until profile_apply).
+        mcp: { expose: true, name: "profile_draft_from_wiki", safety: "write" },
       }),
     },
     async () => {
@@ -255,7 +265,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       try {
         const proposal = await draftProfileFromKnowledge({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           knowledge,
         });
@@ -275,6 +285,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Draft a profile from uploaded context",
         response: profileSchema.ProfileProposalResponse,
+        // Exposed over MCP: returns a proposal only (nothing is applied until profile_apply).
+        mcp: { expose: true, name: "profile_draft", safety: "write" },
       }),
     },
     async () => {
@@ -284,7 +296,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       try {
         const proposal = await draftProfileFromContext({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents,
         });
@@ -304,6 +316,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Edit profile with a natural-language instruction",
         body: profileSchema.EditProfileBody,
         response: profileSchema.ProfileProposalResponse,
+        // Exposed over MCP: returns a proposal only (nothing is applied until profile_apply).
+        mcp: { expose: true, name: "profile_edit", safety: "write" },
       }),
     },
     async (request) => {
@@ -316,7 +330,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (!trimmed) throw httpError.validation("Field 'instruction' is required");
       try {
         const proposal = await editProfileWithInstruction({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           instruction: trimmed,
           uploadedContext: useUploaded ? uploadedContext(ctx).combined || undefined : undefined,
@@ -337,6 +351,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Profile section version history",
         params: profileSchema.ProfileIdParam,
         response: profileSchema.ProfileHistoryResponse,
+        // Exposed over MCP so an agent can list a section's prior versions.
+        mcp: { expose: true, name: "profile_history", safety: "read" },
       }),
     },
     async (request) => {
@@ -357,6 +373,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Profile section version content",
         params: profileSchema.ProfileIdVersionParam,
         response: profileSchema.ProfileVersionContentResponse,
+        // Exposed over MCP so an agent can read a specific prior version's content.
+        mcp: { expose: true, name: "profile_version_get", safety: "read" },
       }),
     },
     async (request) => {
@@ -383,6 +401,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         params: profileSchema.ProfileIdParam,
         body: profileSchema.RestoreProfileBody,
         response: profileSchema.ProfileDataSchema,
+        // Exposed over MCP: reversible (current is snapshotted before the restore).
+        mcp: { expose: true, name: "profile_restore", safety: "write" },
       }),
     },
     async (request) => {
@@ -406,6 +426,8 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Profile edit audit trail",
         response: profileSchema.ProfileAuditResponse,
+        // Exposed over MCP so an agent can review the profile-edit governance trail.
+        mcp: { expose: true, name: "profile_audit", safety: "read" },
       }),
     },
     async () =>
