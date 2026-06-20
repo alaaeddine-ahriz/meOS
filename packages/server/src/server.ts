@@ -20,6 +20,7 @@ import { registerConnectorRoutes } from "./routes/connectors.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
+import { registerKnowledgeRoutes } from "./routes/knowledge.js";
 import { registerMeetingRoutes } from "./routes/meetings.js";
 import { registerOutputRoutes } from "./routes/outputs.js";
 import { registerProfileRoutes } from "./routes/profile.js";
@@ -83,6 +84,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerMeetingRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
   registerWikiAgentRoutes(app, ctx);
+  registerKnowledgeRoutes(app, ctx);
   registerAgentToolRoutes(app, ctx);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
