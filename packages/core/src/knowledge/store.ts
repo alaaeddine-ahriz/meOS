@@ -503,6 +503,36 @@ export type TaskScheduleKind = "once" | "interval" | "cron";
 /** A scheduled-task run's status. */
 export type TaskRunStatus = "running" | "ok" | "empty" | "error";
 
+/** A connector/kind a task reads from, e.g. `{ provider: "google", kind: "gmail" }`. */
+export interface TaskConnectorLink {
+  provider: string;
+  kind: string;
+}
+
+/** Parse the stored `links` JSON, tolerating null/legacy/garbage as the empty set. */
+function parseTaskLinks(raw: string | null): TaskConnectorLink[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (l): l is TaskConnectorLink =>
+          !!l && typeof l.provider === "string" && typeof l.kind === "string",
+      )
+      .map((l) => ({ provider: l.provider, kind: l.kind }));
+  } catch {
+    return [];
+  }
+}
+
+/** Serialize task links for storage; the empty set is stored as null, not "[]". */
+function serializeTaskLinks(links: TaskConnectorLink[] | undefined): string | null {
+  return links && links.length > 0
+    ? JSON.stringify(links.map((l) => ({ provider: l.provider, kind: l.kind })))
+    : null;
+}
+
 /** A scheduled agent task, in the camelCase shape the API surfaces. */
 export interface AgentTaskRecord {
   id: number;
@@ -511,6 +541,8 @@ export interface AgentTaskRecord {
   agentId: string | null;
   model: string | null;
   schedule: { kind: TaskScheduleKind; value: string };
+  /** The connectors this task reads from each run (auto-detected, then editable). */
+  links: TaskConnectorLink[];
   enabled: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
@@ -543,6 +575,8 @@ interface AgentTaskRow {
   model: string | null;
   schedule_kind: TaskScheduleKind;
   schedule_value: string;
+  /** JSON array of `{ provider, kind }`; null on tasks created before links existed. */
+  links: string | null;
   enabled: number;
   next_run_at: string | null;
   last_run_at: string | null;
@@ -574,6 +608,8 @@ export interface NewAgentTask {
   model?: string | null;
   scheduleKind: TaskScheduleKind;
   scheduleValue: string;
+  /** The connectors the task reads from; omit/[] for none. */
+  links?: TaskConnectorLink[];
   enabled: boolean;
   /** SQLite-format time the task first becomes due (null = never, e.g. paused). */
   nextRunAt: string | null;
@@ -4015,6 +4051,7 @@ export class KnowledgeStore {
       agentId: row.agent_id,
       model: row.model,
       schedule: { kind: row.schedule_kind, value: row.schedule_value },
+      links: parseTaskLinks(row.links),
       enabled: row.enabled === 1,
       nextRunAt: row.next_run_at,
       lastRunAt: row.last_run_at,
@@ -4028,8 +4065,8 @@ export class KnowledgeStore {
     const result = this.db
       .prepare(
         `INSERT INTO agent_tasks
-           (title, prompt, agent_id, model, schedule_kind, schedule_value, enabled, next_run_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+           (title, prompt, agent_id, model, schedule_kind, schedule_value, links, enabled, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         task.title,
@@ -4038,6 +4075,7 @@ export class KnowledgeStore {
         task.model ?? null,
         task.scheduleKind,
         task.scheduleValue,
+        serializeTaskLinks(task.links),
         task.enabled ? 1 : 0,
         task.nextRunAt,
       );
@@ -4088,6 +4126,7 @@ export class KnowledgeStore {
       model?: string | null;
       scheduleKind?: TaskScheduleKind;
       scheduleValue?: string;
+      links?: TaskConnectorLink[];
       enabled?: boolean;
       nextRunAt?: string | null;
     },
@@ -4104,6 +4143,7 @@ export class KnowledgeStore {
     if (patch.model !== undefined) set("model", patch.model);
     if (patch.scheduleKind !== undefined) set("schedule_kind", patch.scheduleKind);
     if (patch.scheduleValue !== undefined) set("schedule_value", patch.scheduleValue);
+    if (patch.links !== undefined) set("links", serializeTaskLinks(patch.links));
     if (patch.enabled !== undefined) set("enabled", patch.enabled ? 1 : 0);
     if (patch.nextRunAt !== undefined) set("next_run_at", patch.nextRunAt);
     if (sets.length > 0) {

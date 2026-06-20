@@ -99,6 +99,7 @@ export type {
   MeetingNoteRow,
   MessageAgentMeta,
   NewAgentTask,
+  TaskConnectorLink,
   TaskRunStatus,
   TaskScheduleKind,
   IngestJobState,

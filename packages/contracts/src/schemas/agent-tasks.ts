@@ -27,6 +27,17 @@ export const ScheduleSchema = z.object({
 /** A task run's terminal (or in-flight) status. */
 export const TaskRunStatusSchema = z.enum(["running", "ok", "empty", "error"]);
 
+/**
+ * One connector/kind a task reads from — the data sources the agent uses on every
+ * run, auto-identified from the instruction text and editable in the workflow UI.
+ * `provider`/`kind` match a catalog connector (e.g. `{ provider: "google", kind:
+ * "gmail" }`), so the UI joins to the catalog for branding and the run names them.
+ */
+export const TaskConnectorLinkSchema = z.object({
+  provider: z.string(),
+  kind: z.string(),
+});
+
 /** A coding-agent task as stored and surfaced to the UI. */
 export const AgentTaskSchema = z.object({
   id: z.number(),
@@ -38,6 +49,8 @@ export const AgentTaskSchema = z.object({
   /** Model override passed to the agent, or null for the agent's default. */
   model: z.string().nullable(),
   schedule: ScheduleSchema,
+  /** The connectors this task reads from each run (auto-detected, then editable). */
+  links: z.array(TaskConnectorLinkSchema),
   /** Paused tasks keep their schedule but never run until re-enabled. */
   enabled: z.boolean(),
   /** When the task next becomes due (ISO), or null once it never runs again. */
@@ -78,6 +91,8 @@ export const CreateAgentTaskBody = z.object({
   schedule: ScheduleSchema,
   /** Defaults to enabled; pass false to create it paused. */
   enabled: z.boolean().optional(),
+  /** The linked connectors; omit to let the server auto-detect from the prompt. */
+  links: z.array(TaskConnectorLinkSchema).optional(),
 });
 
 /** PATCH /api/agent-tasks/:id — partial update (any field). */
@@ -88,6 +103,24 @@ export const UpdateAgentTaskBody = z.object({
   model: z.string().nullable().optional(),
   schedule: ScheduleSchema.optional(),
   enabled: z.boolean().optional(),
+  /** Replace the linked connectors (the workflow UI sends the resolved set). */
+  links: z.array(TaskConnectorLinkSchema).optional(),
+});
+
+/** POST /api/agent-tasks/analyze — body for live connector detection as you type. */
+export const AnalyzeAgentTaskBody = z.object({
+  prompt: z.string().max(20_000),
+});
+
+/** One connector the analyzer found in an instruction, with the phrases that hit. */
+export const DetectedConnectorSchema = TaskConnectorLinkSchema.extend({
+  /** The literal phrases in the prompt that triggered this link, for highlighting. */
+  matches: z.array(z.string()),
+});
+
+/** POST /api/agent-tasks/analyze — the connectors detected in the prompt. */
+export const AnalyzeAgentTaskResponse = z.object({
+  connectors: z.array(DetectedConnectorSchema),
 });
 
 export const AgentTaskIdParam = NumericIdParam;
@@ -106,5 +139,7 @@ export const DeleteAgentTaskResponse = z.object({ ok: z.boolean() });
 export type ScheduleKind = z.infer<typeof ScheduleKindSchema>;
 export type Schedule = z.infer<typeof ScheduleSchema>;
 export type TaskRunStatus = z.infer<typeof TaskRunStatusSchema>;
+export type TaskConnectorLink = z.infer<typeof TaskConnectorLinkSchema>;
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
 export type AgentTaskRun = z.infer<typeof AgentTaskRunSchema>;
+export type DetectedConnector = z.infer<typeof DetectedConnectorSchema>;

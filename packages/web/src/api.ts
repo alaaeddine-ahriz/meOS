@@ -67,6 +67,7 @@ import type {
   ResolutionAction,
   RuntimeHealth,
   Schedule,
+  TaskConnectorLink,
   SourceDiff,
   SourceRef,
   WatchedFolder,
@@ -89,6 +90,7 @@ import type {
   AgentTaskResponse,
   AgentTaskRunsResponse,
   AgentTasksResponse,
+  AnalyzeAgentTaskResponse,
   DeleteAgentTaskResponse,
   RunAgentTaskResponse,
   ApplyProfileResponse,
@@ -157,10 +159,12 @@ export type {
   AskAnswerItem,
   AskQuestion,
   AuditEntry,
+  DetectedConnector,
   FileChange,
   RunTelemetry,
   Schedule,
   ScheduleKind,
+  TaskConnectorLink,
   TaskRunStatus,
   IndexedSource,
   IndexedEntityLink,
@@ -482,6 +486,13 @@ export const api = {
   // Scheduled agent tasks (#7): saved instructions a coding agent runs on a schedule.
   listAgentTasks: () => json<AgentTasksResponse>("/api/agent-tasks"),
   getAgentTask: (id: number) => json<AgentTaskDetailResponse>(`/api/agent-tasks/${id}`),
+  // Live connector detection for the workflow composer (debounced as the user types).
+  analyzeAgentTask: (prompt: string) =>
+    json<AnalyzeAgentTaskResponse>("/api/agent-tasks/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    }),
   createAgentTask: (body: {
     title: string;
     prompt: string;
@@ -489,6 +500,7 @@ export const api = {
     model?: string;
     schedule: Schedule;
     enabled?: boolean;
+    links?: TaskConnectorLink[];
   }) =>
     json<AgentTaskResponse>("/api/agent-tasks", {
       method: "POST",
@@ -504,6 +516,7 @@ export const api = {
       model?: string | null;
       schedule?: Schedule;
       enabled?: boolean;
+      links?: TaskConnectorLink[];
     },
   ) =>
     json<AgentTaskResponse>(`/api/agent-tasks/${id}`, {

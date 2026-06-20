@@ -1,5 +1,5 @@
 import { Cron } from "croner";
-import { createLogger, type AgentTaskRecord } from "@meos/core";
+import { connectorLinkLabels, createLogger, type AgentTaskRecord } from "@meos/core";
 import type { Schedule } from "@meos/contracts";
 import { type AgentRunOutcome, runCodingAgent } from "./coding-agent-command.js";
 import type { AppContext } from "./context.js";
@@ -91,6 +91,22 @@ function runStatus(outcome: AgentRunOutcome): "ok" | "empty" | "error" {
   return outcome.status === "aborted" ? "error" : outcome.status;
 }
 
+/**
+ * The prompt a run actually sends: the task's instruction, prefixed with a one-line
+ * note naming the connectors it's linked to so the agent reaches for those
+ * meos-connectors tools first (it already has access to all of them; this just
+ * makes the user's intended data sources explicit). Unlinked tasks run verbatim.
+ */
+export function buildRunPrompt(task: AgentTaskRecord): string {
+  const labels = connectorLinkLabels(task.links).map((l) => l.label);
+  if (labels.length === 0) return task.prompt;
+  const sources = labels.join(", ");
+  return (
+    `This task reads from your connected ${sources} ` +
+    `(use the meos-connectors tools for them).\n\n${task.prompt}`
+  );
+}
+
 /** How a task's agent turn is executed — injectable so tests don't spawn a CLI. */
 export type ExecuteAgent = (
   ctx: AppContext,
@@ -140,7 +156,7 @@ export class AgentTaskRunner {
     void this.execute(
       this.ctx,
       conversationId,
-      task.prompt,
+      buildRunPrompt(task),
       task.model ?? undefined,
       task.agentId ?? undefined,
     )

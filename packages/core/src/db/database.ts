@@ -1012,6 +1012,16 @@ export const migrations: readonly string[] = [
   );
   CREATE INDEX idx_agent_task_runs_task ON agent_task_runs(task_id, id);
   `,
+
+  // 39 — connector links for scheduled tasks (the "workflow" Tasks UI). A task's
+  // instruction is natural language; the platform auto-identifies which connectors
+  // it reads from (Gmail, Calendar, …) and stores them here as a JSON array of
+  // `{ provider, kind }`, so the data sources are explicit, editable, and named in
+  // the run preamble. Nullable: existing tasks (and any with no detected source)
+  // carry no links and the runner treats null as the empty set.
+  `
+  ALTER TABLE agent_tasks ADD COLUMN links TEXT;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

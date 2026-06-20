@@ -2,6 +2,7 @@ import { openDatabase, KnowledgeStore, type NewAgentTask } from "@meos/core";
 import { describe, expect, it } from "vitest";
 import {
   AgentTaskRunner,
+  buildRunPrompt,
   computeNextRunAfter,
   toSqliteTime,
   validateSchedule,
@@ -94,6 +95,31 @@ describe("validateSchedule", () => {
 describe("toSqliteTime", () => {
   it("formats UTC to second precision", () => {
     expect(toSqliteTime(new Date("2026-06-20T09:00:00.500Z"))).toBe("2026-06-20 09:00:00");
+  });
+});
+
+describe("buildRunPrompt", () => {
+  it("runs an unlinked task's prompt verbatim", () => {
+    const store = new KnowledgeStore(openDatabase(":memory:"));
+    const task = store.createAgentTask(newTask({ prompt: "do it" }));
+    expect(buildRunPrompt(task)).toBe("do it");
+  });
+
+  it("prefixes a one-line note naming the linked connectors", () => {
+    const store = new KnowledgeStore(openDatabase(":memory:"));
+    const task = store.createAgentTask(
+      newTask({
+        prompt: "Tell me what needs my attention.",
+        links: [
+          { provider: "google", kind: "gmail" },
+          { provider: "google", kind: "calendar" },
+        ],
+      }),
+    );
+    const prompt = buildRunPrompt(task);
+    expect(prompt).toContain("Gmail, Calendar");
+    expect(prompt).toContain("meos-connectors");
+    expect(prompt.endsWith("Tell me what needs my attention.")).toBe(true);
   });
 });
 

@@ -28,6 +28,7 @@ describe("agent task store", () => {
       agentId: "claude",
       model: null,
       schedule: { kind: "interval", value: "60" },
+      links: [],
       enabled: true,
       nextRunAt: "2026-06-20 09:00:00",
       lastRunAt: null,
@@ -36,6 +37,29 @@ describe("agent task store", () => {
     });
     expect(store.getAgentTask(task.id)).toEqual(task);
     expect(store.listAgentTasks()).toEqual([task]);
+  });
+
+  it("round-trips connector links and replaces them on update", () => {
+    const task = store.createAgentTask(
+      baseTask({
+        links: [
+          { provider: "google", kind: "gmail" },
+          { provider: "google", kind: "calendar" },
+        ],
+      }),
+    );
+    expect(store.getAgentTask(task.id)?.links).toEqual([
+      { provider: "google", kind: "gmail" },
+      { provider: "google", kind: "calendar" },
+    ]);
+
+    const updated = store.updateAgentTask(task.id, {
+      links: [{ provider: "google", kind: "tasks" }],
+    });
+    expect(updated?.links).toEqual([{ provider: "google", kind: "tasks" }]);
+
+    // Clearing links stores null and reads back as the empty set.
+    expect(store.updateAgentTask(task.id, { links: [] })?.links).toEqual([]);
   });
 
   it("returns only enabled, due tasks from dueAgentTasks", () => {
