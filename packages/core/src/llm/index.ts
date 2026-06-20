@@ -250,6 +250,8 @@ export function extractionModelId(config: MeosConfig): string {
 }
 
 export { AiSdkClient } from "./ai-sdk.js";
+export { CodingAgentLlmClient } from "./coding-agent-client.js";
+export type { CodingAgentLlmClientOptions } from "./coding-agent-client.js";
 export { listProviderModels } from "./discover.js";
 export type { CloudProvider, ModelListing } from "./discover.js";
 export {
