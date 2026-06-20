@@ -60,6 +60,8 @@ export async function* runAgentProcess(opts: AgentProcessOptions): AsyncIterable
       // can signal the whole group — the agent's shell tools spawn subprocesses
       // (builds, servers) that would otherwise be orphaned when we kill the CLI.
       detached: process.platform !== "win32",
+      // Keep the packaged desktop app windowless: don't pop a console for the CLI.
+      windowsHide: true,
     });
   } catch (error) {
     yield { type: "error", message: spawnErrorMessage(error, bin, label, installHint) };

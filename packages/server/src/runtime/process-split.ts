@@ -1,4 +1,4 @@
-import { type ChildProcess, fork } from "node:child_process";
+import { type ChildProcess, type ForkOptions, fork } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createLogger } from "@meos/core";
 
@@ -95,13 +95,19 @@ export class WorkerSupervisor implements WorkerBridge {
   private spawn(): void {
     if (this.stopped) return;
     const execArgv = this.opts.isTs ? ["--import", "tsx"] : [];
-    const child = fork(fileURLToPath(this.opts.entryUrl), [], {
+    // `windowsHide` isn't declared on ForkOptions, but fork() forwards its
+    // options straight to spawn() at runtime, which honours it. Keeping it set
+    // means the packaged (windowless) desktop app never pops a console for the
+    // forked worker node on Windows.
+    const forkOptions: ForkOptions & { windowsHide?: boolean } = {
       execArgv,
       // The child inherits cwd + MEOS_* (data dir, model cache) automatically.
       // MEOS_ROLE routes it to the worker entry; MEOS_EXIT_WITH_PARENT makes it
       // die with us even on SIGKILL (it watches its ppid, see worker-host).
       env: { ...process.env, MEOS_ROLE: "worker", MEOS_EXIT_WITH_PARENT: "1" },
-    });
+      windowsHide: true,
+    };
+    const child = fork(fileURLToPath(this.opts.entryUrl), [], forkOptions);
     this.child = child;
     log.info({ pid: child.pid }, "worker host spawned");
 

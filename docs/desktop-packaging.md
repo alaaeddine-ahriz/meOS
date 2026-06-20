@@ -66,6 +66,14 @@ dev) and tears it down on quit. In a packaged app the read-only bundle is
 redirected to writable per-user paths via `MEOS_DATA_DIR`, `MEOS_MODEL_CACHE`,
 and `MEOS_WEB_DIST`.
 
+The packaged app is windowless: the spawned `node` (and the worker it forks, plus
+any `git`/coding-agent subprocess) runs with no console, so on Windows the user
+never sees a stray terminal behind the app — only MeOS. Because there is no
+console to inherit, the server's stdout/stderr are redirected to a per-user
+`server.log` in the app's log dir (e.g. `%LOCALAPPDATA%\com.meos.desktop\logs\`
+on Windows, `~/Library/Logs/com.meos.desktop/` on macOS) so a boot failure (such
+as a native-ABI mismatch) is still diagnosable.
+
 Builds are unsigned for now: on first open, macOS users run
 `xattr -dr com.apple.quarantine /Applications/MeOS.app`; Windows users choose
 _More info → Run anyway_.

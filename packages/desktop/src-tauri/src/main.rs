@@ -9,12 +9,46 @@
 
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, RunEvent};
 
 const DEFAULT_PORT: u16 = 4321;
+
+/// Stop the spawned `node` from popping its own console window on Windows: a
+/// console-subsystem child launched from our windowless GUI process would
+/// otherwise get a fresh console allocated, which is exactly the terminal the
+/// user sees behind a packaged app. No-op everywhere else.
+fn hide_console(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = command;
+    }
+}
+
+/// Point the server's stdout/stderr at a per-user log file. A windowless build
+/// has no console to inherit, so without this its output (including a boot
+/// crash from a native-ABI mismatch) would vanish; the log keeps it diagnosable.
+fn redirect_to_log(command: &mut Command, app: &AppHandle) {
+    let Ok(log_dir) = app.path().app_log_dir() else {
+        return;
+    };
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    if let Ok(file) = std::fs::File::create(log_dir.join("server.log")) {
+        if let Ok(clone) = file.try_clone() {
+            command.stdout(Stdio::from(file)).stderr(Stdio::from(clone));
+        }
+    }
+}
 
 /// A server process we spawned (None when one was already running).
 struct ManagedServer(Mutex<Option<Child>>);
@@ -84,6 +118,10 @@ fn spawn_server(app: &AppHandle) -> Option<Child> {
             .env("MEOS_DATA_DIR", &data_dir)
             .env("MEOS_MODEL_CACHE", &p.model_cache)
             .env("MEOS_WEB_DIST", &p.web_dist);
+        // A packaged app is windowless: hide the child console and send its
+        // output to a log file instead of a phantom terminal.
+        hide_console(&mut command);
+        redirect_to_log(&mut command, app);
         label = p.entry.display().to_string();
     } else {
         let entry = std::env::var("MEOS_SERVER_ENTRY")
