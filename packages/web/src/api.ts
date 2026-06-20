@@ -85,6 +85,8 @@ import type {
   AgentModeResponse,
   AgentQueueResponse,
   ApplyProfileResponse,
+  AskAnswerItem,
+  AskQuestion,
   AuditResponse,
   AuthStartResponse,
   BackfillWikiResponse,
@@ -142,6 +144,8 @@ export type {
   ActivityEvent,
   AgentModeResponse,
   AgentQueueResponse,
+  AskAnswerItem,
+  AskQuestion,
   AuditEntry,
   IndexedSource,
   IndexedEntityLink,
@@ -297,6 +301,14 @@ export const api = {
   // Coding agents installed on this machine (Claude Code, Codex, Cursor, …) —
   // drives the chat's agent-mode picker.
   listCodingAgents: () => json<{ agents: CodingAgentSummary[] }>("/api/coding-agents"),
+  // Deliver the user's answer to an agent's mid-run question (agent mode), which
+  // unblocks the parked `ask_user` tool call so the run continues.
+  answerAsk: (op: string, id: string, answers: AskAnswerItem[]) =>
+    json<{ ok: boolean }>("/api/agent/ask/answer", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ op, id, answers }),
+    }),
   listEntities: () => json<ListEntitiesResponse>("/api/wiki"),
   listSources: () => json<ListSourcesResponse>("/api/sources"),
   getSource: (id: number) => json<SourceDetailResponse>(`/api/sources/${id}`),

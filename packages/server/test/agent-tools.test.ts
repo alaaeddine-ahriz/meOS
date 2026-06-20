@@ -1,5 +1,6 @@
 import { ErrorCode, ErrorEnvelopeSchema } from "@meos/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { registerAskOperation, unregisterAskOperation } from "../src/ask-registry.js";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
 /**
@@ -96,5 +97,85 @@ describe("connector agent tools (Google connected)", () => {
     expect(res.statusCode).toBe(404);
     const envelope = ErrorEnvelopeSchema.parse(res.json());
     expect(envelope.code).toBe(ErrorCode.NOT_FOUND);
+  });
+});
+
+/**
+ * Mid-run questions: the rendezvous between the agent's blocking `ask_user` tool
+ * (POST /api/agent/ask) and the user's answer (POST /api/agent/ask/answer),
+ * correlated by the in-process ask-registry. Exercised end-to-end over HTTP,
+ * with the run registered directly (no agent spawn).
+ */
+describe("mid-run questions (/api/agent/ask)", () => {
+  let server: TestServer;
+  beforeAll(async () => {
+    server = await buildTestServer();
+  });
+  afterAll(async () => {
+    await server.cleanup();
+  });
+
+  it("parks the ask, surfaces it on the run's stream, and resolves it on the user's answer", async () => {
+    const op = "test-op-answered";
+    let asked: { type: string; op: string; id: string } | null = null;
+    // Stand in for the chat SSE stream: capture the ask-user frame the run would send.
+    registerAskOperation(op, (event) => {
+      if (event.type === "ask-user") asked = event as typeof asked;
+    });
+
+    // The MCP `ask_user` tool's blocking POST — don't await; it resolves only once answered.
+    const askPromise = server.app.inject({
+      method: "POST",
+      url: "/api/agent/ask",
+      payload: {
+        op,
+        questions: [
+          { header: "Scope", question: "Which target?", options: [{ label: "A" }, { label: "B" }] },
+        ],
+      },
+    });
+
+    // Let the handler run far enough to emit the ask-user frame.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(asked).not.toBeNull();
+    expect(asked!.op).toBe(op);
+
+    const answerRes = await server.app.inject({
+      method: "POST",
+      url: "/api/agent/ask/answer",
+      payload: { op, id: asked!.id, answers: [{ question: "Which target?", answers: ["B"] }] },
+    });
+    expect(answerRes.json()).toEqual({ ok: true });
+
+    const askRes = await askPromise;
+    expect(askRes.statusCode).toBe(200);
+    expect(askRes.json()).toEqual({
+      status: "answered",
+      answers: [{ question: "Which target?", answers: ["B"] }],
+    });
+    unregisterAskOperation(op);
+  });
+
+  it("tells the agent to proceed when no live run owns the op", async () => {
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/agent/ask",
+      payload: {
+        op: "no-such-run",
+        questions: [{ header: "X", question: "Q?", options: [{ label: "A" }] }],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: "unavailable", answers: [] });
+  });
+
+  it("reports ok:false when answering a question that isn't open", async () => {
+    const res = await server.app.inject({
+      method: "POST",
+      url: "/api/agent/ask/answer",
+      payload: { op: "ghost", id: "ghost", answers: [] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: false });
   });
 });

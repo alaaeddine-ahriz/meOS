@@ -1,7 +1,9 @@
+import { chat as chatSchema } from "@meos/contracts";
 import { buildConnectorAgentTools, connectorToolDescriptors } from "@meos/core";
 import type { FastifyInstance } from "fastify";
+import { deliverAskAnswer, requestAsk } from "../ask-registry.js";
 import type { AppContext } from "../context.js";
-import { httpError } from "../errors.js";
+import { httpError, parseOrThrow } from "../errors.js";
 
 const tags = ["agent-tools"];
 
@@ -59,6 +61,31 @@ export function registerAgentToolRoutes(app: FastifyInstance, ctx: AppContext): 
         const message = error instanceof Error ? error.message : String(error);
         return { result: message, isError: true };
       }
+    },
+  );
+
+  // Mid-run questions. The `ask_user` MCP tool POSTs here and the request BLOCKS
+  // until the user answers (over the chat SSE stream → /api/agent/ask/answer),
+  // the run is aborted, or the wait times out — see ../ask-registry.ts. A
+  // run-less or unanswered `op` resolves with a non-"answered" status the MCP
+  // tool turns into "proceed with your best judgment", so the agent never hangs.
+  app.post<{ Body: unknown }>(
+    "/api/agent/ask",
+    { schema: { tags, summary: "Ask the user a question mid-run (long-poll)" } },
+    async (request) => {
+      const { op, questions } = parseOrThrow(chatSchema.AskUserBody, request.body, "body");
+      const result = await requestAsk(op, questions);
+      return chatSchema.AskUserResult.parse(result);
+    },
+  );
+
+  // The web client delivering the user's choice, unblocking the parked ask above.
+  app.post<{ Body: unknown }>(
+    "/api/agent/ask/answer",
+    { schema: { tags, summary: "Answer a mid-run question" } },
+    async (request) => {
+      const { op, id, answers } = parseOrThrow(chatSchema.AskAnswerBody, request.body, "body");
+      return chatSchema.AskAnswerResponse.parse({ ok: deliverAskAnswer(op, id, answers) });
     },
   );
 }

@@ -1,5 +1,5 @@
 import type { ChatStatus } from "ai";
-import { FileText, Library, Paperclip, Terminal, X } from "lucide-react";
+import { Check, ChevronDown, FileText, Library, Paperclip, Send, Terminal, X } from "lucide-react";
 import {
   useEffect,
   useMemo,
@@ -13,6 +13,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   streamChat,
+  type AskAnswerItem,
+  type AskQuestion,
   type CodingAgentSummary,
   type EntitySummary,
   type GraphLink,
@@ -23,13 +25,28 @@ import {
 } from "../api.js";
 import { DiffView } from "../components/DiffView.js";
 import { SourceList, type WikiPageRef } from "../components/SourceList.js";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
 import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorLogo,
+  ModelSelectorName,
+  ModelSelectorTrigger,
+} from "@/components/ai-elements/model-selector";
 import {
   PromptInput,
   PromptInputActionMenu,
@@ -109,6 +126,93 @@ function resolveAgentModel(agent: CodingAgentSummary): string {
   return agent.defaultModel;
 }
 
+// Map a model to a models.dev logo slug. The model `value` carries the brand for
+// agents that proxy several providers (Cursor/Copilot run Claude *and* GPT), so
+// derive from it first; "auto" and anything unrecognised fall back to the
+// agent's own brand. All slugs below are confirmed present on models.dev.
+function modelLogoProvider(value: string, agentId: string): string {
+  const v = value.toLowerCase();
+  if (v.startsWith("claude")) return "anthropic";
+  if (v.startsWith("gpt") || /^o[0-9]/.test(v)) return "openai";
+  if (v.startsWith("gemini")) return "google";
+  switch (agentId) {
+    case "claude":
+      return "anthropic";
+    case "codex":
+      return "openai";
+    case "cursor":
+      return "cursor";
+    case "gemini":
+      return "google";
+    case "copilot":
+      return "github-copilot";
+    default:
+      return agentId;
+  }
+}
+
+/**
+ * The agent-mode model picker: a searchable command palette (ai-elements
+ * `ModelSelector`) whose trigger and items show each model's provider logo.
+ */
+function ModelPicker({
+  models,
+  value,
+  onValueChange,
+  agentId,
+}: {
+  models: Array<{ value: string; label: string }>;
+  value: string;
+  onValueChange: (model: string) => void;
+  agentId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = models.find((m) => m.value === value) ?? models[0];
+  return (
+    <ModelSelector open={open} onOpenChange={setOpen}>
+      <ModelSelectorTrigger asChild>
+        <button
+          type="button"
+          title="Model the agent runs with"
+          className="flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12px] text-dim outline-none hover:text-paper"
+        >
+          {selected && <ModelSelectorLogo provider={modelLogoProvider(selected.value, agentId)} />}
+          <span className="max-w-[10rem] truncate">{selected?.label ?? "Model"}</span>
+          <ChevronDown className="size-3 opacity-60" />
+        </button>
+      </ModelSelectorTrigger>
+      <ModelSelectorContent className="border-line bg-desk" title="Select a model">
+        <ModelSelectorInput
+          placeholder="Search models…"
+          className="text-paper placeholder:text-dim"
+        />
+        <ModelSelectorList>
+          <ModelSelectorEmpty className="py-6 text-center text-[13px] text-dim">
+            No models match.
+          </ModelSelectorEmpty>
+          <ModelSelectorGroup>
+            {models.map((model) => (
+              <ModelSelectorItem
+                key={model.value}
+                value={`${model.label} ${model.value}`}
+                onSelect={() => {
+                  onValueChange(model.value);
+                  setOpen(false);
+                }}
+                className="gap-2 text-[13px] text-paper"
+              >
+                <ModelSelectorLogo provider={modelLogoProvider(model.value, agentId)} />
+                <ModelSelectorName>{model.label}</ModelSelectorName>
+                {model.value === value && <Check className="size-3.5 text-lamp" />}
+              </ModelSelectorItem>
+            ))}
+          </ModelSelectorGroup>
+        </ModelSelectorList>
+      </ModelSelectorContent>
+    </ModelSelector>
+  );
+}
+
 // A `/profile` reply embeds the change as a diff between these markers (see the
 // server's profile-command). The chat renders it as a real diff + an action.
 const PROFILE_DIFF_RE = /@@PROFILE_DIFF@@\n([\s\S]*?)\n@@END@@/;
@@ -171,7 +275,10 @@ type AgentPart =
       input: unknown;
       output?: unknown;
       state: ToolState;
-    };
+    }
+  // A mid-run question the agent posed (agent mode). The card collects the user's
+  // choice and POSTs it back, unblocking the agent — see AskCard.
+  | { kind: "ask"; op: string; id: string; questions: AskQuestion[] };
 
 /** Render a failed tool's output as plain text for the error panel. */
 function toErrorText(output: unknown): string {
@@ -510,6 +617,14 @@ export function ChatView() {
           setLiveGraph((current) =>
             new Map(current).set(assistantIndex, { nodes: event.nodes, links: event.links }),
           );
+        } else if (event.type === "ask-user") {
+          // The agent paused to ask: drop a question card into the trace, in order.
+          setLiveTrace((current) =>
+            new Map(current).set(assistantIndex, [
+              ...(current.get(assistantIndex) ?? []),
+              { kind: "ask", op: event.op, id: event.id, questions: event.questions },
+            ]),
+          );
         } else if (event.type === "delta") {
           setStatus("streaming");
           setMessages((current) => {
@@ -748,6 +863,116 @@ export function ChatView() {
 }
 
 /**
+ * A mid-run question card (agent mode). The headless agent paused and asked the
+ * user to choose; this collects the answer for every question and POSTs it back,
+ * unblocking the run. State is local: once mounted the card keeps its place in
+ * the trace (stable key), so the selection survives later streamed events.
+ */
+function AskCard({ op, id, questions }: { op: string; id: string; questions: AskQuestion[] }) {
+  const [selected, setSelected] = useState<Record<number, string[]>>({});
+  const [submitted, setSubmitted] = useState<AskAnswerItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const toggle = (qi: number, label: string, multi: boolean) => {
+    setSelected((prev) => {
+      const cur = prev[qi] ?? [];
+      if (!multi) return { ...prev, [qi]: [label] };
+      return {
+        ...prev,
+        [qi]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label],
+      };
+    });
+  };
+
+  const allAnswered = questions.every((_, qi) => (selected[qi]?.length ?? 0) > 0);
+
+  const submit = async () => {
+    if (!allAnswered || busy) return;
+    const answers: AskAnswerItem[] = questions.map((q, qi) => ({
+      question: q.question,
+      answers: selected[qi] ?? [],
+    }));
+    setBusy(true);
+    setFailed(false);
+    try {
+      await api.answerAsk(op, id, answers);
+      setSubmitted(answers);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
+        <span className="text-xs font-medium text-muted-foreground">Your answer</span>
+        {submitted.map((a, i) => (
+          <div key={i} className="flex flex-col gap-1.5">
+            <span className="text-sm text-muted-foreground">{a.question}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {a.answers.map((ans, j) => (
+                <Badge key={j} variant="secondary">
+                  {ans}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 text-card-foreground shadow-sm">
+      <span className="text-xs font-medium text-muted-foreground">The agent needs your input</span>
+      {questions.map((q, qi) => (
+        <div key={qi} className="flex flex-col gap-2">
+          {qi > 0 && <Separator />}
+          <div className="flex flex-wrap items-center gap-2">
+            {q.header && <Badge variant="secondary">{q.header}</Badge>}
+            <span className="text-sm font-medium">{q.question}</span>
+            {q.multiSelect && (
+              <Badge variant="outline" className="text-muted-foreground">
+                choose any
+              </Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {q.options.map((opt, oi) => {
+              const active = (selected[qi] ?? []).includes(opt.label);
+              return (
+                <Button
+                  key={oi}
+                  type="button"
+                  size="sm"
+                  variant={active ? "default" : "outline"}
+                  title={opt.description}
+                  onClick={() => toggle(qi, opt.label, q.multiSelect ?? false)}
+                  className="h-auto whitespace-normal py-1.5 text-left"
+                >
+                  {active && <Check />}
+                  {opt.label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center gap-3">
+        <Button type="button" size="sm" onClick={submit} disabled={!allAnswered || busy}>
+          {busy ? <Spinner /> : <Send />}
+          Send
+        </Button>
+        {failed && <span className="text-xs text-destructive">Couldn’t send — try again.</span>}
+      </div>
+    </div>
+  );
+}
+
+/**
  * An assistant turn's trace, in the order things happened — built from
  * ai-elements Reasoning + Tool + the answer Response. For agent turns the model's
  * `text` is woven in among the tool calls (so a tool appears exactly where it was
@@ -789,6 +1014,9 @@ function AgentTrace({
               {resolveWikiLinks(part.text, entities)}
             </MessageResponse>
           );
+        }
+        if (part.kind === "ask") {
+          return <AskCard key={index} op={part.op} id={part.id} questions={part.questions} />;
         }
         const label = TOOL_LABELS[part.toolName] ?? part.toolName;
         const arg = toolArg(part.input);
@@ -1159,25 +1387,12 @@ function Composer({
                       </PromptInputSelectContent>
                     </PromptInputSelect>
                     {activeAgent?.installed && activeAgent.models.length > 0 && (
-                      <PromptInputSelect value={agentModel} onValueChange={onAgentModelChange}>
-                        <PromptInputSelectTrigger
-                          title="Model the agent runs with"
-                          className="h-7 gap-1 rounded-lg px-2 text-[12px] text-dim hover:text-paper"
-                        >
-                          <PromptInputSelectValue />
-                        </PromptInputSelectTrigger>
-                        <PromptInputSelectContent className="border-line bg-desk">
-                          {activeAgent.models.map((model) => (
-                            <PromptInputSelectItem
-                              key={model.value}
-                              value={model.value}
-                              className="text-[13px] text-paper"
-                            >
-                              {model.label}
-                            </PromptInputSelectItem>
-                          ))}
-                        </PromptInputSelectContent>
-                      </PromptInputSelect>
+                      <ModelPicker
+                        models={activeAgent.models}
+                        value={agentModel}
+                        onValueChange={onAgentModelChange}
+                        agentId={activeAgent.id}
+                      />
                     )}
                   </>
                 ))}

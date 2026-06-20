@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { getCodingAgent, type McpServerSpec } from "@meos/core";
+import { registerAskOperation, unregisterAskOperation } from "./ask-registry.js";
 import type { AppContext } from "./context.js";
 
 const require = createRequire(import.meta.url);
@@ -73,6 +75,7 @@ function resolveMcpEntry(spec: string): { command: string; args: string[] } | nu
  */
 function buildMeosMcp(
   ctx: AppContext,
+  op: string,
 ): { servers: Record<string, McpServerSpec>; systemPrompt: string } | null {
   const wiki = resolveMcpEntry("@meos/wiki-mcp");
   const connectors = resolveMcpEntry("@meos/wiki-mcp/connectors");
@@ -83,7 +86,12 @@ function buildMeosMcp(
     );
     return null;
   }
-  const env = { MEOS_SERVER_URL: `http://127.0.0.1:${ctx.config.server.port}` };
+  // MEOS_AGENT_OP lets the connectors MCP child's `ask_user` tool address THIS
+  // run, so a mid-run question reaches the right chat stream (see ask-registry).
+  const env = {
+    MEOS_SERVER_URL: `http://127.0.0.1:${ctx.config.server.port}`,
+    MEOS_AGENT_OP: op,
+  };
   // Canonical, agent-neutral server map. Each agent definition translates this
   // into its own MCP wiring (Claude's --mcp-config JSON, Codex's config.toml,
   // Cursor/Gemini project config files, Copilot's --additional-mcp-config).
@@ -126,6 +134,13 @@ const MEOS_SYSTEM_PROMPT = [
   "service meOS already covers — just call the meos-connectors tool. If a tool",
   "reports the account needs reconnecting, tell the user to reconnect it in meOS",
   "settings; do not attempt your own auth flow.",
+  "",
+  "You run headless — there is no terminal to prompt. When the request is genuinely",
+  "ambiguous or a decision is the user's to make (which target? overwrite or merge?",
+  "which of these matches?), DON'T guess or stall: call the `ask_user` tool on the",
+  "meos-connectors server with 1–4 multiple-choice questions, then continue with",
+  "their answer. Reserve it for real forks — prefer your own tools and judgment for",
+  "anything you can resolve yourself.",
 ].join("\n");
 
 export async function runCodingAgent(
@@ -149,8 +164,12 @@ export async function runCodingAgent(
     model: runModel,
     resumeSessionId,
   } = resolveRun(ctx, conversationId, agent.id, model);
+  // A per-run id the agent's `ask_user` tool quotes back so a mid-run question
+  // reaches THIS chat stream; unregistered in `finally` so late answers drop.
+  const op = randomUUID();
   // Give the agent meOS's own wiki/knowledge tools, pointed at this server.
-  const meos = buildMeosMcp(ctx);
+  const meos = buildMeosMcp(ctx, op);
+  registerAskOperation(op, send, signal);
 
   let reply = "";
   let resultText = "";
@@ -162,64 +181,70 @@ export async function runCodingAgent(
   const sourcesById = new Map<number, AgentSource>();
   const pagesBySlug = new Map<string, AgentPage>();
 
-  for await (const event of agent.run({
-    prompt,
-    cwd,
-    model: runModel,
-    // Only resume when this agent supports it (e.g. Gemini's headless mode can't).
-    resumeSessionId: agent.supportsResume ? resumeSessionId : undefined,
-    signal,
-    mcpServers: meos?.servers,
-    systemPrompt: meos?.systemPrompt,
-  })) {
-    switch (event.type) {
-      // session/init carries the model + cwd, but we don't surface it: the trace
-      // fills from the model's own reasoning and tool calls within a beat, and the
-      // "Running Claude Code…" shimmer covers the gap — a "Claude Code · model ·
-      // /path/to/sandbox" line was just noise (and leaked an internal path).
-      case "reasoning":
-        send({ type: "reasoning", text: event.text });
-        break;
-      case "tool-call":
-        send({
-          type: "tool-call",
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          input: event.input,
-        });
-        break;
-      case "tool-result":
-        if (!event.isError)
-          collectMeosReferences(event.toolName, event.output, sourcesById, pagesBySlug);
-        send({
-          type: "tool-result",
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
-          output: event.output,
-          isError: event.isError,
-        });
-        break;
-      case "text":
-        reply += event.text;
-        send({ type: "delta", text: event.text });
-        break;
-      case "result":
-        sawResult = true;
-        resultText = event.text;
-        if (event.isError) failure = failureMessage(agent.label, event.subtype, event.text);
-        // Some turns speak only through the final result (no streamed text blocks)
-        // — stream it now so the live answer matches what gets persisted.
-        if (!reply.trim() && event.text) {
+  try {
+    for await (const event of agent.run({
+      prompt,
+      cwd,
+      model: runModel,
+      // Only resume when this agent supports it (e.g. Gemini's headless mode can't).
+      resumeSessionId: agent.supportsResume ? resumeSessionId : undefined,
+      signal,
+      mcpServers: meos?.servers,
+      systemPrompt: meos?.systemPrompt,
+    })) {
+      switch (event.type) {
+        // session/init carries the model + cwd, but we don't surface it: the trace
+        // fills from the model's own reasoning and tool calls within a beat, and the
+        // "Running Claude Code…" shimmer covers the gap — a "Claude Code · model ·
+        // /path/to/sandbox" line was just noise (and leaked an internal path).
+        case "reasoning":
+          send({ type: "reasoning", text: event.text });
+          break;
+        case "tool-call":
+          send({
+            type: "tool-call",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            input: event.input,
+          });
+          break;
+        case "tool-result":
+          if (!event.isError)
+            collectMeosReferences(event.toolName, event.output, sourcesById, pagesBySlug);
+          send({
+            type: "tool-result",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            output: event.output,
+            isError: event.isError,
+          });
+          break;
+        case "text":
           reply += event.text;
           send({ type: "delta", text: event.text });
-        }
-        if (event.sessionId)
-          ctx.store.setSetting(sessionKey(conversationId, agent.id), event.sessionId);
-        break;
-      case "error":
-        failure = event.message;
-        break;
+          break;
+        case "result":
+          sawResult = true;
+          resultText = event.text;
+          if (event.isError) failure = failureMessage(agent.label, event.subtype, event.text);
+          // Some turns speak only through the final result (no streamed text blocks)
+          // — stream it now so the live answer matches what gets persisted.
+          if (!reply.trim() && event.text) {
+            reply += event.text;
+            send({ type: "delta", text: event.text });
+          }
+          if (event.sessionId)
+            ctx.store.setSetting(sessionKey(conversationId, agent.id), event.sessionId);
+          break;
+        case "error":
+          failure = event.message;
+          break;
+      }
     }
+  } finally {
+    // The run is over: no more `ask_user` calls can arrive, and any question still
+    // open (e.g. the user never answered) is resolved as cancelled.
+    unregisterAskOperation(op);
   }
 
   // Client disconnected mid-run: the child was killed; persist nothing and leave

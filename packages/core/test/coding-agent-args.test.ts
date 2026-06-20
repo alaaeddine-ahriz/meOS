@@ -21,6 +21,14 @@ describe("buildClaudeArgs", () => {
     expect(valueAfter(args, "--max-turns")).toBe("30");
   });
 
+  it("disables the built-in AskUserQuestion so meOS's MCP ask_user tool is used instead", () => {
+    // Headless, Claude's built-in AskUserQuestion is in the tool list, the model
+    // prefers it over any MCP tool, and it auto-resolves to empty answers with no
+    // TTY — so the user is never asked. Removing it forces meOS's `ask_user`.
+    const args = buildClaudeArgs({ prompt: "hi", cwd: "/tmp" });
+    expect(valueAfter(args, "--disallowedTools")).toContain("AskUserQuestion");
+  });
+
   it("passes the requested model through", () => {
     const args = buildClaudeArgs({ prompt: "hi", cwd: "/tmp", model: "opus" });
     expect(valueAfter(args, "--model")).toBe("opus");

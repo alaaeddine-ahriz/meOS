@@ -139,3 +139,30 @@ export function invokeConnectorTool(
 ): Promise<{ result: string; isError: boolean }> {
   return request("POST", `/api/agent/connector-tools/${encodeURIComponent(name)}`, args);
 }
+
+// --- Mid-run questions (agent mode) -----------------------------------
+// A headless agent has no terminal to prompt, so to ask the user something it
+// calls the `ask_user` tool, which POSTs here. The request LONG-POLLS: meOS
+// holds it open until the user answers in chat (or the wait ends), then returns
+// their choice — see the server's ask-registry.
+
+export interface AskQuestionInput {
+  /** ≤12-char chip label categorising the question. */
+  header: string;
+  question: string;
+  options: { label: string; description?: string }[];
+  multiSelect?: boolean;
+}
+export interface AskAnswerItem {
+  question: string;
+  answers: string[];
+}
+export interface AskUserResult {
+  status: "answered" | "timeout" | "cancelled" | "unavailable";
+  answers: AskAnswerItem[];
+}
+
+/** Pose questions to the user and block until they answer (or the wait ends). */
+export function askUser(op: string, questions: AskQuestionInput[]): Promise<AskUserResult> {
+  return request("POST", "/api/agent/ask", { op, questions });
+}
