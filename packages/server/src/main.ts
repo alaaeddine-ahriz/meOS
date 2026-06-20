@@ -8,6 +8,37 @@ import { buildServer } from "./server.js";
 
 const log = createLogger("git");
 
+/**
+ * Translate the two startup failures users actually hit into one actionable line
+ * instead of a raw stack. Both otherwise present as a confusing dead app:
+ *  - ERR_DLOPEN_FAILED — a native module (better-sqlite3) compiled for a different
+ *    Node ABI than the one running. The server dies before binding, so the only
+ *    visible symptom is ECONNREFUSED in the web pane. The repo pins Node 22
+ *    (.nvmrc); `nvm use` + `pnpm install` rebuilds native modules to match.
+ *  - EADDRINUSE — a second `pnpm dev`/`pnpm desktop` racing for the same port.
+ */
+function fatalStartup(error: unknown, port?: number): never {
+  const e = error as { code?: string; message?: string };
+  if (e?.code === "ERR_DLOPEN_FAILED" || /NODE_MODULE_VERSION/.test(e?.message ?? "")) {
+    log.error(
+      { err: error },
+      `meOS couldn't load a native module — it was built for a different Node version ` +
+        `(you're on Node ${process.version}). Run \`nvm use\` (the repo pins Node 22 in .nvmrc), ` +
+        `then \`pnpm install\` to rebuild native modules, and start meOS again.`,
+    );
+  } else if (e?.code === "EADDRINUSE") {
+    const p = port ?? 4321;
+    log.error(
+      { err: error },
+      `meOS port ${p} is already in use — another meOS server is running. ` +
+        `Stop it and retry: \`lsof -ti:${p} | xargs kill\`.`,
+    );
+  } else {
+    log.error({ err: error }, "meOS failed to start");
+  }
+  process.exit(1);
+}
+
 // Process isolation (#94): in "app" role the heavy workers run in a forked worker
 // host and this process only serves the UI + enqueues; "all" is today's single
 // process. The role is opt-in (MEOS_WORKER_PROCESS=1) with MEOS_IN_PROCESS_WORKERS
@@ -16,15 +47,21 @@ const role = resolveSplitRole();
 
 let supervisor: WorkerSupervisor | undefined;
 let ctx: AppContext;
-if (role === "app") {
-  // Fork the compiled sibling (dist/worker-host.js); under tsx (dev) the entry is
-  // the .ts source and the child must load tsx too.
-  const isTs = import.meta.url.endsWith(".ts");
-  const entryUrl = new URL(isTs ? "./worker-host.ts" : "./worker-host.js", import.meta.url).href;
-  supervisor = new WorkerSupervisor({ entryUrl, isTs });
-  ctx = createContext(undefined, { role: "app", bridge: supervisor });
-} else {
-  ctx = createContext();
+try {
+  if (role === "app") {
+    // Fork the compiled sibling (dist/worker-host.js); under tsx (dev) the entry is
+    // the .ts source and the child must load tsx too.
+    const isTs = import.meta.url.endsWith(".ts");
+    const entryUrl = new URL(isTs ? "./worker-host.ts" : "./worker-host.js", import.meta.url).href;
+    supervisor = new WorkerSupervisor({ entryUrl, isTs });
+    ctx = createContext(undefined, { role: "app", bridge: supervisor });
+  } else {
+    ctx = createContext();
+  }
+} catch (error) {
+  // Opening the DB loads better-sqlite3 — the most common boot failure is its
+  // native ABI not matching the running Node. Make that legible, not a raw stack.
+  fatalStartup(error);
 }
 
 const app = await buildServer(ctx);
@@ -60,7 +97,11 @@ if (role === "all") {
 // already-current schema and never races DDL or git init.
 supervisor?.start();
 
-await app.listen({ port: ctx.config.server.port, host: "127.0.0.1" });
+try {
+  await app.listen({ port: ctx.config.server.port, host: "127.0.0.1" });
+} catch (error) {
+  fatalStartup(error, ctx.config.server.port);
+}
 
 const shutdown = async () => {
   // Stop the worker host first, then this process's own workers + server.
