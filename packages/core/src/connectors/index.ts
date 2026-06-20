@@ -65,3 +65,5 @@ export { ensureAccessToken, syncConnector } from "./sync.js";
 export type { SyncDeps, SyncResult } from "./sync.js";
 export { buildConnectorAgentTools, connectorToolDescriptors } from "./agent-tools.js";
 export type { ConnectorAgentTools, ConnectorToolDescriptor } from "./agent-tools.js";
+export { detectConnectorLinks, connectorLinkLabels } from "./detect.js";
+export type { DetectedConnectorLink, ConnectorLinkLabel } from "./detect.js";

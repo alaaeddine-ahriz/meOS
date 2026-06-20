@@ -59,6 +59,8 @@ export type {
   Schedule,
   ScheduleKind,
   TaskRunStatus,
+  TaskConnectorLink,
+  DetectedConnector,
 } from "./schemas/agent-tasks.js";
 export type {
   MeetingSummary,
@@ -193,6 +195,7 @@ export type AgentTaskDetailResponse = z.infer<typeof agentTasksSchemas.AgentTask
 export type AgentTaskRunsResponse = z.infer<typeof agentTasksSchemas.AgentTaskRunsResponse>;
 export type RunAgentTaskResponse = z.infer<typeof agentTasksSchemas.RunAgentTaskResponse>;
 export type DeleteAgentTaskResponse = z.infer<typeof agentTasksSchemas.DeleteAgentTaskResponse>;
+export type AnalyzeAgentTaskResponse = z.infer<typeof agentTasksSchemas.AnalyzeAgentTaskResponse>;
 
 export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
 export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;

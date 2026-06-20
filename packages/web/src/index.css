@@ -197,6 +197,20 @@
   }
 }
 
+/* Agent-task workflow graph: the dashed "flow" along an active task's edges. A
+   paused task keeps the dashes but stops the motion (set via the .is-active flag). */
+@keyframes meos-flow {
+  to {
+    stroke-dashoffset: -16;
+  }
+}
+.meos-flow-edge {
+  stroke-dasharray: 4 5;
+}
+.meos-flow-edge.is-active {
+  animation: meos-flow 0.9s linear infinite;
+}
+
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;

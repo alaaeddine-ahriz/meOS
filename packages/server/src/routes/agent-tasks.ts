@@ -1,5 +1,5 @@
 import { agentTasks as schema } from "@meos/contracts";
-import { listAgents } from "@meos/core";
+import { detectConnectorLinks, listAgents } from "@meos/core";
 import type { FastifyInstance } from "fastify";
 import { computeNextRunAfter, validateSchedule } from "../agent-task-scheduler.js";
 import type { AppContext } from "../context.js";
@@ -36,6 +36,28 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
     async () => schema.AgentTasksResponse.parse({ tasks: ctx.store.listAgentTasks() }),
   );
 
+  // Live connector detection for the workflow composer: the UI posts the in-progress
+  // instruction (debounced) and renders the connectors the agent will read from,
+  // before the task is ever saved. Pure + cheap (deterministic phrase matching over
+  // the connector registry), so it's safe to call on every keystroke.
+  app.post(
+    "/api/agent-tasks/analyze",
+    {
+      schema: routeSchema({
+        tags,
+        summary: "Detect the connectors referenced by an instruction",
+        body: schema.AnalyzeAgentTaskBody,
+        response: schema.AnalyzeAgentTaskResponse,
+      }),
+    },
+    async (request) => {
+      const body = parseOrThrow(schema.AnalyzeAgentTaskBody, request.body, "body");
+      return schema.AnalyzeAgentTaskResponse.parse({
+        connectors: detectConnectorLinks(body.prompt),
+      });
+    },
+  );
+
   app.post(
     "/api/agent-tasks",
     {
@@ -57,6 +79,12 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
       const enabled = body.enabled ?? true;
       // Seed the first run from now; a paused task has no due time until enabled.
       const nextRunAt = enabled ? computeNextRunAfter(body.schedule, new Date()) : null;
+      // The UI sends the resolved links it showed the user; when omitted (e.g. a raw
+      // API call) auto-identify the connectors from the instruction so the data
+      // sources are always explicit. Drop the per-match metadata before storing.
+      const links =
+        body.links ??
+        detectConnectorLinks(body.prompt).map((l) => ({ provider: l.provider, kind: l.kind }));
       const task = ctx.store.createAgentTask({
         title: body.title,
         prompt: body.prompt,
@@ -64,6 +92,7 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         model: body.model ?? null,
         scheduleKind: body.schedule.kind,
         scheduleValue: body.schedule.value,
+        links,
         enabled,
         nextRunAt,
       });
@@ -133,6 +162,8 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         model: body.model,
         scheduleKind: body.schedule?.kind,
         scheduleValue: body.schedule?.value,
+        // The workflow UI always sends the resolved set; absence means "leave as is".
+        links: body.links,
         enabled: body.enabled,
         nextRunAt,
       });

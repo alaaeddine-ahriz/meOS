@@ -71,6 +71,46 @@ describe("agent task routes (#7)", () => {
     expect(gone.statusCode).toBe(404);
   });
 
+  it("analyzes an instruction and auto-links the detected connectors on create", async () => {
+    const analyze = await server.app.inject({
+      method: "POST",
+      url: "/api/agent-tasks/analyze",
+      payload: { prompt: "Check my Gmail for replies and my Calendar for conflicts." },
+    });
+    expect(analyze.statusCode).toBe(200);
+    const detected = agentTasks.AnalyzeAgentTaskResponse.parse(analyze.json()).connectors;
+    expect(detected.map((c) => `${c.provider}:${c.kind}`)).toEqual(
+      expect.arrayContaining(["google:gmail", "google:calendar"]),
+    );
+
+    // Creating without explicit links seeds them from the prompt.
+    const created = await server.app.inject({
+      method: "POST",
+      url: "/api/agent-tasks",
+      payload: {
+        ...createBody,
+        prompt: "Check my Gmail for replies and my Calendar for conflicts.",
+      },
+    });
+    const { task } = agentTasks.AgentTaskResponse.parse(created.json());
+    expect(task.links).toEqual(
+      expect.arrayContaining([
+        { provider: "google", kind: "gmail" },
+        { provider: "google", kind: "calendar" },
+      ]),
+    );
+
+    // An explicit edit replaces the set.
+    const edited = await server.app.inject({
+      method: "PATCH",
+      url: `/api/agent-tasks/${task.id}`,
+      payload: { links: [{ provider: "google", kind: "tasks" }] },
+    });
+    expect(agentTasks.AgentTaskResponse.parse(edited.json()).task.links).toEqual([
+      { provider: "google", kind: "tasks" },
+    ]);
+  });
+
   it("rejects an invalid schedule and an unknown agent with 400", async () => {
     const badCron = await server.app.inject({
       method: "POST",
