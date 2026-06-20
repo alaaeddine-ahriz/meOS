@@ -62,6 +62,8 @@ export class GitSync {
       const { stdout } = await exec("git", args, {
         cwd: this.dataDir,
         maxBuffer: 16 * 1024 * 1024,
+        // Don't flash a console window on Windows for every git call.
+        windowsHide: true,
       });
       return stdout.trim();
     } catch (error) {
