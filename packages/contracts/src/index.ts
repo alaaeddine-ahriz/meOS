@@ -107,8 +107,6 @@ export type {
   WatchedFolder,
 } from "./schemas/settings.js";
 export type {
-  TaskGroup,
-  GroupRoute,
   IntelligenceRouting,
   RoutingAgent,
 } from "./schemas/intelligence.js";

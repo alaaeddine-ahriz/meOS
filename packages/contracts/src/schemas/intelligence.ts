@@ -1,39 +1,26 @@
 import { z } from "zod";
 
 /**
- * The intelligence-routing contract (#native-agent-intelligence). meOS routes
- * each task group's LLM calls to either the cloud API or a local coding agent,
- * per this persisted, hot-swappable setting. The web Settings UI reads/writes it
- * through GET/PUT `/api/intelligence-routing`.
+ * The intelligence-routing contract (#native-agent-intelligence). The whole
+ * app's intelligence runs on a SINGLE backend — either the cloud API or one
+ * local coding agent — per this persisted, hot-swappable setting. The web
+ * Settings UI reads/writes it through GET/PUT `/api/intelligence-routing`.
  *
- * Mirrors the core `IntelligenceRouting`/`GroupRoute` shapes exactly so the wire
- * format and the server's resolver can't drift. Response objects are explicit
- * `z.object`s (never `z.record`) — a record in a Fastify response schema
- * serializes malformed under this stack.
+ * Mirrors the core `IntelligenceRouting` shape exactly so the wire format and
+ * the server's resolver can't drift. Response objects are explicit `z.object`s
+ * (never `z.record`) — a record in a Fastify response schema serializes
+ * malformed under this stack.
  */
-
-/** The three task families routed independently (mirrors core `TaskGroup`). */
-export const TaskGroupSchema = z.enum(["background", "wiki", "assistant"]);
 
 /**
- * Where one group's LLM calls go. `"auto"` = the free local agent when one is
- * installed, the cloud API otherwise (the default). `agentId`/`model` pin a
- * specific CLI + model for the group.
+ * Where the whole app's LLM work runs: `"api"` = the cloud provider configured
+ * in Settings (the default); `"agent"` = a local coding agent (free on the
+ * user's subscription). `agentId`/`model` pin the CLI + model for `"agent"`.
  */
-export const GroupRouteSchema = z.object({
-  source: z.enum(["auto", "api", "agent"]),
+export const IntelligenceRoutingSchema = z.object({
+  backend: z.enum(["agent", "api"]),
   agentId: z.string().optional(),
   model: z.string().optional(),
-});
-
-/** The persisted routing object — one route per group plus a fallback agent. */
-export const IntelligenceRoutingSchema = z.object({
-  background: GroupRouteSchema,
-  wiki: GroupRouteSchema,
-  assistant: GroupRouteSchema,
-  defaultAgent: z
-    .object({ agentId: z.string().optional(), model: z.string().optional() })
-    .optional(),
 });
 
 /**
@@ -64,7 +51,5 @@ export const IntelligenceRoutingResponse = z.object({
 /** PUT `/api/intelligence-routing` — the desired routing to persist + apply. */
 export const UpdateIntelligenceRoutingBody = IntelligenceRoutingSchema;
 
-export type TaskGroup = z.infer<typeof TaskGroupSchema>;
-export type GroupRoute = z.infer<typeof GroupRouteSchema>;
 export type IntelligenceRouting = z.infer<typeof IntelligenceRoutingSchema>;
 export type RoutingAgent = z.infer<typeof RoutingAgentSchema>;

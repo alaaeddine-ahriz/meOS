@@ -18,88 +18,68 @@ function localConfig() {
 }
 
 describe("withRoutingDefaults", () => {
-  it("fills every group with auto on an empty stored value", () => {
-    const routing = withRoutingDefaults(undefined);
-    expect(routing.background.source).toBe("auto");
-    expect(routing.wiki.source).toBe("auto");
-    expect(routing.assistant.source).toBe("auto");
+  it("defaults to the api backend on an empty stored value", () => {
+    expect(withRoutingDefaults(undefined)).toEqual({ backend: "api" });
+    expect(withRoutingDefaults(null)).toEqual({ backend: "api" });
   });
 
-  it("coerces an unknown source to auto and preserves known ones", () => {
-    const routing = withRoutingDefaults({
-      background: { source: "weird" as never },
-      wiki: { source: "agent", agentId: "codex" },
+  it("preserves an agent backend with its pinned agentId + model", () => {
+    const routing = withRoutingDefaults({ backend: "agent", agentId: "codex", model: "gpt-5" });
+    expect(routing).toEqual({ backend: "agent", agentId: "codex", model: "gpt-5" });
+  });
+
+  it("coerces the legacy per-group shape to the api backend", () => {
+    // The old shape ({ background, wiki, assistant }) predates the single-backend
+    // model — it has no `backend`, so it must drop to the safe api default.
+    const legacy = {
+      background: { source: "agent", agentId: "claude" },
+      wiki: { source: "auto" },
       assistant: { source: "api" },
-    });
-    expect(routing.background.source).toBe("auto");
-    expect(routing.wiki.source).toBe("agent");
-    expect(routing.wiki.agentId).toBe("codex");
-    expect(routing.assistant.source).toBe("api");
+    } as unknown as Partial<IntelligenceRouting>;
+    expect(withRoutingDefaults(legacy)).toEqual({ backend: "api" });
+  });
+
+  it("coerces junk / a bad backend to the api default", () => {
+    expect(withRoutingDefaults({ backend: "weird" as never })).toEqual({ backend: "api" });
+    expect(withRoutingDefaults({ agentId: "codex" })).toEqual({ backend: "api" });
   });
 });
 
 describe("resolveGroupClient", () => {
   const config = localConfig();
 
-  it('source "api" → the cloud AiSdkClient', () => {
-    const routing: IntelligenceRouting = {
-      ...defaultIntelligenceRouting(),
-      background: { source: "api" },
-    };
-    const client = resolveGroupClient("background", config, routing, new Set());
-    expect(client).toBeInstanceOf(AiSdkClient);
-    expect(client).not.toBeInstanceOf(CodingAgentLlmClient);
+  it('backend "api" → the cloud AiSdkClient (for every group)', () => {
+    const routing = defaultIntelligenceRouting(); // { backend: "api" }
+    for (const group of ["background", "wiki", "assistant"] as const) {
+      const client = resolveGroupClient(group, config, routing, new Set(["claude"]));
+      expect(client).toBeInstanceOf(AiSdkClient);
+      expect(client).not.toBeInstanceOf(CodingAgentLlmClient);
+    }
   });
 
-  it('source "agent" → a CodingAgentLlmClient (even when nothing is installed)', () => {
-    const routing: IntelligenceRouting = {
-      ...defaultIntelligenceRouting(),
-      wiki: { source: "agent", agentId: "claude" },
-    };
-    const client = resolveGroupClient("wiki", config, routing, new Set());
-    expect(client).toBeInstanceOf(CodingAgentLlmClient);
+  it('backend "agent" → a CodingAgentLlmClient when the agent IS installed', () => {
+    const routing: IntelligenceRouting = { backend: "agent", agentId: "claude" };
+    for (const group of ["background", "wiki", "assistant"] as const) {
+      const client = resolveGroupClient(group, config, routing, new Set(["claude"]));
+      expect(client).toBeInstanceOf(CodingAgentLlmClient);
+    }
   });
 
-  it('source "auto" → agent when the default agent id IS installed', () => {
-    const routing = defaultIntelligenceRouting(); // every group "auto", resolves to "claude"
-    const client = resolveGroupClient("assistant", config, routing, new Set(["claude"]));
-    expect(client).toBeInstanceOf(CodingAgentLlmClient);
-  });
-
-  it('source "auto" → api when the default agent id is NOT installed', () => {
-    const routing = defaultIntelligenceRouting();
-    const client = resolveGroupClient("assistant", config, routing, new Set(["codex"]));
-    expect(client).toBeInstanceOf(AiSdkClient);
-    expect(client).not.toBeInstanceOf(CodingAgentLlmClient);
-  });
-
-  it('source "auto" honours a group\'s pinned agentId for the install check', () => {
-    const routing: IntelligenceRouting = {
-      ...defaultIntelligenceRouting(),
-      background: { source: "auto", agentId: "codex" },
-    };
-    // claude installed but the group pins codex (not installed) → api.
-    expect(resolveGroupClient("background", config, routing, new Set(["claude"]))).toBeInstanceOf(
-      AiSdkClient,
-    );
-    // codex installed and pinned → agent.
-    expect(resolveGroupClient("background", config, routing, new Set(["codex"]))).toBeInstanceOf(
-      CodingAgentLlmClient,
-    );
-  });
-
-  it("falls back to defaultAgent.agentId when a group pins none", () => {
-    const routing: IntelligenceRouting = {
-      ...defaultIntelligenceRouting(),
-      defaultAgent: { agentId: "codex" },
-    };
-    // "auto" with codex installed (the routing-wide default) → agent.
-    expect(resolveGroupClient("wiki", config, routing, new Set(["codex"]))).toBeInstanceOf(
-      CodingAgentLlmClient,
-    );
-    // claude installed but the default is codex → api.
+  it('backend "agent" defaults the agent id to claude', () => {
+    const routing: IntelligenceRouting = { backend: "agent" };
     expect(resolveGroupClient("wiki", config, routing, new Set(["claude"]))).toBeInstanceOf(
-      AiSdkClient,
+      CodingAgentLlmClient,
     );
+  });
+
+  it('backend "agent" but the agent is NOT installed → falls back to the cloud client', () => {
+    // The guard: a misconfigured/uninstalled agent must never brick the app.
+    const routing: IntelligenceRouting = { backend: "agent", agentId: "codex" };
+    const client = resolveGroupClient("assistant", config, routing, new Set(["claude"]));
+    expect(client).toBeInstanceOf(AiSdkClient);
+    expect(client).not.toBeInstanceOf(CodingAgentLlmClient);
+
+    // Nothing installed at all → also the cloud client.
+    expect(resolveGroupClient("assistant", config, routing, new Set())).toBeInstanceOf(AiSdkClient);
   });
 });

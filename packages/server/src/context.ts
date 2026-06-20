@@ -110,11 +110,13 @@ export interface AppContext {
    */
   llm: SwitchableLlmClient;
   /**
-   * The per-task-group LLM clients (#native-agent-intelligence). Each group runs
-   * on either the cloud API or a local coding agent per the persisted
-   * `intelligence-routing` setting; `applyIntelligenceRouting` swaps each in place
-   * when the routing or the provider/key changes. `llmFor("background")` is the
-   * same instance as {@link llm}.
+   * The per-task-group LLM clients (#native-agent-intelligence). All groups run
+   * on the SAME global backend — the cloud API or a local coding agent — per the
+   * persisted `intelligence-routing` setting; the per-group map is kept so each
+   * consumer holds a stable reference and an agent run gets its own scratch dir.
+   * `applyIntelligenceRouting` swaps each in place when the routing or the
+   * provider/key changes. `llmFor("background")` is the same instance as
+   * {@link llm}.
    */
   llmFor: (group: TaskGroup) => SwitchableLlmClient;
   /**
@@ -189,7 +191,7 @@ export function recoverWikiBacklog(ctx: Pick<AppContext, "store" | "refreshWiki"
 /** The settings key the persisted {@link IntelligenceRouting} lives under. */
 export const INTELLIGENCE_ROUTING_KEY = "intelligence-routing";
 
-/** Read the persisted routing (filling defaults) — `"auto"` for every group on a fresh DB. */
+/** Read the persisted routing (filling defaults) — `{ backend: "api" }` on a fresh DB. */
 export function loadIntelligenceRouting(store: KnowledgeStore): IntelligenceRouting {
   return withRoutingDefaults(store.getSetting<Partial<IntelligenceRouting>>(INTELLIGENCE_ROUTING_KEY));
 }
@@ -305,10 +307,12 @@ export function createContext(
   // DB) — overlay them onto the defaults before building the client.
   overlayStoredLlmConfig(config, store.getSetting<LlmConfig>("llm"));
 
-  // One SwitchableLlmClient per task group (#native-agent-intelligence): each
-  // group's calls route to the cloud API or a local coding agent per the persisted
-  // routing. Built switchable so `applyIntelligenceRouting` can swap each in place
-  // when the routing or the provider/key changes — consumers keep their reference.
+  // One SwitchableLlmClient per task group (#native-agent-intelligence): all
+  // groups run on the same global backend (cloud API or one local coding agent)
+  // per the persisted routing, but each keeps its own switchable client so
+  // consumers hold a stable reference and an agent run gets its own scratch dir.
+  // Built switchable so `applyIntelligenceRouting` can swap each in place when
+  // the routing or the provider/key changes — consumers keep their reference.
   // Seeded with the cloud client; the boot-time applyIntelligenceRouting() below
   // re-resolves them against the routing setting + detected agents (which needs an
   // async agent probe we don't want in this synchronous constructor).
