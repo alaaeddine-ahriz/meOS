@@ -196,7 +196,9 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         const mediaType = imageMediaType(filename);
         let parsed: { title: string; text: string } | null;
         if (mediaType) {
-          const text = await readImage(ctx.llm, filename, {
+          // Image OCR is background work (high-volume, latency-tolerant), routed
+          // with ingestion's other extraction calls.
+          const text = await readImage(ctx.llmFor("background"), filename, {
             mediaType,
             data: buffer.toString("base64"),
           });
@@ -219,7 +221,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
 
       try {
         const proposal = await draftProfileFromContext({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents: stored,
         });
@@ -255,7 +257,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       try {
         const proposal = await draftProfileFromKnowledge({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           knowledge,
         });
@@ -284,7 +286,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       try {
         const proposal = await draftProfileFromContext({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents,
         });
@@ -316,7 +318,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (!trimmed) throw httpError.validation("Field 'instruction' is required");
       try {
         const proposal = await editProfileWithInstruction({
-          llm: ctx.llm,
+          llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           instruction: trimmed,
           uploadedContext: useUploaded ? uploadedContext(ctx).combined || undefined : undefined,

@@ -21,6 +21,17 @@ export class SwitchableLlmClient implements LlmClient {
     this.inner = next;
   }
 
+  /**
+   * The current delegate. Exposed for INTROSPECTION only — to reason about which
+   * backend a switchable client is routed to (e.g. "is this group on a local
+   * coding agent or the cloud API?") in diagnostics and tests. Callers must go
+   * through the LlmClient methods for actual work, never this, so a later `swap`
+   * is always honoured.
+   */
+  unwrap(): LlmClient {
+    return this.inner;
+  }
+
   complete(request: CompletionRequest): Promise<string> {
     return this.inner.complete(request);
   }

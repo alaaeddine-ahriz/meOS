@@ -12,22 +12,28 @@ import {
   IngestionPipeline,
   JobQueue,
   KnowledgeStore,
+  listAgents,
   loadConfig,
   loadProfileContext,
   loadSchema,
   MeosEvents,
   openDatabase,
   overlayStoredLlmConfig,
+  resolveGroupClient,
   runConsolidation,
   Semaphore,
   SwitchableLlmClient,
+  TASK_GROUPS,
   Vault,
   WikiWriter,
+  withRoutingDefaults,
   writeWikiAgentDocs,
   type Embedder,
+  type IntelligenceRouting,
   type LlmConfig,
   type MeosConfig,
   type MeosDatabase,
+  type TaskGroup,
   type WikiChange,
 } from "@meos/core";
 import { ActivityBus } from "./activity.js";
@@ -97,7 +103,27 @@ export interface AppContext {
   config: MeosConfig;
   db: MeosDatabase;
   store: KnowledgeStore;
+  /**
+   * The `"background"` task group's client — kept as a top-level alias so the many
+   * existing `ctx.llm` consumers (and call sites that don't care about routing)
+   * stay valid. New code that wants a specific group should call {@link llmFor}.
+   */
   llm: SwitchableLlmClient;
+  /**
+   * The per-task-group LLM clients (#native-agent-intelligence). Each group runs
+   * on either the cloud API or a local coding agent per the persisted
+   * `intelligence-routing` setting; `applyIntelligenceRouting` swaps each in place
+   * when the routing or the provider/key changes. `llmFor("background")` is the
+   * same instance as {@link llm}.
+   */
+  llmFor: (group: TaskGroup) => SwitchableLlmClient;
+  /**
+   * The provider-health probe's client (#circuit). ALWAYS the cloud API — never a
+   * group client that may be routed to a local agent — because the probe's job is
+   * to test the configured API provider's credentials/credits. Rebuilt alongside
+   * the groups on a provider/key change (see {@link applyIntelligenceRouting}).
+   */
+  llmProbe: SwitchableLlmClient;
   embedder: Embedder;
   wiki: WikiWriter;
   vault: Vault;
@@ -158,6 +184,48 @@ export function recoverWikiBacklog(ctx: Pick<AppContext, "store" | "refreshWiki"
   const stale = ctx.store.staleEntities().length;
   if (stale > 0) ctx.refreshWiki();
   return stale;
+}
+
+/** The settings key the persisted {@link IntelligenceRouting} lives under. */
+export const INTELLIGENCE_ROUTING_KEY = "intelligence-routing";
+
+/** Read the persisted routing (filling defaults) — `"auto"` for every group on a fresh DB. */
+export function loadIntelligenceRouting(store: KnowledgeStore): IntelligenceRouting {
+  return withRoutingDefaults(store.getSetting<Partial<IntelligenceRouting>>(INTELLIGENCE_ROUTING_KEY));
+}
+
+/**
+ * Re-resolve every task group's client and {@link SwitchableLlmClient.swap} it in
+ * place (#native-agent-intelligence). This is the single re-routing seam, invoked:
+ *  (a) once at boot, after the group map is built;
+ *  (b) from the Settings LLM route when provider/model/key change — the `api`-backed
+ *      groups depend on `ctx.config`, so they must be rebuilt against the new config;
+ *  (c) from the routing route when the user edits the routing itself.
+ *
+ * It re-detects which coding agents are installed (a CLI may have been installed
+ * since boot), re-reads the routing setting, and resolves each group synchronously
+ * via {@link resolveGroupClient}. Swapping in place keeps every consumer's
+ * reference (pipeline, wiki, profile routes, …) valid — no rebuild of the graph.
+ */
+export async function applyIntelligenceRouting(
+  ctx: Pick<AppContext, "config" | "store" | "llmFor" | "llmProbe">,
+): Promise<void> {
+  // Detect once here so resolveGroupClient stays a pure, synchronous fan-out.
+  // listAgents() shells out per agent (cached briefly), so we await it off the
+  // hot path — only on boot and on a settings change, never per LLM call.
+  const installed = new Set<string>(
+    listAgents()
+      .filter((a) => a.installed)
+      .map((a) => a.id),
+  );
+  const routing = loadIntelligenceRouting(ctx.store);
+  for (const group of TASK_GROUPS) {
+    ctx.llmFor(group).swap(resolveGroupClient(group, ctx.config, routing, installed));
+  }
+  // The probe always tracks the configured cloud provider (never a routed agent),
+  // so a provider/key change rebuilds it here too — keeping the recovery probe
+  // pointed at the credentials it's meant to test.
+  ctx.llmProbe.swap(createLlmClient(ctx.config));
 }
 
 /**
@@ -236,16 +304,35 @@ export function createContext(
   // Provider, model, and API keys are defined in Settings (persisted in the
   // DB) — overlay them onto the defaults before building the client.
   overlayStoredLlmConfig(config, store.getSetting<LlmConfig>("llm"));
-  // Switchable so the Settings UI can change provider/model/key at runtime.
-  const llm = new SwitchableLlmClient(createLlmClient(config));
+
+  // One SwitchableLlmClient per task group (#native-agent-intelligence): each
+  // group's calls route to the cloud API or a local coding agent per the persisted
+  // routing. Built switchable so `applyIntelligenceRouting` can swap each in place
+  // when the routing or the provider/key changes — consumers keep their reference.
+  // Seeded with the cloud client; the boot-time applyIntelligenceRouting() below
+  // re-resolves them against the routing setting + detected agents (which needs an
+  // async agent probe we don't want in this synchronous constructor).
+  const groupClients = new Map<TaskGroup, SwitchableLlmClient>(
+    TASK_GROUPS.map((g) => [g, new SwitchableLlmClient(createLlmClient(config))]),
+  );
+  const llmFor = (group: TaskGroup): SwitchableLlmClient => {
+    const client = groupClients.get(group);
+    // Every TaskGroup is seeded above, so this is unreachable — narrow the type.
+    if (!client) throw new Error(`No LLM client for task group: ${group}`);
+    return client;
+  };
+  // `ctx.llm` aliases the background group so the many existing consumers stay valid.
+  const llm = llmFor("background");
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   // Records each page regeneration's agent transcript and streams it live.
   const activity = new ActivityBus(store);
   // Live fan-out of headless agent-task runs to any Tasks-view watcher (#7).
   const runStream = new ConversationStreamBus();
+  // The wiki maintainer routes through the `"wiki"` group — its own routing slot
+  // so the agentic page rewrites can run on a (free) local coding agent.
   const wiki = new WikiWriter(
     store,
-    llm,
+    llmFor("wiki"),
     path.join(config.dataDir, "wiki"),
     embedder,
     activity.hook,
@@ -310,6 +397,13 @@ export function createContext(
       return notes.join(", ") || undefined;
     },
   });
+  // A dedicated cloud client for the provider-health probe (#circuit). The probe
+  // exists to test the configured API provider's credentials/credits, so it must
+  // ALWAYS hit the cloud API — never a group client that may be routed to a local
+  // agent (which would always "succeed" and mask a broken API key). Rebuilt with
+  // the rest on a provider/key change via applyIntelligenceRouting → see the
+  // Settings route, which also clears the hold so the backlog drains immediately.
+  const probeClient = new SwitchableLlmClient(createLlmClient(config));
   const queue = new JobQueue(INGEST_CONCURRENCY);
   // Shared descriptor budget for the ingest paths (watcher + durable executor),
   // so a burst of file events can't exhaust the process FD limit (EMFILE).
@@ -337,7 +431,12 @@ export function createContext(
         ? undefined
         : async () => {
             try {
-              await llm.complete({ messages: [{ role: "user", content: "ping" }], maxTokens: 1 });
+              // The dedicated cloud client — never a group client that may be
+              // routed to a local agent — so this truly tests the API provider.
+              await probeClient.complete({
+                messages: [{ role: "user", content: "ping" }],
+                maxTokens: 1,
+              });
               return true;
             } catch {
               return false;
@@ -450,13 +549,15 @@ export function createContext(
     );
   }
 
-  return {
+  const ctx: AppContext = {
     role,
     rootDir,
     config,
     db,
     store,
     llm,
+    llmFor,
+    llmProbe: probeClient,
     embedder,
     wiki,
     vault,
@@ -475,4 +576,16 @@ export function createContext(
     // closure coalesces (refreshQueued) so repeated kicks collapse to one pass.
     refreshWiki: scheduleWikiRefresh,
   };
+
+  // Resolve every group against the routing setting + detected agents now that
+  // the context exists. The groups are already seeded with a working cloud client
+  // (above), so this fire-and-forget refinement (it awaits the async agent probe)
+  // can't leave a group unusable even if it loses a boot race — it only upgrades a
+  // group to its routed agent. Errors are swallowed: detection issues must never
+  // crash boot, and the seeded cloud client remains a correct fallback.
+  void applyIntelligenceRouting(ctx).catch((err) => {
+    eventsLog.error({ err }, "failed to apply intelligence routing at boot");
+  });
+
+  return ctx;
 }

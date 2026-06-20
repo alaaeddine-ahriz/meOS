@@ -32,6 +32,7 @@ export * as digest from "./schemas/digest.js";
 export * as outputs from "./schemas/outputs.js";
 export * as profile from "./schemas/profile.js";
 export * as settings from "./schemas/settings.js";
+export * as intelligence from "./schemas/intelligence.js";
 export * as preferences from "./schemas/preferences.js";
 export * as connectors from "./schemas/connectors.js";
 export * as sources from "./schemas/sources.js";
@@ -106,6 +107,12 @@ export type {
   WatchedFolder,
 } from "./schemas/settings.js";
 export type {
+  TaskGroup,
+  GroupRoute,
+  IntelligenceRouting,
+  RoutingAgent,
+} from "./schemas/intelligence.js";
+export type {
   EntityTypeName,
   ObservationKindName,
   KnowledgePreset,
@@ -168,6 +175,7 @@ import type * as connectorsSchemas from "./schemas/connectors.js";
 import type * as digestSchemas from "./schemas/digest.js";
 import type * as gitSchemas from "./schemas/git.js";
 import type * as ingestSchemas from "./schemas/ingest.js";
+import type * as intelligenceSchemas from "./schemas/intelligence.js";
 import type * as meetingsSchemas from "./schemas/meetings.js";
 import type * as outputsSchemas from "./schemas/outputs.js";
 import type * as preferencesSchemas from "./schemas/preferences.js";
@@ -257,6 +265,10 @@ export type ResetResponse = z.infer<typeof settingsSchemas.ResetResponse>;
 
 export type KnowledgePreferencesResponse = z.infer<
   typeof preferencesSchemas.KnowledgePreferencesSchema
+>;
+
+export type IntelligenceRoutingResponse = z.infer<
+  typeof intelligenceSchemas.IntelligenceRoutingResponse
 >;
 
 export type AuthStartResponse = z.infer<typeof connectorsSchemas.AuthStartResponse>;

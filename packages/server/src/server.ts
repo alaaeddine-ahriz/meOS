@@ -21,6 +21,7 @@ import { registerConnectorRoutes } from "./routes/connectors.js";
 import { registerDigestRoutes } from "./routes/digest.js";
 import { registerGitRoutes } from "./routes/git.js";
 import { registerIngestRoutes } from "./routes/ingest.js";
+import { registerIntelligenceRoutes } from "./routes/intelligence.js";
 import { registerKnowledgeRoutes } from "./routes/knowledge.js";
 import { registerMeetingRoutes } from "./routes/meetings.js";
 import { registerOutputRoutes } from "./routes/outputs.js";
@@ -104,6 +105,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerOutputRoutes(app, ctx);
   registerProfileRoutes(app, ctx);
   registerSettingsRoutes(app, ctx);
+  registerIntelligenceRoutes(app, ctx);
   registerConnectorCatalogRoute(app, ctx);
   registerConnectorRoutes(app, ctx);
   registerSourceRoutes(app, ctx);
