@@ -5,9 +5,20 @@ import { INTELLIGENCE_ROUTING_KEY } from "../src/context.js";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
 
 let server: TestServer;
+/**
+ * Whether the `claude` CLI is installed on the machine running these tests —
+ * read from the live agent picker so the install-dependent assertions branch
+ * deterministically on any host (CI without a CLI, a dev box with one). The
+ * not-installed guard means an `agent` backend only yields a CodingAgentLlmClient
+ * when the resolved agent is actually installed.
+ */
+let claudeInstalled = false;
 
 beforeAll(async () => {
   server = await buildTestServer();
+  const res = await server.app.inject({ method: "GET", url: "/api/intelligence-routing" });
+  const parsed = intelligence.IntelligenceRoutingResponse.parse(res.json());
+  claudeInstalled = parsed.agents.some((a) => a.id === "claude" && a.installed);
 });
 
 afterAll(async () => {
@@ -22,13 +33,11 @@ function innerOf(group: "background" | "wiki" | "assistant") {
 }
 
 describe("GET /api/intelligence-routing", () => {
-  it("returns the default routing (auto for every group) + the agent picker", async () => {
+  it("returns the default routing (api backend) + the agent picker", async () => {
     const res = await server.app.inject({ method: "GET", url: "/api/intelligence-routing" });
     expect(res.statusCode).toBe(200);
     const parsed = intelligence.IntelligenceRoutingResponse.parse(res.json());
-    expect(parsed.routing.background.source).toBe("auto");
-    expect(parsed.routing.wiki.source).toBe("auto");
-    expect(parsed.routing.assistant.source).toBe("auto");
+    expect(parsed.routing.backend).toBe("api");
     // The picker lists every supported agent so the UI can render install state.
     expect(parsed.agents.length).toBeGreaterThan(0);
     expect(parsed.agents.some((a) => a.id === "claude")).toBe(true);
@@ -40,78 +49,64 @@ describe("PUT /api/intelligence-routing", () => {
     const res = await server.app.inject({
       method: "PUT",
       url: "/api/intelligence-routing",
-      payload: {
-        background: { source: "agent", agentId: "not-a-real-agent" },
-        wiki: { source: "auto" },
-        assistant: { source: "auto" },
-      },
+      payload: { backend: "agent", agentId: "not-a-real-agent" },
     });
     expect(res.statusCode).toBe(400);
     const envelope = ErrorEnvelopeSchema.parse(res.json());
     expect(typeof envelope.requestId).toBe("string");
   });
 
-  it("round-trips, persists, and re-resolves the changed group to an agent", async () => {
+  it("round-trips, persists, and re-resolves every group off the global backend", async () => {
     const res = await server.app.inject({
       method: "PUT",
       url: "/api/intelligence-routing",
-      payload: {
-        background: { source: "agent", agentId: "claude", model: "opus" },
-        wiki: { source: "api" },
-        assistant: { source: "auto" },
-      },
+      payload: { backend: "agent", agentId: "claude", model: "opus" },
     });
     expect(res.statusCode).toBe(200);
     const parsed = intelligence.IntelligenceRoutingResponse.parse(res.json());
-    expect(parsed.routing.background).toMatchObject({
-      source: "agent",
-      agentId: "claude",
-      model: "opus",
-    });
-    expect(parsed.routing.wiki.source).toBe("api");
+    expect(parsed.routing).toMatchObject({ backend: "agent", agentId: "claude", model: "opus" });
 
     // Persisted under the settings key.
     const stored = server.ctx.store.getSetting<intelligence.IntelligenceRouting>(
       INTELLIGENCE_ROUTING_KEY,
     );
-    expect(stored?.background.source).toBe("agent");
+    expect(stored?.backend).toBe("agent");
 
-    // The PUT triggered a re-resolve: a "source: agent" group is now backed by a
-    // CodingAgentLlmClient regardless of what's installed (agent is explicit).
-    expect(innerOf("background")).toBeInstanceOf(CodingAgentLlmClient);
-    // An "api" group is NOT an agent client.
-    expect(innerOf("wiki")).not.toBeInstanceOf(CodingAgentLlmClient);
+    // The PUT triggered a re-resolve of EVERY group off the one global backend.
+    // The not-installed guard means an agent client only when claude is installed;
+    // otherwise the guard falls back to the cloud client so the app keeps working.
+    for (const group of ["background", "wiki", "assistant"] as const) {
+      if (claudeInstalled) {
+        expect(innerOf(group)).toBeInstanceOf(CodingAgentLlmClient);
+      } else {
+        expect(innerOf(group)).not.toBeInstanceOf(CodingAgentLlmClient);
+      }
+    }
   });
 
-  it("a subsequent PUT flips a group back off the agent (hot-swap in place)", async () => {
+  it("flips back to the api backend (hot-swap in place, every group)", async () => {
     const before = server.ctx.llmFor("background");
     const res = await server.app.inject({
       method: "PUT",
       url: "/api/intelligence-routing",
-      payload: {
-        background: { source: "api" },
-        wiki: { source: "auto" },
-        assistant: { source: "auto" },
-      },
+      payload: { backend: "api" },
     });
     expect(res.statusCode).toBe(200);
     // Same SwitchableLlmClient instance (consumers keep their reference)...
     expect(server.ctx.llmFor("background")).toBe(before);
-    // ...but its inner backend swapped back off the coding agent.
-    expect(innerOf("background")).not.toBeInstanceOf(CodingAgentLlmClient);
+    // ...but its inner backend swapped back off the coding agent — for every group.
+    for (const group of ["background", "wiki", "assistant"] as const) {
+      expect(innerOf(group)).not.toBeInstanceOf(CodingAgentLlmClient);
+    }
   });
 });
 
 describe("provider-health probe", () => {
-  it("stays on the cloud API even when every group is routed to an agent", async () => {
+  it("stays on the cloud API even when the backend is routed to an agent", async () => {
     const res = await server.app.inject({
       method: "PUT",
       url: "/api/intelligence-routing",
-      payload: {
-        background: { source: "agent", agentId: "claude" },
-        wiki: { source: "agent", agentId: "claude" },
-        assistant: { source: "agent", agentId: "claude" },
-      },
+      payload: { backend: "agent", agentId: "claude" },
     });
     expect(res.statusCode).toBe(200);
     // The probe must test the API provider's credentials — never a local agent

@@ -13,9 +13,9 @@ import { routeSchema } from "../route-schema.js";
 const tags = ["intelligence"];
 
 /**
- * Intelligence routing (#native-agent-intelligence). meOS routes each task
- * group's LLM calls to either the cloud API or a local coding agent, per a
- * persisted, hot-swappable setting. These two endpoints back the Settings UI:
+ * Intelligence routing (#native-agent-intelligence). meOS runs the whole app's
+ * LLM work on a SINGLE backend — the cloud API or one local coding agent — per
+ * a persisted, hot-swappable setting. These two endpoints back the Settings UI:
  * GET returns the current routing + the agent picker; PUT validates, persists,
  * and re-resolves every group through {@link applyIntelligenceRouting}.
  */
@@ -31,7 +31,7 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
     },
     async () =>
       intelligenceSchema.IntelligenceRoutingResponse.parse({
-        // Defaults filled, so a fresh DB returns `"auto"` for every group.
+        // Defaults filled, so a fresh DB returns the safe `{ backend: "api" }`.
         routing: loadIntelligenceRouting(ctx.store),
         // The full agent list (with `installed` flags) so the UI can render the
         // picker — which agents are selectable, which need installing — in one trip.
@@ -56,18 +56,12 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
         "body",
       );
 
-      // Validate any pinned agent id against the agents meOS actually supports —
-      // a typo'd id must 400, not silently fall back to Claude at resolve time.
-      const knownAgents = new Set<string>(listAgents().map((a) => a.id));
-      const pinnedIds = [
-        routing.background.agentId,
-        routing.wiki.agentId,
-        routing.assistant.agentId,
-        routing.defaultAgent?.agentId,
-      ].filter((id): id is string => Boolean(id));
-      for (const id of pinnedIds) {
-        if (!knownAgents.has(id)) {
-          throw httpError.badRequest(`Unknown coding agent: ${id}`);
+      // Validate a pinned agent id against the agents meOS actually supports — a
+      // typo'd id must 400, not silently fall back to Claude at resolve time.
+      if (routing.agentId) {
+        const knownAgents = new Set<string>(listAgents().map((a) => a.id));
+        if (!knownAgents.has(routing.agentId)) {
+          throw httpError.badRequest(`Unknown coding agent: ${routing.agentId}`);
         }
       }
 
