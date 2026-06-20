@@ -176,7 +176,6 @@ workflow artifacts.
 | Platform              | Runner           | Bundle                   | Artifact (uploaded as `meos-<os>`)                                    |
 | --------------------- | ---------------- | ------------------------ | --------------------------------------------------------------------- |
 | macOS (Apple Silicon) | `macos-14`       | DMG                      | `MeOS_<version>_aarch64.dmg`                                          |
-| macOS (Intel)         | `macos-15-intel` | DMG                      | `MeOS_<version>_x64.dmg`                                              |
 | Windows               | `windows-latest` | NSIS                     | `MeOS_<version>_x64-setup.exe`                                        |
 | Linux                 | `ubuntu-22.04`   | AppImage (fallback: DEB) | `MeOS_<version>_amd64.AppImage` (fallback `MeOS_<version>_amd64.deb`) |
 

@@ -50,9 +50,11 @@ since native modules can't be cross-compiled:
 | Runner                     | Output                             |
 | -------------------------- | ---------------------------------- |
 | `macos-14` (Apple Silicon) | `.dmg`                             |
-| `macos-15-intel` (Intel)   | `.dmg`                             |
 | `windows-latest`           | `.exe` (NSIS)                      |
 | `ubuntu-22.04`             | `.AppImage` (falls back to `.deb`) |
+
+macOS **Intel** is not built: `onnxruntime-node` (via transformers.js) ships no
+darwin-x64 prebuilt as of 1.23, so the bundled embedder can't be assembled there.
 
 Linux installs the WebKitGTK/AppImage system libs first. Trigger from the
 **Actions** tab (_Run workflow_) or by pushing a `v*` tag, then download the

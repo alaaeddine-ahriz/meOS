@@ -44,9 +44,9 @@ jobs:
           - os: macos-14
             label: macOS (Apple Silicon)
             bundles: dmg
-          - os: macos-15-intel
-            label: macOS (Intel)
-            bundles: dmg
+          # macOS Intel (darwin/x64) is intentionally absent: onnxruntime-node
+          # ships no darwin-x64 prebuilt as of 1.23 (transformers.js has no Node
+          # WASM fallback), so the runtime payload can't be assembled there.
           - os: windows-latest
             label: Windows
             bundles: nsis
@@ -158,6 +158,25 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Resolve the Release tag tolerantly: release-please tags as vX.Y.Z, but a
+          # manual workflow_dispatch may pass the bare version (e.g. 0.1.0). Try the
+          # given form, then the other v-prefix form, and fail clearly if neither
+          # has a Release — otherwise `gh release upload` dies with a bare
+          # "release not found".
+          resolve_tag() {
+            local want="$1" alt
+            if gh release view "$want" >/dev/null 2>&1; then printf '%s' "$want"; return 0; fi
+            case "$want" in
+              v*) alt="${want#v}" ;;
+              *)  alt="v${want}" ;;
+            esac
+            if gh release view "$alt" >/dev/null 2>&1; then printf '%s' "$alt"; return 0; fi
+            return 1
+          }
+          if ! tag="$(resolve_tag "${RELEASE_TAG}")"; then
+            echo "::error::no GitHub Release found for tag '${RELEASE_TAG}' (also tried its v-prefix variant). Create the Release before attaching bundles."
+            exit 1
+          fi
           # macOS runners ship Bash 3.2, which has no `mapfile`/`readarray`, so
           # collect matches with a portable read loop instead.
           assets=()
@@ -166,9 +185,9 @@ jobs:
           done < <(find packages/desktop/src-tauri/target/release/bundle \
             -type f \( -name '*.dmg' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \))
           if [ ${#assets[@]} -eq 0 ]; then
-            echo "::error::no desktop bundles found to attach to ${RELEASE_TAG}"
+            echo "::error::no desktop bundles found to attach to ${tag}"
             exit 1
           fi
-          printf 'Attaching to %s:\n' "${RELEASE_TAG}"
+          printf 'Attaching to %s:\n' "${tag}"
           printf '  %s\n' "${assets[@]}"
-          gh release upload "${RELEASE_TAG}" "${assets[@]}" --clobber
+          gh release upload "${tag}" "${assets[@]}" --clobber
