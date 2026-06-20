@@ -22,6 +22,7 @@ export * as ingest from "./schemas/ingest.js";
 export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";
 export * as wikiAgent from "./schemas/wiki-agent.js";
+export * as knowledge from "./schemas/knowledge.js";
 export * as staleFacts from "./schemas/stale-facts.js";
 export * as vault from "./schemas/vault.js";
 export * as chat from "./schemas/chat.js";

@@ -200,8 +200,13 @@ export {
   editProfileWithInstruction,
 } from "./profile/profile-assistant.js";
 export type { ProfileProposal } from "./profile/profile-assistant.js";
-export { findDuplicateEntities } from "./knowledge/entity-resolution.js";
-export type { DuplicateProposal } from "./knowledge/entity-resolution.js";
+export {
+  findDuplicateEntities,
+  resolveCandidate,
+  MERGE_CONFIDENCE,
+  REVIEW_CONFIDENCE,
+} from "./knowledge/entity-resolution.js";
+export type { DuplicateProposal, ResolutionDecision } from "./knowledge/entity-resolution.js";
 export { WikiWriter } from "./wiki/writer.js";
 export type {
   WikiPageCheck,
