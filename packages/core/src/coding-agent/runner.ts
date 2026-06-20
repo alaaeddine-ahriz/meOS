@@ -9,6 +9,15 @@ import {
 } from "./types.js";
 
 /**
+ * Claude Code's built-in clarifying-question tool. Headless it is a TRAP: it's in
+ * the tool list and the model reaches for it over any MCP tool, but with no TTY it
+ * auto-resolves to empty answers in ~37ms (anthropics/claude-code#50728) — the
+ * user is never asked. We disable it so the model uses meOS's `ask_user` MCP tool,
+ * which actually round-trips a question to the chat UI and back.
+ */
+const DISALLOWED_TOOLS = ["AskUserQuestion"];
+
+/**
  * Build the `claude` CLI argument vector for a run. Pure (no spawn, no I/O) so
  * the flag wiring — model, MCP config, appended system prompt, resume — can be
  * unit-tested without shelling out.
@@ -25,6 +34,9 @@ export function buildClaudeArgs(opts: ClaudeRunOptions): string[] {
     opts.model ?? DEFAULT_MODEL,
     "--max-turns",
     String(opts.maxTurns ?? DEFAULT_MAX_TURNS),
+    // Remove the dead built-in ask tool so meOS's MCP `ask_user` wins (see above).
+    "--disallowedTools",
+    DISALLOWED_TOOLS.join(","),
     // Merge our MCP servers with the user's own (no --strict-mcp-config), so the
     // agent gets meOS's wiki/knowledge tools on top of whatever it already has.
     ...(opts.mcpConfig ? ["--mcp-config", opts.mcpConfig] : []),
@@ -47,7 +59,14 @@ export function runClaudeCodeAgent(opts: ClaudeRunOptions): AsyncIterable<Claude
     args: buildClaudeArgs(opts),
     cwd: opts.cwd,
     prompt: opts.prompt,
-    env: opts.env,
+    // Give MCP tool calls room to block on a human: meOS's `ask_user` long-polls
+    // until the user answers. Claude's default MCP tool timeout is only 60s, and
+    // headless it does NOT extend on progress notifications (claude-code#58687) —
+    // it's a hard wall-clock limit — but MCP_TOOL_TIMEOUT (ms) IS honored in `-p`
+    // mode, so it's the real lever. meOS caps the wait server-side (~270s) and
+    // returns a "timeout" result before this 10-min ceiling, so the tool always
+    // resolves cleanly first; the ceiling is just generous headroom.
+    env: { MCP_TOOL_TIMEOUT: "600000", ...opts.env },
     signal: opts.signal,
     adapter: new ClaudeStreamAdapter(),
     label: "Claude Code",

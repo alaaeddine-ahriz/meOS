@@ -66,6 +66,8 @@ export type {
   ChatEvent,
   LlmErrorKind,
   CodingAgentSummary,
+  AskQuestion,
+  AskAnswerItem,
 } from "./schemas/chat.js";
 export type { WikiRun, WikiRunEvent, WikiRunEventKind, ActivityEvent } from "./schemas/activity.js";
 export type {

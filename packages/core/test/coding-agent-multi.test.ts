@@ -225,6 +225,47 @@ describe("agent registry + detection", () => {
   });
 });
 
+/**
+ * Mid-run questions need each agent to (a) reach meOS's MCP `ask_user` tool and
+ * (b) let that call block while the human answers. The per-agent MCP config is
+ * written during `run()`'s setup; we trigger it with a non-existent binary (so the
+ * spawn fast-fails after setup has written the files) and assert the config.
+ */
+describe("agent MCP config for mid-run questions", () => {
+  const MISSING_BIN = "definitely-not-a-real-binary-xyz";
+  const servers = {
+    "meos-connectors": { command: "node", args: ["x.js"], env: { MEOS_AGENT_OP: "op1" } },
+  };
+
+  async function drainSetup(it: AsyncIterable<AgentEvent>): Promise<void> {
+    // Iterate so the generator runs setup (writes config) then the spawn fails.
+    try {
+      for await (const _ of it) void _;
+    } catch {
+      // A missing binary surfaces as an error event or throw — both fine; setup ran.
+    }
+  }
+
+  it("gemini removes its colliding built-in ask_user and sets an MCP tool timeout", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "meos-gemini-"));
+    await drainSetup(
+      getCodingAgent("gemini").run({ prompt: "hi", cwd, bin: MISSING_BIN, mcpServers: servers }),
+    );
+    const cfg = JSON.parse(fs.readFileSync(path.join(cwd, ".gemini", "settings.json"), "utf8"));
+    expect(cfg.excludeTools).toContain("ask_user");
+    expect(cfg.mcpServers["meos-connectors"].timeout).toBeGreaterThanOrEqual(300_000);
+  });
+
+  it("cursor sets a best-effort MCP tool timeout", async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "meos-cursor-"));
+    await drainSetup(
+      getCodingAgent("cursor").run({ prompt: "hi", cwd, bin: MISSING_BIN, mcpServers: servers }),
+    );
+    const cfg = JSON.parse(fs.readFileSync(path.join(cwd, ".cursor", "mcp.json"), "utf8"));
+    expect(cfg.mcpServers["meos-connectors"].timeout).toBeGreaterThanOrEqual(300_000);
+  });
+});
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

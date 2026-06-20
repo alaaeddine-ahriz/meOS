@@ -80,6 +80,55 @@ export const CodingAgentSummarySchema = z.object({
 });
 export const CodingAgentsResponse = z.object({ agents: z.array(CodingAgentSummarySchema) });
 
+/**
+ * Mid-run questions. When an agent's request is ambiguous it can pause and ask
+ * the user to choose, instead of guessing or stopping. The shape mirrors Claude
+ * Code's built-in `AskUserQuestion` so any MCP-speaking agent can call our
+ * `ask_user` tool with the exact schema it already knows.
+ */
+export const AskOptionSchema = z.object({
+  /** The choice shown to the user. */
+  label: z.string(),
+  /** A short gloss on what picking this option means. */
+  description: z.string().optional(),
+});
+export const AskQuestionSchema = z.object({
+  /** A ≤12-char chip label categorising the question (e.g. "Scope", "Format"). */
+  header: z.string(),
+  /** The full question. */
+  question: z.string(),
+  /** 2–4 mutually-exclusive choices (unless `multiSelect`). */
+  options: z.array(AskOptionSchema).min(1).max(6),
+  /** Allow choosing more than one option. */
+  multiSelect: z.boolean().optional(),
+});
+/** One question's resolved answer: the option label(s) the user chose (or typed). */
+export const AskAnswerItemSchema = z.object({
+  question: z.string(),
+  answers: z.array(z.string()),
+});
+
+/** POST /api/agent/ask — the MCP `ask_user` tool's long-poll request. */
+export const AskUserBody = z.object({
+  /** The run this question belongs to (threaded to the agent's MCP child as `MEOS_AGENT_OP`). */
+  op: z.string().min(1),
+  questions: z.array(AskQuestionSchema).min(1).max(4),
+});
+/** POST /api/agent/ask response — resolved once the user answers (or the wait ends). */
+export const AskUserResult = z.object({
+  status: z.enum(["answered", "timeout", "cancelled", "unavailable"]),
+  answers: z.array(AskAnswerItemSchema),
+});
+
+/** POST /api/agent/ask/answer — the web client delivering the user's choice. */
+export const AskAnswerBody = z.object({
+  op: z.string().min(1),
+  /** The question id from the `ask-user` SSE frame. */
+  id: z.string().min(1),
+  answers: z.array(AskAnswerItemSchema),
+});
+export const AskAnswerResponse = z.object({ ok: z.boolean() });
+
 /** Frames emitted on the /api/chat SSE stream. */
 export const ChatEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start"), conversationId: z.number() }),
@@ -115,6 +164,18 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
     links: z.array(GraphLinkSchema),
   }),
   z.object({ type: z.literal("delta"), text: z.string() }),
+  /**
+   * The agent paused to ask the user a question (agent mode). The client renders
+   * the choices and POSTs the answer to /api/agent/ask/answer with this `op`+`id`,
+   * which unblocks the agent. Live-only — the resolved answer is woven into the
+   * persisted turn as the agent's next tool result, so it isn't persisted itself.
+   */
+  z.object({
+    type: z.literal("ask-user"),
+    op: z.string(),
+    id: z.string(),
+    questions: z.array(AskQuestionSchema),
+  }),
   z.object({ type: z.literal("done") }),
   z.object({ type: z.literal("error"), message: z.string(), kind: LlmErrorKindSchema.optional() }),
 ]);
@@ -131,3 +192,6 @@ export type Message = z.infer<typeof MessageSchema>;
 export type ChatEvent = z.infer<typeof ChatEventSchema>;
 export type LlmErrorKind = z.infer<typeof LlmErrorKindSchema>;
 export type CodingAgentSummary = z.infer<typeof CodingAgentSummarySchema>;
+export type AskQuestion = z.infer<typeof AskQuestionSchema>;
+export type AskAnswerItem = z.infer<typeof AskAnswerItemSchema>;
+export type AskUserResultT = z.infer<typeof AskUserResult>;

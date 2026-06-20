@@ -20,7 +20,156 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
-import { getConnectorTools, invokeConnectorTool, type ConnectorToolDescriptor } from "./client.js";
+import {
+  askUser,
+  getConnectorTools,
+  invokeConnectorTool,
+  type AskQuestionInput,
+  type AskUserResult,
+  type ConnectorToolDescriptor,
+} from "./client.js";
+
+/** The slice of the MCP request handler's `extra` the ask tool uses (progress keepalive). */
+interface AskExtra {
+  _meta?: { progressToken?: string | number };
+  sendNotification: (notification: {
+    method: "notifications/progress";
+    params: {
+      progressToken: string | number;
+      progress: number;
+      total?: number;
+      message?: string;
+    };
+  }) => Promise<void>;
+}
+
+/**
+ * The mid-run question tool. Mirrors Claude Code's built-in `AskUserQuestion`
+ * schema so any MCP-speaking agent can call it with the shape it already knows.
+ * The call blocks (server-side long-poll) until the user answers in meOS chat.
+ */
+const ASK_USER_TOOL = "ask_user";
+const askUserToolDescriptor = {
+  name: ASK_USER_TOOL,
+  description:
+    "Ask the user one or more clarifying questions with multiple-choice options, then continue " +
+    "with their answer. Use ONLY when the request is genuinely ambiguous or a decision is the " +
+    "user's to make — never to stall on something you can resolve yourself. You run headless, so " +
+    "this is the only way to reach the user mid-task.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      questions: {
+        type: "array",
+        minItems: 1,
+        maxItems: 4,
+        description: "1–4 questions to ask at once.",
+        items: {
+          type: "object",
+          properties: {
+            header: { type: "string", description: "Short ≤12-char category label, e.g. 'Scope'." },
+            question: { type: "string", description: "The full question." },
+            options: {
+              type: "array",
+              minItems: 1,
+              maxItems: 6,
+              description: "The choices offered.",
+              items: {
+                type: "object",
+                properties: {
+                  label: { type: "string", description: "The choice shown to the user." },
+                  description: { type: "string", description: "Short gloss on this choice." },
+                },
+                required: ["label"],
+              },
+            },
+            multiSelect: { type: "boolean", description: "Allow choosing more than one option." },
+          },
+          required: ["header", "question", "options"],
+        },
+      },
+    },
+    required: ["questions"],
+  } as { type: "object" } & Record<string, unknown>,
+};
+
+/** A human-wait can outlast the agent's MCP tool-call timeout; periodic progress resets it. */
+const KEEPALIVE_MS = 25_000;
+
+/** Turn the server's long-poll result into text the agent can act on (always non-throwing). */
+function formatAskResult(result: AskUserResult): { text: string; isError: boolean } {
+  if (result.status === "answered" && result.answers.length > 0) {
+    const lines = result.answers.map(
+      (a) => `- ${a.question}\n  → ${a.answers.join(", ") || "(no choice)"}`,
+    );
+    return { text: `The user answered:\n${lines.join("\n")}`, isError: false };
+  }
+  const why =
+    result.status === "timeout"
+      ? "The user didn't answer in time."
+      : result.status === "cancelled"
+        ? "The question was cancelled (the user stopped the run or it ended)."
+        : "No interactive meOS session is available to ask the user.";
+  return {
+    text: `${why} Proceed with your best judgment and state any assumption you make in your reply.`,
+    isError: false,
+  };
+}
+
+/** Run an `ask_user` call: keep the tool-call alive while the user decides, then format the answer. */
+async function handleAskUser(
+  args: unknown,
+  extra: AskExtra,
+): Promise<{ content: { type: "text"; text: string }[]; isError: boolean }> {
+  const op = process.env.MEOS_AGENT_OP?.trim();
+  const questions = (args as { questions?: AskQuestionInput[] })?.questions;
+  if (!op || !Array.isArray(questions) || questions.length === 0) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: "Can't ask the user right now (no interactive session). Proceed with your best judgment.",
+        },
+      ],
+      isError: false,
+    };
+  }
+
+  // While we wait on the human, emit progress so the agent's client doesn't time
+  // the tool call out. Only meaningful when the call carried a progress token.
+  const progressToken = extra._meta?.progressToken;
+  let ticks = 0;
+  const keepalive =
+    progressToken === undefined
+      ? undefined
+      : setInterval(() => {
+          extra
+            .sendNotification({
+              method: "notifications/progress",
+              params: { progressToken, progress: ++ticks, message: "Waiting for the user…" },
+            })
+            .catch(() => {});
+        }, KEEPALIVE_MS);
+
+  try {
+    const result = await askUser(op, questions);
+    const { text, isError } = formatAskResult(result);
+    return { content: [{ type: "text", text }], isError };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Couldn't reach meOS to ask the user (${message}). Proceed with your best judgment.`,
+        },
+      ],
+      isError: false,
+    };
+  } finally {
+    if (keepalive) clearInterval(keepalive);
+  }
+}
 
 /** Fetch the live tool list from meOS; an unreachable/empty server yields none. */
 async function loadTools(): Promise<ConnectorToolDescriptor[]> {
@@ -48,15 +197,23 @@ async function main(): Promise<void> {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: tools.map((t) => ({
-      name: t.name,
-      description: t.description,
-      inputSchema: t.inputSchema as { type: "object" } & Record<string, unknown>,
-    })),
+    // `ask_user` is always offered (it needs no connected service) alongside the
+    // user's live connector tools.
+    tools: [
+      askUserToolDescriptor,
+      ...tools.map((t) => ({
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema as { type: "object" } & Record<string, unknown>,
+      })),
+    ],
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+  server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const { name, arguments: args } = req.params;
+    if (name === ASK_USER_TOOL) {
+      return handleAskUser(args, extra as unknown as AskExtra);
+    }
     if (!known.has(name)) {
       return {
         content: [{ type: "text", text: `Unknown connector tool: ${name}` }],

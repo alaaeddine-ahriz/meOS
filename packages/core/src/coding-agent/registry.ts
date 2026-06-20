@@ -44,6 +44,26 @@ function writeJson(file: string, value: unknown): void {
   fs.writeFileSync(file, JSON.stringify(value, null, 2));
 }
 
+/**
+ * How long an MCP tool call may block. meOS's `ask_user` tool blocks while a human
+ * answers in chat, far past the agents' ~60s default tool timeout — without this
+ * the CLI cancels the in-flight call and the question is lost. The meOS server caps
+ * the wait (~270s) and returns first, so this is generous headroom, not the real
+ * limit. Each agent applies it in its own config dialect (ms for JSON MCP configs;
+ * Codex uses seconds in TOML; Claude uses the MCP_TOOL_TIMEOUT env in its runner).
+ */
+const MCP_TOOL_TIMEOUT_MS = 600_000;
+
+/** Add a per-server `timeout` (ms) to JSON MCP specs so a blocking `ask_user` call isn't cancelled. */
+function withMcpTimeout(servers: Record<string, McpServerSpec>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, spec]) => [
+      name,
+      { ...spec, timeout: MCP_TOOL_TIMEOUT_MS },
+    ]),
+  );
+}
+
 function hasServers(
   servers?: Record<string, McpServerSpec>,
 ): servers is Record<string, McpServerSpec> {
@@ -184,8 +204,12 @@ const CURSOR: CodingAgentDefinition = {
   run(input) {
     const setup = () => {
       // Cursor reads MCP servers from <cwd>/.cursor/mcp.json (project scope).
+      // Cursor has no built-in ask tool to shadow ours, and exposes no tool-timeout
+      // flag — the per-server `timeout` is best-effort (ignored if unsupported).
       if (hasServers(input.mcpServers)) {
-        writeJson(path.join(input.cwd, ".cursor", "mcp.json"), { mcpServers: input.mcpServers });
+        writeJson(path.join(input.cwd, ".cursor", "mcp.json"), {
+          mcpServers: withMcpTimeout(input.mcpServers),
+        });
       }
     };
     const args = [
@@ -236,9 +260,15 @@ const GEMINI: CodingAgentDefinition = {
   run(input) {
     const setup = () => {
       // Gemini reads MCP servers from <cwd>/.gemini/settings.json (project scope).
+      // Gemini ships a BUILT-IN `ask_user` tool that's active headless and collides
+      // by name with meOS's MCP `ask_user`; the model would pick the built-in (which
+      // is denied with no TTY), so the question never reaches meOS. excludeTools
+      // removes the bare built-in — the MCP tool is namespaced, so it survives. The
+      // per-server timeout keeps the blocking call alive while the human answers.
       if (hasServers(input.mcpServers)) {
         writeJson(path.join(input.cwd, ".gemini", "settings.json"), {
-          mcpServers: input.mcpServers,
+          mcpServers: withMcpTimeout(input.mcpServers),
+          excludeTools: ["ask_user"],
         });
       }
     };
@@ -290,16 +320,30 @@ const COPILOT: CodingAgentDefinition = {
     const setup = () => {
       if (hasServers(input.mcpServers)) {
         // Copilot's headless mode only loads MCP via --additional-mcp-config (its
-        // type:"local" shape). Per-invocation file, injected by flag below.
+        // type:"local" shape). Per-invocation file, injected by flag below. The
+        // per-server timeout is best-effort (Copilot is reported to cap it near 60s).
         const servers = Object.fromEntries(
           Object.entries(input.mcpServers).map(([name, s]) => [
             name,
-            { type: "local", command: s.command, args: s.args, env: s.env ?? {}, tools: "*" },
+            {
+              type: "local",
+              command: s.command,
+              args: s.args,
+              env: s.env ?? {},
+              tools: "*",
+              timeout: MCP_TOOL_TIMEOUT_MS,
+            },
           ]),
         );
         writeJson(mcpFile, { mcpServers: servers });
       }
     };
+    // NOTE: mid-run `ask_user` questions are NOT reliably supported on Copilot.
+    // Its built-in `ask_user` is active headless and HANGS with no TTY (it can also
+    // shadow ours by name). The documented remedy is `--no-ask-user`, left unset
+    // here pending verification against a pinned Copilot version — adding an
+    // unsupported flag would break all Copilot runs. Copilot's plain-text output
+    // also can't show a live trace (the answer card still comes from meOS's SSE).
     const args = [
       "-p",
       withGuidance(input.prompt, input.systemPrompt),
@@ -331,10 +375,15 @@ const COPILOT: CodingAgentDefinition = {
 /** Render a Codex `config.toml` `[mcp_servers.*]` block for the injected meOS servers. */
 function codexConfigToml(servers: Record<string, McpServerSpec>): string {
   const lines: string[] = [];
+  // Codex's default MCP tool timeout is 60s; raise it so the blocking `ask_user`
+  // tool isn't cancelled while the human answers (TOML keys are in SECONDS).
+  const toolTimeoutSec = Math.round(MCP_TOOL_TIMEOUT_MS / 1000);
   for (const [name, spec] of Object.entries(servers)) {
     lines.push(`[mcp_servers.${name}]`);
     lines.push(`command = ${JSON.stringify(spec.command)}`);
     lines.push(`args = ${JSON.stringify(spec.args)}`);
+    lines.push(`startup_timeout_sec = 30`);
+    lines.push(`tool_timeout_sec = ${toolTimeoutSec}`);
     if (spec.env && Object.keys(spec.env).length > 0) {
       lines.push(`[mcp_servers.${name}.env]`);
       for (const [k, v] of Object.entries(spec.env)) lines.push(`${k} = ${JSON.stringify(v)}`);
