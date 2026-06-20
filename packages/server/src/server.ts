@@ -9,6 +9,7 @@ import fastifyStatic from "@fastify/static";
 import { AgentTaskRunner } from "./agent-task-scheduler.js";
 import type { AppContext } from "./context.js";
 import { registerErrorHandler } from "./errors.js";
+import { McpManifest, registerMcpManifestHook } from "./mcp-manifest.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentTaskRoutes } from "./routes/agent-tasks.js";
@@ -67,6 +68,12 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   // routes so each can attach its own JSON schema for richer documentation.
   await registerOpenApi(app);
 
+  // The generated MCP tool surface is collected as routes register: the onRoute
+  // hook reads each route's opt-in `x-mcp` annotation. Attached BEFORE any route
+  // plugin runs so it observes every route; served via GET /api/agent/tool-manifest.
+  const mcpManifest = new McpManifest();
+  registerMcpManifestHook(app, mcpManifest);
+
   // Keep `ok` + `llmProvider` intact (the CI web-smoke depends on `ok`); add a
   // compact `workers` status list so a basic health check sees the runtime too.
   app.get("/api/health", async () => ({
@@ -83,7 +90,7 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerMeetingRoutes(app, ctx);
   registerWikiRoutes(app, ctx);
   registerWikiAgentRoutes(app, ctx);
-  registerAgentToolRoutes(app, ctx);
+  registerAgentToolRoutes(app, ctx, mcpManifest);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
   // The runner is shared between the task routes (run-now) and the per-minute

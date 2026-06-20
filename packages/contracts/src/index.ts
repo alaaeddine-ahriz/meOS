@@ -18,6 +18,7 @@ export * from "./schemas/common.js";
 // write `wiki.WikiPageResponse`, and the most commonly shared types are also
 // re-exported directly below for ergonomic `z.infer` consumption in the client.
 export * as agentTasks from "./schemas/agent-tasks.js";
+export * as agentTools from "./schemas/agent-tools.js";
 export * as ingest from "./schemas/ingest.js";
 export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";

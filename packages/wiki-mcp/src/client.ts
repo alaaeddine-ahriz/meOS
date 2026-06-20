@@ -27,11 +27,10 @@ function unreachable(url: string, cause: unknown): Error {
   return err;
 }
 
-async function request<T>(
-  method: "GET" | "POST" | "PUT",
-  path: string,
-  body?: unknown,
-): Promise<T> {
+/** The HTTP methods the generated MCP tools can map to (a superset of the curated calls). */
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+
+async function request<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
   const url = `${baseUrl()}${path}`;
 
   let res: Response;
@@ -165,4 +164,84 @@ export interface AskUserResult {
 /** Pose questions to the user and block until they answer (or the wait ends). */
 export function askUser(op: string, questions: AskQuestionInput[]): Promise<AskUserResult> {
   return request("POST", "/api/agent/ask", { op, questions });
+}
+
+// --- Generated tool surface (the annotated-API projection) ------------------
+// The MCP surface mirrors the app's annotated HTTP API: meOS serves a manifest of
+// exposed routes, and `registerGeneratedTools` (generated.ts) turns each into a
+// live MCP tool. These two helpers are the manifest fetch + the generic request the
+// generated tool handlers reuse — they take the base URL explicitly (a generated
+// server may target a different meOS than MEOS_SERVER_URL), unlike the curated
+// wiki/connector calls above which read the env default.
+
+/** One generated tool's reconstruction recipe, as served by /api/agent/tool-manifest. */
+export interface ToolManifestEntry {
+  name: string;
+  method: string;
+  path: string;
+  summary: string;
+  safety: "read" | "write" | "destructive";
+  /** A single JSON-Schema object: the merged path/query/body input the tool accepts. */
+  inputSchema: Record<string, unknown>;
+}
+
+/** Fetch the generated MCP tool manifest from a specific meOS server. */
+export async function getToolManifest(base: string): Promise<ToolManifestEntry[]> {
+  const url = `${base.replace(/\/+$/, "")}/api/agent/tool-manifest`;
+  let res: Response;
+  try {
+    res = await fetch(url, { method: "GET" });
+  } catch (cause) {
+    throw unreachable(base, cause);
+  }
+  if (!res.ok) {
+    throw new Error(`meOS API GET /api/agent/tool-manifest failed (${res.status})`);
+  }
+  const text = await res.text();
+  const parsed = (text.length === 0 ? {} : JSON.parse(text)) as { tools?: ToolManifestEntry[] };
+  return parsed.tools ?? [];
+}
+
+/**
+ * Issue one generated tool's HTTP request against `base` and return the parsed JSON
+ * (or raw text when the body isn't JSON). Mirrors the curated {@link request}'s
+ * error shaping, but is method-generic and base-explicit so a generated handler can
+ * hit any exposed route.
+ */
+export async function callGenerated(
+  base: string,
+  method: HttpMethod,
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
+  const url = `${base.replace(/\/+$/, "")}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: body === undefined ? undefined : { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch (cause) {
+    throw unreachable(base, cause);
+  }
+
+  const text = await res.text();
+  if (!res.ok) {
+    let detail = text;
+    try {
+      const parsed = JSON.parse(text) as { message?: string; error?: string };
+      detail = parsed.message ?? parsed.error ?? text;
+    } catch {
+      // keep raw text
+    }
+    throw new Error(`meOS API ${method} ${path} failed (${res.status}): ${detail}`);
+  }
+
+  if (text.length === 0) return undefined;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
