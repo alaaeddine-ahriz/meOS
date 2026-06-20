@@ -13,14 +13,17 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   streamChat,
+  type AgentTracePart,
   type AskAnswerItem,
   type AskQuestion,
   type CodingAgentSummary,
   type EntitySummary,
+  type FileChange,
   type GraphLink,
   type GraphNode,
   type LlmErrorKind,
   type Message as MessageRecord,
+  type RunTelemetry,
   type SourceRef,
 } from "../api.js";
 import { DiffView } from "../components/DiffView.js";
@@ -280,6 +283,33 @@ type AgentPart =
   // choice and POSTs it back, unblocking the agent — see AskCard.
   | { kind: "ask"; op: string; id: string; questions: AskQuestion[] };
 
+/**
+ * Rebuild the live trace shape from a turn's persisted trace (loaded with the
+ * message), so a reopened agent conversation renders the same chronological
+ * timeline it streamed. The persisted form drops the live-only `state`/`toolCallId`
+ * — a tool always has its result by the time it's persisted, so its state is
+ * derived from `isError` here.
+ */
+function rehydrateTrace(parts: AgentTracePart[]): AgentPart[] {
+  return parts.map((part) => {
+    if (part.kind === "tool") {
+      return {
+        kind: "tool",
+        toolName: part.toolName,
+        input: part.input,
+        output: part.output,
+        state:
+          part.output === undefined
+            ? "input-available"
+            : part.isError
+              ? "output-error"
+              : "output-available",
+      };
+    }
+    return part;
+  });
+}
+
 /** Render a failed tool's output as plain text for the error panel. */
 function toErrorText(output: unknown): string {
   if (typeof output === "string") return output;
@@ -380,6 +410,10 @@ export function ChatView() {
   const [liveGraph, setLiveGraph] = useState<
     ReadonlyMap<number, { nodes: GraphNode[]; links: GraphLink[] }>
   >(new Map());
+  // an agent run's cost/turns/duration + the files it touched, keyed the same way
+  // — rendered as a footer under the answer (also persisted, so reloads keep them)
+  const [liveTelemetry, setLiveTelemetry] = useState<ReadonlyMap<number, RunTelemetry>>(new Map());
+  const [liveFiles, setLiveFiles] = useState<ReadonlyMap<number, FileChange[]>>(new Map());
   // which assistant turns were driven by the coding agent (Claude Code), keyed by
   // index — only changes the "working…" label while the answer is still empty
   const [agentTurns, setAgentTurns] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -475,6 +509,8 @@ export function ChatView() {
     setLivePages(new Map());
     setLiveTrace(new Map());
     setLiveGraph(new Map());
+    setLiveTelemetry(new Map());
+    setLiveFiles(new Map());
     setAgentTurns(new Map());
     setError(null);
     setStatus("ready");
@@ -617,6 +653,16 @@ export function ChatView() {
           setLiveGraph((current) =>
             new Map(current).set(assistantIndex, { nodes: event.nodes, links: event.links }),
           );
+        } else if (event.type === "run-telemetry") {
+          setLiveTelemetry((current) =>
+            new Map(current).set(assistantIndex, {
+              costUsd: event.costUsd,
+              numTurns: event.numTurns,
+              durationMs: event.durationMs,
+            }),
+          );
+        } else if (event.type === "files-changed") {
+          setLiveFiles((current) => new Map(current).set(assistantIndex, event.files));
         } else if (event.type === "ask-user") {
           // The agent paused to ask: drop a question card into the trace, in order.
           setLiveTrace((current) =>
@@ -733,8 +779,21 @@ export function ChatView() {
             <ConversationContent className="mx-auto w-full max-w-2xl gap-6 px-6 py-10">
               <>
                 {messages.map((message, index) => {
-                  const trace = liveTrace.get(index);
+                  // Live trace while streaming; on reload, rebuilt from the turn's
+                  // persisted trace so the timeline survives reopening the chat.
+                  const trace =
+                    liveTrace.get(index) ??
+                    (message.trace ? rehydrateTrace(message.trace) : undefined);
                   const graph = liveGraph.get(index);
+                  const telemetry = liveTelemetry.get(index) ?? message.telemetry;
+                  const files = liveFiles.get(index) ?? message.filesChanged ?? [];
+                  // An agent turn either streamed this session (agentTurns) or carries
+                  // persisted agent metadata from a past run (trace/telemetry/files).
+                  const isAgentTurn =
+                    (agentTurns.get(index) ?? false) ||
+                    !!message.trace?.length ||
+                    !!message.telemetry ||
+                    files.length > 0;
                   return (
                     <Message
                       key={message.id > 0 ? message.id : `pending-${index}`}
@@ -742,10 +801,11 @@ export function ChatView() {
                     >
                       <MessageContent className="group-[.is-user]:max-w-[85%] group-[.is-user]:rounded-xl group-[.is-user]:rounded-br-sm group-[.is-user]:border group-[.is-user]:border-line group-[.is-user]:bg-card group-[.is-user]:py-2.5 group-[.is-user]:text-[14px]">
                         {message.role === "assistant" ? (
-                          agentTurns.get(index) && trace && trace.length > 0 ? (
-                            // Live agent turn: one chronological timeline — thinking,
-                            // tool calls, and answer text interleaved in the order they
-                            // happened — then the references it leaned on.
+                          isAgentTurn && trace && trace.length > 0 ? (
+                            // Agent turn: one chronological timeline — thinking, tool
+                            // calls, and answer text interleaved in the order they
+                            // happened — then the references it leaned on, and a footer
+                            // with what the run cost and which files it touched.
                             <>
                               <AgentTrace
                                 trace={trace}
@@ -761,6 +821,7 @@ export function ChatView() {
                                 />
                               </div>
                               {graph && graph.nodes.length > 0 && <ChatGraph graph={graph} />}
+                              <AgentRunFooter telemetry={telemetry} files={files} />
                             </>
                           ) : (
                             <>
@@ -1065,6 +1126,91 @@ function ChatGraph({ graph }: { graph: { nodes: GraphNode[]; links: GraphLink[] 
       </figcaption>
       <ForceGraph nodes={graph.nodes} links={graph.links} wheelZoom={false} className="h-72" />
     </figure>
+  );
+}
+
+/** Run cost in the agent footer — sub-cent costs collapse to "<$0.01"; "" if free. */
+function formatCost(usd: number): string {
+  if (usd <= 0) return "";
+  if (usd < 0.01) return "<$0.01";
+  return `$${usd < 1 ? usd.toFixed(3) : usd.toFixed(2)}`;
+}
+
+/** Run duration in the agent footer — ms under a second, else seconds, else m s. */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${Math.round(seconds % 60)}s`;
+}
+
+// Glyph + colour per file-change status, matching the app's diff palette (moss =
+// added, ember = removed) so the footer reads like the rest of the UI.
+const FILE_STATUS: Record<FileChange["status"], { glyph: string; className: string }> = {
+  added: { glyph: "+", className: "text-moss" },
+  modified: { glyph: "~", className: "text-faded" },
+  deleted: { glyph: "−", className: "text-ember" },
+};
+
+/**
+ * The footer under an agent turn: what the run cost (cost · turns · duration) and
+ * which files it created/edited/removed. Both are optional — telemetry only shows
+ * for CLIs that report it (Claude Code today), and files only when the run touched
+ * any — so the whole footer disappears when there's nothing to say.
+ */
+function AgentRunFooter({ telemetry, files }: { telemetry?: RunTelemetry; files: FileChange[] }) {
+  const showTelemetry =
+    telemetry !== undefined && (telemetry.numTurns > 0 || telemetry.durationMs > 0);
+  if (!showTelemetry && files.length === 0) return null;
+  const cost = telemetry ? formatCost(telemetry.costUsd) : "";
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      {files.length > 0 && (
+        <figure className="overflow-hidden rounded-xl border border-line bg-desk">
+          <figcaption className="flex items-center justify-between border-b border-line px-3 py-2 text-[11px] text-dim">
+            <span className="font-mono uppercase tracking-wider">Files changed</span>
+            <span>
+              {files.length} {files.length === 1 ? "file" : "files"}
+            </span>
+          </figcaption>
+          <ul className="divide-y divide-line/60">
+            {files.map((file) => {
+              const { glyph, className } = FILE_STATUS[file.status];
+              return (
+                <li
+                  key={`${file.status}:${file.path}`}
+                  className="flex items-center gap-2 px-3 py-1.5 font-mono text-[12px]"
+                >
+                  <span className={`w-3 shrink-0 text-center ${className}`} aria-hidden>
+                    {glyph}
+                  </span>
+                  <span className="truncate text-faded" title={file.path}>
+                    {file.path}
+                  </span>
+                  <span className="sr-only">{file.status}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </figure>
+      )}
+      {showTelemetry && telemetry && (
+        <div className="flex items-center gap-1.5 font-mono text-[11px] text-dim">
+          {cost && (
+            <>
+              <span>{cost}</span>
+              <span aria-hidden>·</span>
+            </>
+          )}
+          <span>
+            {telemetry.numTurns} {telemetry.numTurns === 1 ? "turn" : "turns"}
+          </span>
+          <span aria-hidden>·</span>
+          <span>{formatDuration(telemetry.durationMs)}</span>
+        </div>
+      )}
+    </div>
   );
 }
 

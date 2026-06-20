@@ -2,7 +2,15 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { getCodingAgent, type McpServerSpec } from "@meos/core";
+import {
+  diffSnapshots,
+  getCodingAgent,
+  snapshotDir,
+  type AgentTracePart,
+  type DirSnapshot,
+  type McpServerSpec,
+  type MessageAgentMeta,
+} from "@meos/core";
 import { registerAskOperation, unregisterAskOperation } from "./ask-registry.js";
 import type { AppContext } from "./context.js";
 
@@ -143,6 +151,113 @@ const MEOS_SYSTEM_PROMPT = [
   "anything you can resolve yourself.",
 ].join("\n");
 
+/**
+ * Max chars of a single tool output we persist. The live trace streams the full
+ * text to the client; persistence caps it so a multi-megabyte Bash/Read dump
+ * doesn't bloat the DB and slow every later reload of the conversation.
+ */
+const MAX_PERSISTED_OUTPUT = 16_000;
+
+/**
+ * A trace step during accumulation — the persisted {@link AgentTracePart} plus a
+ * live-only `toolCallId` so a `tool-result` can be matched back to its call. The
+ * server rebuilds the same chronological timeline the web client renders live, so
+ * a reload restores reasoning → tool → answer exactly as it streamed.
+ */
+export type TracePart =
+  | { kind: "reasoning"; text: string }
+  | { kind: "text"; text: string }
+  | {
+      kind: "tool";
+      toolCallId?: string;
+      toolName: string;
+      input: unknown;
+      output?: unknown;
+      isError?: boolean;
+    };
+
+/** Merge a reasoning delta into the trailing reasoning step, or open a new one. */
+export function appendReasoning(trace: TracePart[], text: string): void {
+  const last = trace[trace.length - 1];
+  if (last?.kind === "reasoning") last.text += text;
+  else trace.push({ kind: "reasoning", text });
+}
+
+/** Merge an answer-text delta into the trailing text step, or open a new one — so
+ * a run of prose stays one block but a tool call between two blocks splits them. */
+export function appendText(trace: TracePart[], text: string): void {
+  const last = trace[trace.length - 1];
+  if (last?.kind === "text") last.text += text;
+  else trace.push({ kind: "text", text });
+}
+
+/** Attach a tool result to its pending call (matched by id, else by name). */
+export function settleTool(
+  trace: TracePart[],
+  toolCallId: string | undefined,
+  toolName: string,
+  output: unknown,
+  isError: boolean,
+): void {
+  for (let i = trace.length - 1; i >= 0; i--) {
+    const part = trace[i]!;
+    if (part.kind !== "tool" || part.output !== undefined) continue;
+    const matches = toolCallId ? part.toolCallId === toolCallId : part.toolName === toolName;
+    if (matches) {
+      part.output = output;
+      part.isError = isError;
+      return;
+    }
+  }
+}
+
+/** Strip the live-only `toolCallId` and cap oversized tool outputs, yielding the
+ * reload-safe trace to persist on the message. */
+export function toPersistedTrace(trace: TracePart[]): AgentTracePart[] {
+  return trace.map((part) => {
+    if (part.kind !== "tool") return part;
+    let output = part.output;
+    if (typeof output === "string" && output.length > MAX_PERSISTED_OUTPUT) {
+      output = `${output.slice(0, MAX_PERSISTED_OUTPUT)}\n…[truncated]`;
+    }
+    return {
+      kind: "tool",
+      toolName: part.toolName,
+      input: part.input,
+      output,
+      isError: part.isError,
+    };
+  });
+}
+
+/** Telemetry worth surfacing — only Claude Code reports non-zero today, so a run
+ * of all-zeros (Codex/Gemini/Copilot) is treated as "no telemetry" and hidden. */
+export function isMeaningfulTelemetry(t: {
+  costUsd: number;
+  numTurns: number;
+  durationMs: number;
+}): boolean {
+  return t.costUsd > 0 || t.numTurns > 0 || t.durationMs > 0;
+}
+
+/**
+ * The result of one agent run, returned for non-interactive callers (scheduled
+ * tasks) that need to record how it went. The chat route ignores it — its UX is
+ * driven entirely by the streamed SSE frames.
+ */
+export interface AgentRunOutcome {
+  /** `ok` = produced an answer; `empty` = nothing to show; `error`/`aborted` = failed/cancelled. */
+  status: "ok" | "empty" | "error" | "aborted";
+  /** The assistant message persisted for this run, if one was. */
+  messageId: number | null;
+  /** A human-facing failure reason (turn limit, run error), if any. */
+  failure: string | null;
+  /** The run's cost/turns/duration, if the agent reported it. */
+  telemetry: { costUsd: number; numTurns: number; durationMs: number } | null;
+  /** How many files the run touched in its workspace. */
+  fileCount: number;
+}
+
 export async function runCodingAgent(
   ctx: AppContext,
   conversationId: number,
@@ -151,7 +266,7 @@ export async function runCodingAgent(
   signal?: AbortSignal,
   model?: string,
   agentId?: string,
-): Promise<void> {
+): Promise<AgentRunOutcome> {
   const prompt = message.trim();
   const firstTurn = ctx.store.listMessages(conversationId).length === 0;
   ctx.store.addMessage(conversationId, "user", prompt);
@@ -171,10 +286,19 @@ export async function runCodingAgent(
   const meos = buildMeosMcp(ctx, op);
   registerAskOperation(op, send, signal);
 
+  // Snapshot the workspace before the run so we can diff it afterwards into the
+  // list of files the agent created/edited/removed (agent-neutral file tracking).
+  const beforeSnapshot: DirSnapshot = snapshotDir(cwd);
+
   let reply = "";
   let resultText = "";
   let failure: string | null = null;
   let sawResult = false;
+  // The run's chronological trace (reasoning → tool → answer text), accumulated as
+  // events arrive and persisted on the message so a reload restores the timeline.
+  const trace: TracePart[] = [];
+  // The run's cost/turns/duration, from the terminal `result` event (see below).
+  let telemetry: { costUsd: number; numTurns: number; durationMs: number } | null = null;
   // The wiki pages + source documents the agent consulted through its meOS tools
   // (wiki_search / wiki_context) — surfaced under the answer like the chat's own
   // citations, so the user can see (and open) what grounded the reply.
@@ -198,9 +322,16 @@ export async function runCodingAgent(
         // "Running Claude Code…" shimmer covers the gap — a "Claude Code · model ·
         // /path/to/sandbox" line was just noise (and leaked an internal path).
         case "reasoning":
+          appendReasoning(trace, event.text);
           send({ type: "reasoning", text: event.text });
           break;
         case "tool-call":
+          trace.push({
+            kind: "tool",
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            input: event.input,
+          });
           send({
             type: "tool-call",
             toolCallId: event.toolCallId,
@@ -211,6 +342,7 @@ export async function runCodingAgent(
         case "tool-result":
           if (!event.isError)
             collectMeosReferences(event.toolName, event.output, sourcesById, pagesBySlug);
+          settleTool(trace, event.toolCallId, event.toolName, event.output, event.isError);
           send({
             type: "tool-result",
             toolCallId: event.toolCallId,
@@ -221,6 +353,7 @@ export async function runCodingAgent(
           break;
         case "text":
           reply += event.text;
+          appendText(trace, event.text);
           send({ type: "delta", text: event.text });
           break;
         case "result":
@@ -231,7 +364,18 @@ export async function runCodingAgent(
           // — stream it now so the live answer matches what gets persisted.
           if (!reply.trim() && event.text) {
             reply += event.text;
+            appendText(trace, event.text);
             send({ type: "delta", text: event.text });
+          }
+          // The run's cost/turns/duration. Surface it as a footer (and persist it)
+          // only when it's real — the CLIs that don't report leave it all-zero.
+          telemetry = {
+            costUsd: event.costUsd,
+            numTurns: event.numTurns,
+            durationMs: event.durationMs,
+          };
+          if (isMeaningfulTelemetry(telemetry)) {
+            send({ type: "run-telemetry", ...telemetry });
           }
           if (event.sessionId)
             ctx.store.setSetting(sessionKey(conversationId, agent.id), event.sessionId);
@@ -249,7 +393,16 @@ export async function runCodingAgent(
 
   // Client disconnected mid-run: the child was killed; persist nothing and leave
   // the (still valid) resume session untouched.
-  if (signal?.aborted) return;
+  if (signal?.aborted) {
+    return { status: "aborted", messageId: null, failure, telemetry, fileCount: 0 };
+  }
+
+  // Diff the workspace against the pre-run snapshot — the files this run created,
+  // edited, or removed. Surfaced live under the answer and persisted on the message.
+  const filesChanged = diffSnapshots(beforeSnapshot, snapshotDir(cwd));
+  if (filesChanged.length > 0) {
+    send({ type: "files-changed", files: filesChanged });
+  }
 
   // A resume that produced no result means the stored session is stale/expired —
   // clear it so the next turn in this conversation starts fresh instead of
@@ -262,7 +415,13 @@ export async function runCodingAgent(
   if (!answer) {
     // Nothing to show — surface the failure (if any) and leave no empty turn behind.
     if (failure) send({ type: "error", message: failure });
-    return;
+    return {
+      status: failure ? "error" : "empty",
+      messageId: null,
+      failure,
+      telemetry,
+      fileCount: filesChanged.length,
+    };
   }
 
   // The run produced an answer but also failed (e.g. hit the turn limit): keep the
@@ -270,6 +429,7 @@ export async function runCodingAgent(
   let finalText = answer;
   if (failure) {
     const notice = `\n\n_${failure}_`;
+    appendText(trace, notice);
     send({ type: "delta", text: notice });
     finalText = answer + notice;
   }
@@ -289,6 +449,17 @@ export async function runCodingAgent(
       sources.map((s) => s.id),
     );
   }
+  // Persist the run's trace, telemetry, and file changes so reopening the
+  // conversation rebuilds the IDE-style timeline — not just the final answer.
+  const meta: MessageAgentMeta = { trace: toPersistedTrace(trace) };
+  if (telemetry && isMeaningfulTelemetry(telemetry)) meta.telemetry = telemetry;
+  if (filesChanged.length > 0) meta.filesChanged = filesChanged;
+  ctx.store.saveMessageAgentMeta(messageId, meta);
+
+  // A produced answer is a success even if the run also hit a soft limit (the
+  // truncation is noted in the message); `failure` is carried through for the
+  // caller's run log.
+  return { status: "ok", messageId, failure, telemetry, fileCount: filesChanged.length };
 }
 
 const MAX_AGENT_SOURCES = 8;

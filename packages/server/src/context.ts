@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
+  type AgentTaskRecord,
   createEmbedder,
   createLlmClient,
   createLogger,
@@ -71,6 +72,23 @@ const gitLog = createLogger("git");
 const wikiLog = createLogger("wiki");
 const eventsLog = createLogger("events");
 
+/**
+ * The scheduled-task runner's public surface (concrete impl: `AgentTaskRunner` in
+ * agent-task-scheduler.ts). Declared here, structurally, so `AppContext` can hold
+ * one without importing the module — which would form a cycle through
+ * coding-agent-command.ts (scheduler → command → context → scheduler).
+ */
+export interface TaskRunnerHandle {
+  /** Start a run unless one is already in flight; returns the run id or null. */
+  start(task: AgentTaskRecord, reschedule: boolean): number | null;
+  /** Run a task immediately by id; returns the run id, or null if missing/running. */
+  runNow(taskId: number): number | null;
+  /** Whether a run for this task is currently executing. */
+  isRunning(taskId: number): boolean;
+  /** Start every due task not already running (the per-minute poll). */
+  tick(): void;
+}
+
 export interface AppContext {
   /** Which slice of the runtime this process drives (#94). */
   role: ContextRole;
@@ -91,6 +109,14 @@ export interface AppContext {
   events: MeosEvents;
   /** Live + persisted wiki-maintainer transcripts for the Activity view. */
   activity: ActivityBus;
+  /**
+   * Runs scheduled agent tasks (#7). Constructed in `buildServer` (the HTTP
+   * process), so it's present for routes and the per-minute scheduler; absent in
+   * the worker host, which serves no task routes. Typed structurally (the concrete
+   * `AgentTaskRunner` lives in agent-task-scheduler.ts) so context.ts doesn't import
+   * it — that would close a module cycle through coding-agent-command.ts.
+   */
+  agentTasks?: TaskRunnerHandle;
   /** Background sync schedule for connected external accounts (Google). */
   connectors: ConnectorManager;
   /**

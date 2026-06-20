@@ -954,6 +954,64 @@ export const migrations: readonly string[] = [
   UPDATE sources SET wiki_eligible = 1
     WHERE type IN ('google:calendar', 'google:gmail', 'google:tasks', 'imap:messages');
   `,
+
+  // 37 — coding-agent run metadata, one row per assistant turn driven by an agent
+  // (the in-app chat leaves it empty). Persists the live IDE-style trace (reasoning
+  // + tool calls + answer text, as JSON), the run's cost/turns/duration telemetry,
+  // and the files the run touched — so reopening a conversation keeps everything the
+  // run produced, not just the final answer. ON DELETE CASCADE ties it to the message.
+  `
+  CREATE TABLE message_agent_meta (
+    message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+    trace TEXT,
+    cost_usd REAL,
+    num_turns INTEGER,
+    duration_ms INTEGER,
+    files_changed TEXT
+  );
+  `,
+
+  // 38 — scheduled agent tasks (#7). A task is a saved instruction run by one of
+  // the user's coding agents on a schedule (once / every N minutes / cron). Each
+  // task owns a conversation (created lazily on first run) so its runs accumulate
+  // as ordinary agent turns — trace/telemetry/file changes persist through the
+  // message_agent_meta path, and recurring tasks resume the same session. Each run
+  // is logged in agent_task_runs for a per-task history. next_run_at is stored in
+  // SQLite datetime() format so the due-query compares lexicographically against
+  // datetime('now'); a null means the task has no future run (e.g. a fired `once`).
+  `
+  CREATE TABLE agent_tasks (
+    id INTEGER PRIMARY KEY,
+    title TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    agent_id TEXT,
+    model TEXT,
+    schedule_kind TEXT NOT NULL CHECK (schedule_kind IN ('once','interval','cron')),
+    schedule_value TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    next_run_at TEXT,
+    last_run_at TEXT,
+    last_status TEXT CHECK (last_status IN ('running','ok','empty','error')),
+    conversation_id INTEGER REFERENCES conversations(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX idx_agent_tasks_due ON agent_tasks(enabled, next_run_at);
+
+  CREATE TABLE agent_task_runs (
+    id INTEGER PRIMARY KEY,
+    task_id INTEGER NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+    status TEXT NOT NULL CHECK (status IN ('running','ok','empty','error')),
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    finished_at TEXT,
+    message_id INTEGER REFERENCES messages(id) ON DELETE SET NULL,
+    cost_usd REAL,
+    num_turns INTEGER,
+    duration_ms INTEGER,
+    file_count INTEGER,
+    error TEXT
+  );
+  CREATE INDEX idx_agent_task_runs_task ON agent_task_runs(task_id, id);
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

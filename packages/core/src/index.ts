@@ -78,6 +78,9 @@ export type { ExtractionRunResult, MapReduceOptions } from "./extract/map-reduce
 export { readImage } from "./extract/image.js";
 export { effectiveDate, IngestPriority, KnowledgeStore, slugify } from "./knowledge/store.js";
 export type {
+  AgentTaskRecord,
+  AgentTaskRunRecord,
+  AgentTracePart,
   ChunkInput,
   ChunkMetadataRow,
   ChunkWithVector,
@@ -94,6 +97,10 @@ export type {
   MeetingLinkStatus,
   MeetingLinkSuggestionRow,
   MeetingNoteRow,
+  MessageAgentMeta,
+  NewAgentTask,
+  TaskRunStatus,
+  TaskScheduleKind,
   IngestJobState,
   IngestQueueDepth,
   IngestQueueKind,
