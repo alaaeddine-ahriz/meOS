@@ -37,6 +37,7 @@ import {
   type WikiChange,
 } from "@meos/core";
 import { ActivityBus } from "./activity.js";
+import { buildMeosMcp } from "./meos-mcp.js";
 import { buildCommitMessage } from "./commit-message.js";
 import { ConversationStreamBus } from "./conversation-stream.js";
 import { ConnectorManager } from "./connector-manager.js";
@@ -221,8 +222,20 @@ export async function applyIntelligenceRouting(
       .map((a) => a.id),
   );
   const routing = loadIntelligenceRouting(ctx.store);
+  // The wiki maintainer is the only tool-using group: give an agent rewriting a
+  // page meOS's own knowledge tools (the `meos` MCP server, pointed at this
+  // server's port) so it can look the graph up while it edits. Inject ONLY the
+  // `meos` server — NOT the connectors/`ask_user` server, which has no chat
+  // stream to answer into during headless maintenance. Built only when running on
+  // an agent; null when wiki-mcp isn't built, in which case the run is tool-less.
+  const meos =
+    routing.backend === "agent"
+      ? buildMeosMcp(ctx.config.server.port, "wiki-maintenance")
+      : null;
+  const wikiServers = meos?.servers.meos ? { meos: meos.servers.meos } : undefined;
   for (const group of TASK_GROUPS) {
-    ctx.llmFor(group).swap(resolveGroupClient(group, ctx.config, routing, installed));
+    const mcpServers = group === "wiki" ? wikiServers : undefined;
+    ctx.llmFor(group).swap(resolveGroupClient(group, ctx.config, routing, installed, mcpServers));
   }
   // The probe always tracks the configured cloud provider (never a routed agent),
   // so a provider/key change rebuilds it here too — keeping the recovery probe

@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { MeosConfig } from "../config.js";
 import { getCodingAgent } from "../coding-agent/registry.js";
+import type { McpServerSpec } from "../coding-agent/types.js";
 import { CodingAgentLlmClient } from "./coding-agent-client.js";
 import { createLlmClient } from "./index.js";
 import type { LlmClient } from "./types.js";
@@ -92,17 +93,20 @@ export function withRoutingDefaults(stored?: Partial<IntelligenceRouting> | null
  *    GUARD: if the resolved agent id is NOT installed, fall back to the cloud
  *    client — a misconfigured/uninstalled agent must never brick the app.
  *
- * The agent client is intentionally TOOL-LESS here (no `mcpServers`): wiring the
- * meOS MCP into the wiki/agent path needs the running server's port, which isn't
- * known at this layer. That is a documented follow-up — see the wiki/agent MCP
- * injection note in the PR. Until then a group routed to an agent runs the model
- * without meOS tools, which is correct for extraction/consolidation/profile work.
+ * `mcpServers` (optional) exposes meOS's own MCP tools to a tool-using run. The
+ * server layer supplies it only for the `wiki` group (the agentic maintainer),
+ * so a coding agent rewriting a page can look the user's knowledge up via the
+ * `meos` wiki/knowledge tools while it edits. Transform groups (background,
+ * assistant) pass nothing and run tool-less — correct for extraction/OCR/profile
+ * work, which only needs the model. Built in the server layer because the spec
+ * points at this server's own running port (unknown to core).
  */
 export function resolveGroupClient(
   group: TaskGroup,
   config: MeosConfig,
   routing: IntelligenceRouting,
   installedAgents: ReadonlySet<string>,
+  mcpServers?: Record<string, McpServerSpec>,
 ): LlmClient {
   if (routing.backend !== "agent") return createLlmClient(config);
 
@@ -120,7 +124,8 @@ export function resolveGroupClient(
     // The cloud client backstops what a CLI can't do (images, hard structured
     // output), so moving work onto a local agent never loses correctness.
     fallback: createLlmClient(config),
-    // NOTE: no `mcpServers` — tool-less for now. Injecting the meOS MCP into the
-    // wiki/agent path requires the running server port (a documented FOLLOW-UP).
+    // meOS knowledge tools for tool-using runs (the wiki maintainer); undefined
+    // for transform groups, which run tool-less. Supplied by the server layer.
+    mcpServers,
   });
 }
