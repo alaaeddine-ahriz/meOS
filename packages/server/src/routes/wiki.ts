@@ -97,6 +97,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         tags,
         summary: "List wiki entities",
         response: wiki.ListEntitiesResponse,
+        // Exposed over MCP so an external agent can browse the knowledge base.
+        mcp: { expose: true, safety: "read" },
       }),
     },
     async () => {
@@ -173,6 +175,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         summary: "Get a wiki page",
         params: wiki.WikiPageParams,
         response: wiki.WikiPageResponse,
+        // Exposed over MCP: the `slug` path param flows into the tool's input schema.
+        mcp: { expose: true, safety: "read" },
       }),
     },
     async (request) => {

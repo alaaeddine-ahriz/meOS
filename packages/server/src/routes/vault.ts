@@ -27,7 +27,13 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
   app.get(
     "/api/vault",
     {
-      schema: routeSchema({ tags, summary: "List vault notes", response: vault.ListNotesResponse }),
+      schema: routeSchema({
+        tags,
+        summary: "List vault notes",
+        response: vault.ListNotesResponse,
+        // Exposed over MCP so an external agent can list the user's hand-authored notes.
+        mcp: { expose: true, safety: "read" },
+      }),
     },
     async () => vault.ListNotesResponse.parse({ notes: ctx.vault.list() }),
   );
