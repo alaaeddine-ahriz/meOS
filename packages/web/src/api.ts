@@ -45,6 +45,7 @@ import type {
   InboxItem,
   IngestJob,
   IngestMetrics,
+  IntelligenceRouting,
   KnowledgePreferences,
   KnowledgePreset,
   LlmErrorKind,
@@ -113,6 +114,7 @@ import type {
   GitLogResponse,
   InboxResponse,
   IngestJobsResponse,
+  IntelligenceRoutingResponse,
   KnowledgePreferencesResponse,
   ListCalendarEventsResponse,
   ListConversationsResponse,
@@ -199,6 +201,10 @@ export type {
   GitStatus,
   GraphLink,
   GraphNode,
+  GroupRoute,
+  IntelligenceRouting,
+  RoutingAgent,
+  TaskGroup,
   EntityTypeName,
   InboxItem,
   IngestJob,
@@ -416,6 +422,18 @@ export const api = {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(update),
+    }),
+  // Intelligence routing (#native-agent-intelligence): which engine — the cloud
+  // API or a local coding agent — runs each task group's LLM work. The GET returns
+  // the current routing plus every supported coding agent (with an `installed`
+  // flag) so the picker renders in one round-trip; the PUT persists + hot-swaps.
+  getIntelligenceRouting: () =>
+    json<IntelligenceRoutingResponse>("/api/intelligence-routing"),
+  putIntelligenceRouting: (routing: IntelligenceRouting) =>
+    json<IntelligenceRoutingResponse>("/api/intelligence-routing", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(routing),
     }),
   // --- activity (live + replayed wiki-maintainer transcripts) ---
   getActivity: () => json<ActivityResponse>("/api/activity"),
