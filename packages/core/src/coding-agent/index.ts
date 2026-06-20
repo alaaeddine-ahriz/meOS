@@ -3,6 +3,7 @@ export { CodexStreamAdapter } from "./adapters/codex.js";
 export { GeminiStreamAdapter } from "./adapters/gemini.js";
 export { PlainTextStreamAdapter } from "./adapters/text.js";
 export { buildClaudeArgs, runClaudeCodeAgent } from "./runner.js";
+export { diffSnapshots, snapshotDir, type DirSnapshot, type FileChange } from "./fileChanges.js";
 export { runAgentProcess } from "./spawn.js";
 export { CODING_AGENTS, getCodingAgent } from "./registry.js";
 export { findOnPath, isAgentInstalled, listAgents } from "./detect.js";

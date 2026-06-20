@@ -17,6 +17,7 @@ export * from "./schemas/common.js";
 // Route-grouped schemas, re-exported under a namespace per module so callers can
 // write `wiki.WikiPageResponse`, and the most commonly shared types are also
 // re-exported directly below for ergonomic `z.infer` consumption in the client.
+export * as agentTasks from "./schemas/agent-tasks.js";
 export * as ingest from "./schemas/ingest.js";
 export * as meetings from "./schemas/meetings.js";
 export * as wiki from "./schemas/wiki.js";
@@ -53,6 +54,13 @@ export type {
 } from "./schemas/ingest.js";
 export type { WikiPage, WikiGraph, DuplicateProposal } from "./schemas/wiki.js";
 export type {
+  AgentTask,
+  AgentTaskRun,
+  Schedule,
+  ScheduleKind,
+  TaskRunStatus,
+} from "./schemas/agent-tasks.js";
+export type {
   MeetingSummary,
   MeetingObservation,
   MeetingLink,
@@ -68,6 +76,9 @@ export type {
   CodingAgentSummary,
   AskQuestion,
   AskAnswerItem,
+  AgentTracePart,
+  RunTelemetry,
+  FileChange,
 } from "./schemas/chat.js";
 export type { WikiRun, WikiRunEvent, WikiRunEventKind, ActivityEvent } from "./schemas/activity.js";
 export type {
@@ -146,6 +157,7 @@ export type { WorkerStatus, WorkerHealth, RuntimeHealth, QueueDepth } from "./sc
 // never pulls a runtime schema into the web bundle.)
 import type { z } from "zod";
 import type * as activitySchemas from "./schemas/activity.js";
+import type * as agentTasksSchemas from "./schemas/agent-tasks.js";
 import type * as calendarSchemas from "./schemas/calendar.js";
 import type * as chatSchemas from "./schemas/chat.js";
 import type * as connectorsSchemas from "./schemas/connectors.js";
@@ -174,6 +186,13 @@ export type AgentExtractContextResponse = z.infer<
   typeof wikiAgentSchemas.AgentExtractContextResponse
 >;
 export type AgentFactsResponse = z.infer<typeof wikiAgentSchemas.AgentFactsResponse>;
+
+export type AgentTasksResponse = z.infer<typeof agentTasksSchemas.AgentTasksResponse>;
+export type AgentTaskResponse = z.infer<typeof agentTasksSchemas.AgentTaskResponse>;
+export type AgentTaskDetailResponse = z.infer<typeof agentTasksSchemas.AgentTaskDetailResponse>;
+export type AgentTaskRunsResponse = z.infer<typeof agentTasksSchemas.AgentTaskRunsResponse>;
+export type RunAgentTaskResponse = z.infer<typeof agentTasksSchemas.RunAgentTaskResponse>;
+export type DeleteAgentTaskResponse = z.infer<typeof agentTasksSchemas.DeleteAgentTaskResponse>;
 
 export type ListEntitiesResponse = z.infer<typeof wikiSchemas.ListEntitiesResponse>;
 export type WikiGraphResponse = z.infer<typeof wikiSchemas.WikiGraphResponse>;

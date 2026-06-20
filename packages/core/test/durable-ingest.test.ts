@@ -458,7 +458,7 @@ describe("atomic claim is multi-process safe (CAS)", () => {
 
 describe("migration 21 (durable ingest jobs)", () => {
   it("migrates a v20-shape DB cleanly, preserving inbox data", () => {
-    expect(migrations.length).toBe(36);
+    expect(migrations.length).toBe(38);
 
     const file = path.join(os.tmpdir(), `meos-mig21-${Date.now()}-${Math.random()}.db`);
     try {
@@ -504,6 +504,9 @@ describe("migration 21 (durable ingest jobs)", () => {
       db.exec(
         `ALTER TABLE connector_accounts DROP COLUMN auth_config; ALTER TABLE wiki_pages DROP COLUMN body_hash; ALTER TABLE wiki_pages DROP COLUMN authored_by; ALTER TABLE wiki_runs DROP COLUMN author;`,
       );
+      db.exec(
+        `DROP TABLE IF EXISTS agent_task_runs; DROP TABLE IF EXISTS agent_tasks; DROP TABLE IF EXISTS message_agent_meta;`,
+      );
       db.pragma("user_version = 20");
       db.close();
 
@@ -537,7 +540,7 @@ describe("migration 21 (durable ingest jobs)", () => {
 
 describe("migration 24 (ingest job priority, #18)", () => {
   it("migrates a v23-shape DB cleanly, backfilling existing jobs to the watch class", () => {
-    expect(migrations.length).toBe(36);
+    expect(migrations.length).toBe(38);
 
     const file = path.join(os.tmpdir(), `meos-mig24-${Date.now()}-${Math.random()}.db`);
     try {
@@ -558,6 +561,9 @@ describe("migration 24 (ingest job priority, #18)", () => {
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.exec(
         `ALTER TABLE connector_accounts DROP COLUMN auth_config; ALTER TABLE wiki_pages DROP COLUMN body_hash; ALTER TABLE wiki_pages DROP COLUMN authored_by; ALTER TABLE wiki_runs DROP COLUMN author;`,
+      );
+      db.exec(
+        `DROP TABLE IF EXISTS agent_task_runs; DROP TABLE IF EXISTS agent_tasks; DROP TABLE IF EXISTS message_agent_meta;`,
       );
       db.pragma("user_version = 23");
       db.close();
@@ -588,7 +594,7 @@ describe("migration 24 (ingest job priority, #18)", () => {
 
 describe("migration 27 (repair inbox_items CHECK)", () => {
   it("widens the constraint on a v26 DB stuck on the old 7-value set, preserving job links", () => {
-    expect(migrations.length).toBe(36);
+    expect(migrations.length).toBe(38);
 
     const file = path.join(os.tmpdir(), `meos-mig27-${Date.now()}-${Math.random()}.db`);
     try {
@@ -639,6 +645,9 @@ describe("migration 27 (repair inbox_items CHECK)", () => {
       // Drop migration-33's basic-auth column too, so 27→33 re-applies it cleanly.
       db.exec(
         `ALTER TABLE connector_accounts DROP COLUMN auth_config; ALTER TABLE wiki_pages DROP COLUMN body_hash; ALTER TABLE wiki_pages DROP COLUMN authored_by; ALTER TABLE wiki_runs DROP COLUMN author;`,
+      );
+      db.exec(
+        `DROP TABLE IF EXISTS agent_task_runs; DROP TABLE IF EXISTS agent_tasks; DROP TABLE IF EXISTS message_agent_meta;`,
       );
       db.pragma("user_version = 26");
       db.close();

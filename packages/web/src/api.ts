@@ -66,6 +66,7 @@ import type {
   ProviderStatus,
   ResolutionAction,
   RuntimeHealth,
+  Schedule,
   SourceDiff,
   SourceRef,
   WatchedFolder,
@@ -84,6 +85,12 @@ import type {
   AddFolderResponse,
   AgentModeResponse,
   AgentQueueResponse,
+  AgentTaskDetailResponse,
+  AgentTaskResponse,
+  AgentTaskRunsResponse,
+  AgentTasksResponse,
+  DeleteAgentTaskResponse,
+  RunAgentTaskResponse,
   ApplyProfileResponse,
   AskAnswerItem,
   AskQuestion,
@@ -144,9 +151,17 @@ export type {
   ActivityEvent,
   AgentModeResponse,
   AgentQueueResponse,
+  AgentTask,
+  AgentTaskRun,
+  AgentTracePart,
   AskAnswerItem,
   AskQuestion,
   AuditEntry,
+  FileChange,
+  RunTelemetry,
+  Schedule,
+  ScheduleKind,
+  TaskRunStatus,
   IndexedSource,
   IndexedEntityLink,
   RelatedSource,
@@ -463,6 +478,44 @@ export const api = {
 
   listConversations: () => json<ListConversationsResponse>("/api/conversations"),
   getMessages: (id: number) => json<MessagesResponse>(`/api/conversations/${id}/messages`),
+
+  // Scheduled agent tasks (#7): saved instructions a coding agent runs on a schedule.
+  listAgentTasks: () => json<AgentTasksResponse>("/api/agent-tasks"),
+  getAgentTask: (id: number) => json<AgentTaskDetailResponse>(`/api/agent-tasks/${id}`),
+  createAgentTask: (body: {
+    title: string;
+    prompt: string;
+    agentId?: string;
+    model?: string;
+    schedule: Schedule;
+    enabled?: boolean;
+  }) =>
+    json<AgentTaskResponse>("/api/agent-tasks", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateAgentTask: (
+    id: number,
+    patch: {
+      title?: string;
+      prompt?: string;
+      agentId?: string | null;
+      model?: string | null;
+      schedule?: Schedule;
+      enabled?: boolean;
+    },
+  ) =>
+    json<AgentTaskResponse>(`/api/agent-tasks/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }),
+  deleteAgentTask: (id: number) =>
+    json<DeleteAgentTaskResponse>(`/api/agent-tasks/${id}`, { method: "DELETE" }),
+  runAgentTask: (id: number) =>
+    json<RunAgentTaskResponse>(`/api/agent-tasks/${id}/run`, { method: "POST" }),
+  listAgentTaskRuns: (id: number) => json<AgentTaskRunsResponse>(`/api/agent-tasks/${id}/runs`),
   getLatestDigest: () => json<DigestResponse>("/api/digest/latest"),
   runConsolidation: () => json<ConsolidateResponse>("/api/jobs/consolidate", { method: "POST" }),
   getGitStatus: () => json<GitStatus>("/api/settings/git"),

@@ -14,6 +14,16 @@ import {
 } from "./preferences.js";
 import { defaultVisibilityForType, type SourceVisibility } from "./visibility.js";
 
+/** Parse JSON we wrote ourselves, tolerating a corrupt row by returning undefined
+ * (a single bad blob shouldn't break loading the whole conversation/list). */
+function safeParseJson<T>(raw: string): T | undefined {
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Settings-table key for the user's knowledge preferences (#86). */
 const KNOWLEDGE_PREFERENCES_KEY = "knowledge_preferences";
 const ENTITY_TYPE_COUNT = ENTITY_TYPES.length;
@@ -465,6 +475,108 @@ export interface SourceRef {
   pageEnd?: number | null;
   charStart?: number | null;
   charEnd?: number | null;
+}
+
+/**
+ * One step of a persisted coding-agent trace — the reload-safe form of the live
+ * reasoning / tool-call / answer-text stream. Structurally identical to the
+ * contracts `AgentTracePart` (core can't import contracts); the server bridges
+ * the two. `state`/`toolCallId` are live-only and intentionally dropped here.
+ */
+export type AgentTracePart =
+  | { kind: "reasoning"; text: string }
+  | { kind: "text"; text: string }
+  | { kind: "tool"; toolName: string; input: unknown; output?: unknown; isError?: boolean };
+
+/** A coding-agent turn's run metadata, persisted via {@link Store.saveMessageAgentMeta}. */
+export interface MessageAgentMeta {
+  /** The IDE-style timeline (reasoning + tools + answer text), in arrival order. */
+  trace?: AgentTracePart[];
+  /** The run's cost/turns/duration (all 0 for CLIs that don't report — then omitted). */
+  telemetry?: { costUsd: number; numTurns: number; durationMs: number };
+  /** Files the run created/edited/removed in its workspace. */
+  filesChanged?: Array<{ path: string; status: "added" | "modified" | "deleted" }>;
+}
+
+/** How a scheduled agent task's next run is derived (see migration 38 / #7). */
+export type TaskScheduleKind = "once" | "interval" | "cron";
+/** A scheduled-task run's status. */
+export type TaskRunStatus = "running" | "ok" | "empty" | "error";
+
+/** A scheduled agent task, in the camelCase shape the API surfaces. */
+export interface AgentTaskRecord {
+  id: number;
+  title: string;
+  prompt: string;
+  agentId: string | null;
+  model: string | null;
+  schedule: { kind: TaskScheduleKind; value: string };
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: TaskRunStatus | null;
+  conversationId: number | null;
+  createdAt: string;
+}
+
+/** One execution of a scheduled task. */
+export interface AgentTaskRunRecord {
+  id: number;
+  taskId: number;
+  status: TaskRunStatus;
+  startedAt: string;
+  finishedAt: string | null;
+  messageId: number | null;
+  costUsd: number | null;
+  numTurns: number | null;
+  durationMs: number | null;
+  fileCount: number | null;
+  error: string | null;
+}
+
+/** Raw `agent_tasks` row, as SQLite returns it (snake_case, 0/1 booleans). */
+interface AgentTaskRow {
+  id: number;
+  title: string;
+  prompt: string;
+  agent_id: string | null;
+  model: string | null;
+  schedule_kind: TaskScheduleKind;
+  schedule_value: string;
+  enabled: number;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_status: TaskRunStatus | null;
+  conversation_id: number | null;
+  created_at: string;
+}
+
+/** Raw `agent_task_runs` row. */
+interface AgentTaskRunRow {
+  id: number;
+  task_id: number;
+  status: TaskRunStatus;
+  started_at: string;
+  finished_at: string | null;
+  message_id: number | null;
+  cost_usd: number | null;
+  num_turns: number | null;
+  duration_ms: number | null;
+  file_count: number | null;
+  error: string | null;
+}
+
+/** Fields a caller may set when creating a scheduled task. */
+export interface NewAgentTask {
+  title: string;
+  prompt: string;
+  agentId?: string | null;
+  model?: string | null;
+  scheduleKind: TaskScheduleKind;
+  scheduleValue: string;
+  enabled: boolean;
+  /** SQLite-format time the task first becomes due (null = never, e.g. paused). */
+  nextRunAt: string | null;
 }
 
 /** A wiki/graph entity an indexed connector item links to (the Sources tab). */
@@ -3758,6 +3870,35 @@ export class KnowledgeStore {
     return Number(result.lastInsertRowid);
   }
 
+  /**
+   * Persist a coding-agent turn's run metadata (its trace, telemetry, and the
+   * files it touched) so reopening the conversation rebuilds the IDE-style timeline
+   * — not just the final answer. One row per agent message; the plain knowledge
+   * chat never calls this. `trace`/`filesChanged` are stored as JSON; telemetry as
+   * plain columns. Skips writing entirely when there's genuinely nothing to keep.
+   */
+  saveMessageAgentMeta(messageId: number, meta: MessageAgentMeta): void {
+    const hasTrace = meta.trace !== undefined && meta.trace.length > 0;
+    const hasFiles = meta.filesChanged !== undefined && meta.filesChanged.length > 0;
+    if (!hasTrace && !hasFiles && !meta.telemetry) return;
+    this.db
+      .prepare(
+        `INSERT INTO message_agent_meta (message_id, trace, cost_usd, num_turns, duration_ms, files_changed)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(message_id) DO UPDATE SET
+           trace = excluded.trace, cost_usd = excluded.cost_usd, num_turns = excluded.num_turns,
+           duration_ms = excluded.duration_ms, files_changed = excluded.files_changed`,
+      )
+      .run(
+        messageId,
+        hasTrace ? JSON.stringify(meta.trace) : null,
+        meta.telemetry?.costUsd ?? null,
+        meta.telemetry?.numTurns ?? null,
+        meta.telemetry?.durationMs ?? null,
+        hasFiles ? JSON.stringify(meta.filesChanged) : null,
+      );
+  }
+
   /** Record which documents an assistant reply drew on. */
   linkMessageSources(messageId: number, sourceIds: number[]): void {
     const insert = this.db.prepare(
@@ -3775,6 +3916,9 @@ export class KnowledgeStore {
     content: string;
     created_at: string;
     sources: SourceRef[];
+    trace?: AgentTracePart[];
+    telemetry?: { costUsd: number; numTurns: number; durationMs: number };
+    filesChanged?: Array<{ path: string; status: "added" | "modified" | "deleted" }>;
   }> {
     const messages = this.db
       .prepare(
@@ -3802,7 +3946,50 @@ export class KnowledgeStore {
       list.push(source);
       byMessage.set(message_id, list);
     }
-    return messages.map((message) => ({ ...message, sources: byMessage.get(message.id) ?? [] }));
+    // Coding-agent turns also carry persisted run metadata (trace/telemetry/files)
+    // — joined here so a reload rebuilds the timeline, not just the answer text.
+    const metaRows = this.db
+      .prepare(
+        `SELECT mam.message_id, mam.trace, mam.cost_usd, mam.num_turns, mam.duration_ms, mam.files_changed
+         FROM message_agent_meta mam
+         JOIN messages m ON m.id = mam.message_id
+         WHERE m.conversation_id = ?`,
+      )
+      .all(conversationId) as Array<{
+      message_id: number;
+      trace: string | null;
+      cost_usd: number | null;
+      num_turns: number | null;
+      duration_ms: number | null;
+      files_changed: string | null;
+    }>;
+    const metaByMessage = new Map<number, MessageAgentMeta>();
+    for (const row of metaRows) {
+      const meta: MessageAgentMeta = {};
+      if (row.trace) meta.trace = safeParseJson<AgentTracePart[]>(row.trace);
+      if (row.files_changed) {
+        meta.filesChanged =
+          safeParseJson<MessageAgentMeta["filesChanged"]>(row.files_changed) ?? undefined;
+      }
+      if (row.num_turns !== null || row.duration_ms !== null || row.cost_usd !== null) {
+        meta.telemetry = {
+          costUsd: row.cost_usd ?? 0,
+          numTurns: row.num_turns ?? 0,
+          durationMs: row.duration_ms ?? 0,
+        };
+      }
+      metaByMessage.set(row.message_id, meta);
+    }
+    return messages.map((message) => {
+      const meta = metaByMessage.get(message.id);
+      return {
+        ...message,
+        sources: byMessage.get(message.id) ?? [],
+        ...(meta?.trace ? { trace: meta.trace } : {}),
+        ...(meta?.telemetry ? { telemetry: meta.telemetry } : {}),
+        ...(meta?.filesChanged ? { filesChanged: meta.filesChanged } : {}),
+      };
+    });
   }
 
   /** What the user typed in chat since a cutoff — raw material for crystallization. */
@@ -3815,6 +4002,209 @@ export class KnowledgeStore {
          WHERE role = 'user' AND created_at >= ? AND content NOT LIKE '/%' ORDER BY id`,
       )
       .all(sinceIso) as Array<{ content: string; created_at: string }>;
+  }
+
+  // --- scheduled agent tasks (#7) ---
+
+  /** Map a DB row to the camelCase {@link AgentTaskRecord} the API surfaces. */
+  private mapAgentTaskRow(row: AgentTaskRow): AgentTaskRecord {
+    return {
+      id: row.id,
+      title: row.title,
+      prompt: row.prompt,
+      agentId: row.agent_id,
+      model: row.model,
+      schedule: { kind: row.schedule_kind, value: row.schedule_value },
+      enabled: row.enabled === 1,
+      nextRunAt: row.next_run_at,
+      lastRunAt: row.last_run_at,
+      lastStatus: row.last_status,
+      conversationId: row.conversation_id,
+      createdAt: row.created_at,
+    };
+  }
+
+  createAgentTask(task: NewAgentTask): AgentTaskRecord {
+    const result = this.db
+      .prepare(
+        `INSERT INTO agent_tasks
+           (title, prompt, agent_id, model, schedule_kind, schedule_value, enabled, next_run_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        task.title,
+        task.prompt,
+        task.agentId ?? null,
+        task.model ?? null,
+        task.scheduleKind,
+        task.scheduleValue,
+        task.enabled ? 1 : 0,
+        task.nextRunAt,
+      );
+    return this.getAgentTask(Number(result.lastInsertRowid))!;
+  }
+
+  getAgentTask(id: number): AgentTaskRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM agent_tasks WHERE id = ?").get(id) as
+      | AgentTaskRow
+      | undefined;
+    return row ? this.mapAgentTaskRow(row) : undefined;
+  }
+
+  /** All tasks, newest first. */
+  listAgentTasks(): AgentTaskRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM agent_tasks ORDER BY id DESC")
+      .all() as AgentTaskRow[];
+    return rows.map((row) => this.mapAgentTaskRow(row));
+  }
+
+  /**
+   * Enabled tasks whose next run is due at or before `nowSqlite` (a
+   * `datetime('now')`-format string). The poller claims and runs these.
+   */
+  dueAgentTasks(nowSqlite: string): AgentTaskRecord[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM agent_tasks
+         WHERE enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ?
+         ORDER BY next_run_at`,
+      )
+      .all(nowSqlite) as AgentTaskRow[];
+    return rows.map((row) => this.mapAgentTaskRow(row));
+  }
+
+  /**
+   * Apply a partial update to a task's user-editable fields. Only provided keys
+   * change; `agentId`/`model` accept null to clear. Returns the updated task (or
+   * undefined if it doesn't exist).
+   */
+  updateAgentTask(
+    id: number,
+    patch: {
+      title?: string;
+      prompt?: string;
+      agentId?: string | null;
+      model?: string | null;
+      scheduleKind?: TaskScheduleKind;
+      scheduleValue?: string;
+      enabled?: boolean;
+      nextRunAt?: string | null;
+    },
+  ): AgentTaskRecord | undefined {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    const set = (col: string, value: unknown) => {
+      sets.push(`${col} = ?`);
+      values.push(value);
+    };
+    if (patch.title !== undefined) set("title", patch.title);
+    if (patch.prompt !== undefined) set("prompt", patch.prompt);
+    if (patch.agentId !== undefined) set("agent_id", patch.agentId);
+    if (patch.model !== undefined) set("model", patch.model);
+    if (patch.scheduleKind !== undefined) set("schedule_kind", patch.scheduleKind);
+    if (patch.scheduleValue !== undefined) set("schedule_value", patch.scheduleValue);
+    if (patch.enabled !== undefined) set("enabled", patch.enabled ? 1 : 0);
+    if (patch.nextRunAt !== undefined) set("next_run_at", patch.nextRunAt);
+    if (sets.length > 0) {
+      values.push(id);
+      this.db.prepare(`UPDATE agent_tasks SET ${sets.join(", ")} WHERE id = ?`).run(...values);
+    }
+    return this.getAgentTask(id);
+  }
+
+  /**
+   * Record the outcome of a run on the task itself: when it last ran, the status,
+   * its next due time, and (once created) the conversation its runs live in.
+   */
+  setAgentTaskRunState(
+    id: number,
+    state: {
+      lastRunAt: string;
+      lastStatus: TaskRunStatus;
+      nextRunAt: string | null;
+      conversationId?: number | null;
+    },
+  ): void {
+    if (state.conversationId !== undefined) {
+      this.db
+        .prepare(
+          `UPDATE agent_tasks
+           SET last_run_at = ?, last_status = ?, next_run_at = ?, conversation_id = ?
+           WHERE id = ?`,
+        )
+        .run(state.lastRunAt, state.lastStatus, state.nextRunAt, state.conversationId, id);
+    } else {
+      this.db
+        .prepare(
+          "UPDATE agent_tasks SET last_run_at = ?, last_status = ?, next_run_at = ? WHERE id = ?",
+        )
+        .run(state.lastRunAt, state.lastStatus, state.nextRunAt, id);
+    }
+  }
+
+  deleteAgentTask(id: number): boolean {
+    return this.db.prepare("DELETE FROM agent_tasks WHERE id = ?").run(id).changes > 0;
+  }
+
+  /** Open a run row (status 'running'); returns its id for {@link finishAgentTaskRun}. */
+  startAgentTaskRun(taskId: number): number {
+    const result = this.db
+      .prepare("INSERT INTO agent_task_runs (task_id, status) VALUES (?, 'running')")
+      .run(taskId);
+    return Number(result.lastInsertRowid);
+  }
+
+  /** Stamp a run's terminal status, telemetry, and the message it produced. */
+  finishAgentTaskRun(
+    runId: number,
+    outcome: {
+      status: TaskRunStatus;
+      messageId?: number | null;
+      costUsd?: number | null;
+      numTurns?: number | null;
+      durationMs?: number | null;
+      fileCount?: number | null;
+      error?: string | null;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE agent_task_runs
+         SET status = ?, finished_at = datetime('now'), message_id = ?, cost_usd = ?,
+             num_turns = ?, duration_ms = ?, file_count = ?, error = ?
+         WHERE id = ?`,
+      )
+      .run(
+        outcome.status,
+        outcome.messageId ?? null,
+        outcome.costUsd ?? null,
+        outcome.numTurns ?? null,
+        outcome.durationMs ?? null,
+        outcome.fileCount ?? null,
+        outcome.error ?? null,
+        runId,
+      );
+  }
+
+  /** A task's runs, newest first (capped). */
+  listAgentTaskRuns(taskId: number, limit = 50): AgentTaskRunRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM agent_task_runs WHERE task_id = ? ORDER BY id DESC LIMIT ?")
+      .all(taskId, limit) as AgentTaskRunRow[];
+    return rows.map((row) => ({
+      id: row.id,
+      taskId: row.task_id,
+      status: row.status,
+      startedAt: row.started_at,
+      finishedAt: row.finished_at,
+      messageId: row.message_id,
+      costUsd: row.cost_usd,
+      numTurns: row.num_turns,
+      durationMs: row.duration_ms,
+      fileCount: row.file_count,
+      error: row.error,
+    }));
   }
 
   /**

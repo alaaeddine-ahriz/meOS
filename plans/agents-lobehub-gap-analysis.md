@@ -70,12 +70,12 @@ grounding.
 | #   | Capability                                             | LobeHub                    | meOS                                 | Impact | Effort |
 | --- | ------------------------------------------------------ | -------------------------- | ------------------------------------ | ------ | ------ |
 | 1   | **Mid-run questions** (agent pauses, asks, resumes)    | `askUser` MCP bridge       | ✗ fully headless `bypassPermissions` | ★★★    | M      |
-| 2   | **Run telemetry** (cost/turns/duration) surfaced       | yes                        | computed then discarded              | ★★     | S      |
-| 3   | **File-change tracking** (what the run touched + diff) | `codexFileChangeTracker`   | ✗                                    | ★★     | M      |
-| 4   | **Trace persistence** (reasoning/tools survive reload) | yes                        | live-only                            | ★★     | M      |
+| 2   | **Run telemetry** (cost/turns/duration) surfaced       | yes                        | ✅ DONE — footer + persisted         | ★★     | S      |
+| 3   | **File-change tracking** (what the run touched + diff) | `codexFileChangeTracker`   | ✅ DONE — cwd snapshot diff          | ★★     | M      |
+| 4   | **Trace persistence** (reasoning/tools survive reload) | yes                        | ✅ DONE — persisted on the message   | ★★     | M      |
 | 5   | **Autonomous loop / self-review** (CAO)                | `mainAgentCoordinator`     | single turn + resume                 | ★★★    | L      |
 | 6   | **Sub-agent teams**                                    | `groupOrchestration`       | ✗ (CC's own Task tool only)          | ★★     | L      |
-| 7   | **Scheduled / recurring agent tasks**                  | Agent Tasks GA             | ✗                                    | ★★★    | L      |
+| 7   | **Scheduled / recurring agent tasks**                  | Agent Tasks GA             | ✅ DONE — once/interval/cron + UI    | ★★★    | L      |
 | 8   | **Skills** (drag-drop, `/` menu, market)               | builtin-skills             | connectors only                      | ★★     | L      |
 | 9   | **Agent memory tool**                                  | builtin-tool-memory        | wiki only                            | ★★     | M      |
 | 10  | **Remote / cloud execution**                           | platform agents on devices | local only                           | ★★     | XL     |
@@ -90,15 +90,40 @@ It removes meOS's fully-headless limitation and — because it rides the existin
 works for **every** agent that speaks MCP (Claude/Codex/Cursor/Gemini/Copilot), not just Claude Code
 as in LobeHub. That is literally "stronger and with larger support." See §5.
 
-**Next (small, high-ROI, server/core-only, render through existing SSE):**
+**Next (small, high-ROI, server/core-only, render through existing SSE): ✅ DELIVERED.**
 
-- #2 Run telemetry footer (cost · N turns · duration) — the `result` event already carries it.
-- #3 File-change tracking — snapshot cwd before/after a run, emit a `files-changed` summary part.
-- #4 Persist the agent trace on the message so reload keeps reasoning/tool steps.
+- #2 Run telemetry footer (cost · N turns · duration) — the terminal `result` event's
+  cost/turns/duration is emitted as a `run-telemetry` SSE frame and rendered as a footer
+  under the answer (only when meaningful — only Claude Code reports non-zero today).
+- #3 File-change tracking — `snapshotDir`/`diffSnapshots` (core/coding-agent/fileChanges.ts)
+  snapshot the workspace before vs after the run (skips .git/node_modules, bounded), emitted
+  as a `files-changed` frame; agent-neutral (works for all 5 CLIs, not just Codex).
+- #4 Trace persistence — the reasoning/tool/answer timeline is accumulated server-side and
+  saved to a new `message_agent_meta` table (migration 37), alongside #2/#3; `listMessages`
+  rehydrates all three so reopening a conversation rebuilds the IDE-style timeline.
 
-**Then (platform bets, each its own project):** #7 scheduled/recurring agent tasks (meOS already has a
-job/activity loop to build on), #5 autonomous self-review loop, #9 agent memory tool, #6 sub-agent
-teams, #13 safety audit, then #8/#10/#12.
+Touchpoints: `contracts/chat.ts` (`AgentTracePart`/`RunTelemetry`/`FileChange` + the two new
+SSE frames + `MessageSchema` fields), `core/coding-agent/fileChanges.ts` (new), `core/db`
+(migration 37), `core/knowledge/store.ts` (`saveMessageAgentMeta` + `listMessages` join),
+`server/coding-agent-command.ts` (snapshot/accumulate/persist), `web/ChatView.tsx`
+(`AgentRunFooter` + trace rehydration). Tests: file-change diff unit, store round-trip,
+trace-reducer unit, and an `app.inject` route test proving the `z.unknown()` tool I/O survives
+the Fastify serializer (the z.record-serialize bug class).
+
+**Then (platform bets, each its own project):**
+
+- #7 scheduled/recurring agent tasks — ✅ **DELIVERED.** A task is a saved instruction (title + prompt +
+  agent + schedule) a coding agent runs automatically: once at a time, every N minutes, or by cron.
+  Each task owns a conversation, so a run is just a headless agent turn — trace/telemetry/file changes
+  persist through the #2–#4 path, and recurring runs resume the same CLI session (continuity for a daily
+  brief). A per-minute poller in the HTTP process (shared in-flight guard with "run now", so no
+  double-run) executes due tasks and reschedules. New: `agent_tasks` + `agent_task_runs` (migration 38),
+  `agent-task-scheduler.ts` (`computeNextRunAfter`/`validateSchedule`/`AgentTaskRunner`),
+  `routes/agent-tasks.ts` (CRUD + run-now + run history), and a **Tasks** view (`TasksView.tsx`, nav +
+  command palette). `runCodingAgent` now returns an `AgentRunOutcome` for the runner to log. 19 tests
+  (store round-trip, schedule math, runner with injected executor, `app.inject` routes).
+- Remaining: #5 autonomous self-review loop, #9 agent memory tool, #6 sub-agent teams, #13 safety
+  audit, then #8/#10/#12.
 
 ## 5. Flagship spec — Mid-run questions
 

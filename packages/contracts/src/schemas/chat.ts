@@ -26,6 +26,48 @@ export const ConversationSchema = z.object({
 });
 export const ListConversationsResponse = z.object({ conversations: z.array(ConversationSchema) });
 
+/**
+ * Agent-run metadata attached to an assistant turn driven by a coding agent.
+ * All three stream live over the SSE frames further down; these schemas are their
+ * reload-safe echo, persisted on the message so a reopened conversation keeps the
+ * trace, the cost/turns/duration, and the files the run touched. Plain
+ * knowledge-chat turns carry none of them.
+ */
+
+/**
+ * One step of a persisted agent trace — the reduced, reload-safe form of the live
+ * `reasoning` / `tool-*` / `delta` frames (mirrors the web client's AgentPart,
+ * minus the live-only `state`/`toolCallId`/`ask` parts that don't survive a run).
+ */
+export const AgentTracePartSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("reasoning"), text: z.string() }),
+  z.object({ kind: z.literal("text"), text: z.string() }),
+  z.object({
+    kind: z.literal("tool"),
+    toolName: z.string(),
+    input: z.unknown(),
+    /** Absent only if the run ended before the tool returned. */
+    output: z.unknown().optional(),
+    isError: z.boolean().optional(),
+  }),
+]);
+
+/**
+ * Cost (USD), tool-loop turns, and wall-clock for one agent run. Only Claude Code
+ * reports non-zero values today; the other CLIs leave them 0 and the footer hides.
+ */
+export const RunTelemetrySchema = z.object({
+  costUsd: z.number(),
+  numTurns: z.number(),
+  durationMs: z.number(),
+});
+
+/** A path the run created, edited, or removed, relative to the agent's workspace. */
+export const FileChangeSchema = z.object({
+  path: z.string(),
+  status: z.enum(["added", "modified", "deleted"]),
+});
+
 /** GET /api/conversations/:id/messages */
 export const ConversationIdParam = NumericIdParam;
 export const MessageSchema = z.object({
@@ -35,6 +77,15 @@ export const MessageSchema = z.object({
   created_at: z.string(),
   /** Documents the reply drew on; persisted server-side, absent on pending messages. */
   sources: z.array(SourceRefSchema).optional(),
+  /**
+   * Coding-agent turns only: the live trace (reasoning + tool calls + answer
+   * text), persisted so a reload keeps the IDE-style timeline. Absent otherwise.
+   */
+  trace: z.array(AgentTracePartSchema).optional(),
+  /** Coding-agent turns only: the run's cost/turns/duration (see RunTelemetrySchema). */
+  telemetry: RunTelemetrySchema.optional(),
+  /** Coding-agent turns only: the files the run created/edited/removed. */
+  filesChanged: z.array(FileChangeSchema).optional(),
 });
 export const MessagesResponse = z.object({ messages: z.array(MessageSchema) });
 
@@ -176,6 +227,22 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
     id: z.string(),
     questions: z.array(AskQuestionSchema),
   }),
+  /**
+   * A coding-agent run's cost/turns/duration, emitted once the run completes.
+   * Rendered as a small footer under the answer and persisted on the message.
+   */
+  z.object({
+    type: z.literal("run-telemetry"),
+    costUsd: z.number(),
+    numTurns: z.number(),
+    durationMs: z.number(),
+  }),
+  /**
+   * The files a coding-agent run created/edited/removed, diffed from a snapshot of
+   * its workspace taken before vs after the run. Rendered under the answer and
+   * persisted on the message.
+   */
+  z.object({ type: z.literal("files-changed"), files: z.array(FileChangeSchema) }),
   z.object({ type: z.literal("done") }),
   z.object({ type: z.literal("error"), message: z.string(), kind: LlmErrorKindSchema.optional() }),
 ]);
@@ -195,3 +262,6 @@ export type CodingAgentSummary = z.infer<typeof CodingAgentSummarySchema>;
 export type AskQuestion = z.infer<typeof AskQuestionSchema>;
 export type AskAnswerItem = z.infer<typeof AskAnswerItemSchema>;
 export type AskUserResultT = z.infer<typeof AskUserResult>;
+export type AgentTracePart = z.infer<typeof AgentTracePartSchema>;
+export type RunTelemetry = z.infer<typeof RunTelemetrySchema>;
+export type FileChange = z.infer<typeof FileChangeSchema>;

@@ -1217,7 +1217,7 @@ describe("connector coverage state + structured sync metrics (#88)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(36);
+    expect(migrations.length).toBe(38);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1248,6 +1248,9 @@ describe("migration 23 (connector materialization)", () => {
       db.exec(`ALTER TABLE connector_sync_state DROP COLUMN config;`);
       db.exec(
         `ALTER TABLE connector_accounts DROP COLUMN auth_config; ALTER TABLE wiki_pages DROP COLUMN body_hash; ALTER TABLE wiki_pages DROP COLUMN authored_by; ALTER TABLE wiki_runs DROP COLUMN author;`,
+      );
+      db.exec(
+        `DROP TABLE IF EXISTS agent_task_runs; DROP TABLE IF EXISTS agent_tasks; DROP TABLE IF EXISTS message_agent_meta;`,
       );
       db.pragma("user_version = 22");
       db.close();
@@ -1288,7 +1291,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(36);
+    expect(migrations.length).toBe(38);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1335,6 +1338,9 @@ describe("migration 25 (provider-agnostic connector kinds)", () => {
       db.exec(`DROP TABLE IF EXISTS meeting_notes;`);
       db.exec(
         `ALTER TABLE connector_accounts DROP COLUMN auth_config; ALTER TABLE wiki_pages DROP COLUMN body_hash; ALTER TABLE wiki_pages DROP COLUMN authored_by; ALTER TABLE wiki_runs DROP COLUMN author;`,
+      );
+      db.exec(
+        `DROP TABLE IF EXISTS agent_task_runs; DROP TABLE IF EXISTS agent_tasks; DROP TABLE IF EXISTS message_agent_meta;`,
       );
       db.pragma("user_version = 24");
       // The old shape rejects a non-Google kind — the bug migration 25 fixes.
