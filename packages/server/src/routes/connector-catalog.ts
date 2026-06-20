@@ -62,6 +62,8 @@ export function registerConnectorCatalogRoute(app: FastifyInstance, _ctx: AppCon
         tags,
         summary: "List every available connector (identity, kinds, capabilities, auth).",
         response: connectorsSchema.ConnectorCatalogSchema,
+        // Exposed over MCP so an agent can discover what connectors exist + their capabilities.
+        mcp: { expose: true, name: "connectors_catalog", safety: "read" },
       }),
     },
     async () => buildConnectorCatalog(),

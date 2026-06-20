@@ -17,6 +17,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         tags,
         summary: "Likely-duplicate entities",
         response: wiki.DuplicatesResponse,
+        // Exposed over MCP: detection-only read; the merge itself stays destructive.
+        mcp: { expose: true, name: "entities_duplicates", safety: "read" },
       }),
     },
     async () => wiki.DuplicatesResponse.parse({ duplicates: findDuplicateEntities(ctx.store) }),
@@ -30,6 +32,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         summary: "Merge two entities",
         body: wiki.MergeEntitiesBody,
         response: wiki.MergeEntitiesResponse,
+        // Destructive: an entity merge is irreversible — recorded but never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request, reply) => {
@@ -55,6 +59,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         summary: "Dismiss a duplicate pair",
         body: wiki.DismissDuplicateBody,
         response: wiki.DismissDuplicateResponse,
+        // Exposed over MCP: remember a rejected pair so it stops resurfacing (reversible record).
+        mcp: { expose: true, name: "entities_dismiss_duplicate", safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -75,6 +81,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         tags,
         summary: "Rebuild the wiki retrieval index",
         response: { 202: wiki.BackfillWikiResponse },
+        // Exposed over MCP: enqueue an index rebuild (no LLM, recomputes from disk).
+        mcp: { expose: true, name: "jobs_backfill_wiki", safety: "write" },
       }),
     },
     async (_request, reply) => {
@@ -122,7 +130,13 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
   app.get(
     "/api/wiki/graph",
     {
-      schema: routeSchema({ tags, summary: "Wiki entity graph", response: wiki.WikiGraphResponse }),
+      schema: routeSchema({
+        tags,
+        summary: "Wiki entity graph",
+        response: wiki.WikiGraphResponse,
+        // Exposed over MCP so an agent can read the entity relationship graph.
+        mcp: { expose: true, name: "wiki_graph", safety: "read" },
+      }),
     },
     async () => {
       const withPages = ctx.store.wikiPageEntityIds();

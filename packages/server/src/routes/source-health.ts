@@ -36,6 +36,8 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
         tags,
         summary: "Source health overview",
         response: sourceHealth.SourceHealthResponse,
+        // Exposed over MCP so an agent can assess ingest/connector health.
+        mcp: { expose: true, name: "source_health", safety: "read" },
       }),
     },
     async () => {

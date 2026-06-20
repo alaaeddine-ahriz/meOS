@@ -74,6 +74,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "List meeting notes",
         response: meetings.ListMeetingsResponse,
+        // Exposed over MCP so an agent can browse meeting notes.
+        mcp: { expose: true, name: "meetings", safety: "read" },
       }),
     },
     async () =>
@@ -97,6 +99,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Create a meeting note",
         body: meetings.CreateMeetingBody,
         response: { 201: meetings.MeetingDetailSchema },
+        // Exposed over MCP: ingest a meeting note as a citable source (reversible — editable/deletable).
+        mcp: { expose: true, safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -122,6 +126,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Get a meeting note detail",
         response: meetings.MeetingDetailSchema,
+        // Exposed over MCP so an agent can read a meeting's note + extracted structure.
+        mcp: { expose: true, name: "meetings_get", safety: "read" },
       }),
     },
     async (request) => {
@@ -140,6 +146,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Edit a meeting note",
         body: meetings.UpdateMeetingBody,
         response: meetings.MeetingDetailSchema,
+        // Exposed over MCP: edit the note + re-run extraction (a new revision; reversible).
+        mcp: { expose: true, name: "meetings_update", safety: "write" },
       }),
     },
     async (request) => {
@@ -169,6 +177,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         tags,
         summary: "Reprocess a meeting note",
         response: meetings.ReprocessMeetingResponse,
+        // Exposed over MCP: re-run extraction over the current note (idempotent).
+        mcp: { expose: true, name: "meetings_reprocess", safety: "write" },
       }),
     },
     async (request) => {
@@ -199,6 +209,8 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
         summary: "Review a suggested meeting link",
         body: meetings.ReviewLinkBody,
         response: meetings.ReviewLinkResponse,
+        // Exposed over MCP: accept/reject a suggested entity link (reversible decision).
+        mcp: { expose: true, name: "meetings_link_review", safety: "write" },
       }),
     },
     async (request) => {

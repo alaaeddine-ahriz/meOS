@@ -30,6 +30,8 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Decision brief output",
         querystring: outputsSchema.OutputQuery,
+        // Exposed over MCP so an agent can pull a decision brief from the knowledge base.
+        mcp: { expose: true, name: "outputs_decision_brief", safety: "read" },
       }),
     },
     async (request) => reply(decisionBrief(ctx.store), request.query.format),
@@ -42,6 +44,8 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Contradiction report output",
         querystring: outputsSchema.OutputQuery,
+        // Exposed over MCP so an agent can pull a contradiction report.
+        mcp: { expose: true, name: "outputs_contradiction_report", safety: "read" },
       }),
     },
     async (request) => reply(contradictionReport(ctx.store), request.query.format),
@@ -65,6 +69,8 @@ export function registerOutputRoutes(app: FastifyInstance, ctx: AppContext): voi
           tags,
           summary: `${path} output`,
           querystring: outputsSchema.OutputQuery,
+          // Exposed over MCP so an agent can pull this per-entity output artifact.
+          mcp: { expose: true, name: `outputs_${path.replace(/-/g, "_")}`, safety: "read" },
         }),
       },
       async (request) => {

@@ -17,6 +17,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Facts backed only by outdated sources",
         response: staleFacts.StaleFactsResponse,
+        // Exposed over MCP so an agent can find facts backed only by stale revisions.
+        mcp: { expose: true, name: "facts_stale", safety: "read" },
       }),
     },
     async () =>
@@ -73,6 +75,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Inbox items and queue state",
         response: ingest.InboxResponse,
+        // Exposed over MCP so an agent can read the ingest inbox + queue state.
+        mcp: { expose: true, name: "inbox", safety: "read" },
       }),
     },
     async () =>
@@ -91,6 +95,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Durable ingest job ledger",
         response: ingest.IngestJobsResponse,
+        // Exposed over MCP so an agent can inspect the durable ingest job ledger.
+        mcp: { expose: true, name: "ingest_jobs", safety: "read" },
       }),
     },
     async () =>
@@ -124,6 +130,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Ingestion metrics and telemetry",
         response: ingest.IngestMetricsResponse,
+        // Exposed over MCP so an agent can read ingest throughput/cost telemetry.
+        mcp: { expose: true, name: "ingest_metrics", safety: "read" },
       }),
     },
     async () =>
@@ -151,6 +159,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "Retry a failed ingest job",
         params: ingest.RetryJobParams,
         response: ingest.RetryJobResponse,
+        // Exposed over MCP: re-pump a failed/dead-letter job (idempotent stages).
+        mcp: { expose: true, name: "ingest_job_retry", safety: "write" },
       }),
     },
     async (request) => {
@@ -177,6 +187,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Retry all dead-letter ingest jobs",
         response: ingest.RetryDeadLetterResponse,
+        // Exposed over MCP: bulk re-pump the dead-letter pile (idempotent).
+        mcp: { expose: true, name: "ingest_dead_letter_retry", safety: "write" },
       }),
     },
     async () =>
@@ -190,6 +202,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Clear (discard) all dead-letter ingest jobs",
         response: ingest.ClearDeadLetterResponse,
+        // Destructive: discards failed jobs irreversibly — recorded but never auto-exposed.
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async () =>
@@ -206,6 +220,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "Cancel a single ingest job",
         params: ingest.CancelJobParams,
         response: ingest.CancelJobResponse,
+        // Exposed over MCP: remove a single non-processing queued job (re-enqueueable).
+        mcp: { expose: true, name: "ingest_job_cancel", safety: "write" },
       }),
     },
     async (request) => {
@@ -229,6 +245,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "Rebuild (re-extract) a source",
         params: ingest.RebuildSourceParams,
         response: ingest.RebuildSourceResponse,
+        // Exposed over MCP: re-extract a source from its stored revision (no re-read).
+        mcp: { expose: true, name: "ingest_source_rebuild", safety: "write" },
       }),
     },
     async (request) => {
@@ -247,6 +265,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Pause ingest processing",
         response: ingest.PauseResponse,
+        // Exposed over MCP: gate the executor (reversible via resume).
+        mcp: { expose: true, name: "ingest_pause", safety: "write" },
       }),
     },
     async () => {
@@ -262,6 +282,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         tags,
         summary: "Resume ingest processing",
         response: ingest.PauseResponse,
+        // Exposed over MCP: re-enable the executor (reversible via pause).
+        mcp: { expose: true, name: "ingest_resume", safety: "write" },
       }),
     },
     async () => {
@@ -280,6 +302,8 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         summary: "Wiki diff for a source document",
         params: ingest.SourceDiffParams,
         response: ingest.SourceDiffResponse,
+        // Exposed over MCP so an agent can see what a document changed in the wiki.
+        mcp: { expose: true, name: "sources_diff", safety: "read" },
       }),
     },
     async (request) => {

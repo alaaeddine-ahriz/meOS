@@ -11,7 +11,13 @@ export function registerActivityRoutes(app: FastifyInstance, ctx: AppContext): v
   app.get(
     "/api/activity",
     {
-      schema: routeSchema({ tags, summary: "List wiki runs", response: activity.ActivityResponse }),
+      schema: routeSchema({
+        tags,
+        summary: "List wiki runs",
+        response: activity.ActivityResponse,
+        // Exposed over MCP so an agent can browse the wiki run feed.
+        mcp: { expose: true, name: "activity", safety: "read" },
+      }),
     },
     async () => activity.ActivityResponse.parse({ runs: ctx.store.listWikiRuns() }),
   );
@@ -25,6 +31,8 @@ export function registerActivityRoutes(app: FastifyInstance, ctx: AppContext): v
         summary: "Get a run's events",
         params: activity.RunEventsParams,
         response: activity.RunEventsResponse,
+        // Exposed over MCP so an agent can replay a run's persisted transcript.
+        mcp: { expose: true, name: "activity_events", safety: "read" },
       }),
     },
     async (request) => {

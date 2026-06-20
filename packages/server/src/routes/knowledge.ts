@@ -107,6 +107,8 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Upsert a knowledge entity",
         body: knowledge.UpsertEntityBody,
         response: knowledge.UpsertEntityResponse,
+        // The agent's native extraction primitive: create/resolve an entity. Idempotent.
+        mcp: { expose: true, name: "knowledge_entity_upsert", safety: "write" },
       }),
     },
     async (request) => {
@@ -150,6 +152,8 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Add an observation about an entity",
         body: knowledge.AddObservationBody,
         response: knowledge.AddObservationResponse,
+        // Native extraction primitive: record one fact about an entity, with provenance.
+        mcp: { expose: true, name: "knowledge_observation_add", safety: "write" },
       }),
     },
     async (request) => {
@@ -242,6 +246,8 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
         summary: "Add a relationship between two entities",
         body: knowledge.AddRelationshipBody,
         response: knowledge.AddRelationshipResponse,
+        // Native extraction primitive: link two entities with a normalised predicate.
+        mcp: { expose: true, name: "knowledge_relationship_add", safety: "write" },
       }),
     },
     async (request) => {

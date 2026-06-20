@@ -19,6 +19,8 @@ export function registerCalendarRoutes(app: FastifyInstance, ctx: AppContext): v
         tags,
         summary: "List calendar events",
         response: calendar.ListCalendarEventsResponse,
+        // Exposed over MCP so an agent can look up synced calendar events.
+        mcp: { expose: true, name: "calendar_events", safety: "read" },
       }),
     },
     async (request) => {

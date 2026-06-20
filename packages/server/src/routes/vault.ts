@@ -46,6 +46,8 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
         summary: "Read a note",
         querystring: vault.NotePathQuery,
         response: vault.NoteContentsSchema,
+        // Exposed over MCP so an external agent can read a note's markdown body.
+        mcp: { expose: true, name: "vault_note_get", safety: "read" },
       }),
     },
     async (request) => {
@@ -68,6 +70,8 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
         summary: "Create a note",
         body: vault.CreateNoteBody,
         response: { 201: vault.NoteMetaSchema },
+        // Exposed over MCP: create an empty titled note (reversible — can be deleted).
+        mcp: { expose: true, safety: "write" },
       }),
     },
     async (request, reply) => {
@@ -92,6 +96,8 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
         summary: "Save a note",
         body: vault.SaveNoteBody,
         response: vault.NoteMetaSchema,
+        // Exposed over MCP: overwrite a note's markdown (prior version stays in git).
+        mcp: { expose: true, name: "vault_note_save", safety: "write" },
       }),
     },
     async (request) => {
@@ -114,6 +120,8 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
         summary: "Delete a note",
         querystring: vault.NotePathQuery,
         response: vault.DeleteNoteResponse,
+        // Destructive: recorded but never auto-exposed (an agent must not delete notes).
+        mcp: { expose: true, safety: "destructive" },
       }),
     },
     async (request) => {
@@ -138,6 +146,8 @@ export function registerVaultRoutes(app: FastifyInstance, ctx: AppContext): void
         summary: "Rename a note",
         body: vault.RenameNoteBody,
         response: vault.NoteMetaSchema,
+        // Exposed over MCP: move/rename a note (reversible — rename back).
+        mcp: { expose: true, name: "vault_note_rename", safety: "write" },
       }),
     },
     async (request) => {
