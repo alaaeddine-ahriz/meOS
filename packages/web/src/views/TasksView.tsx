@@ -1,8 +1,8 @@
 import {
-  CalendarClock,
   ChevronRight,
   Clock,
   Loader2,
+  Maximize2,
   Pencil,
   Play,
   Plus,
@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { createElement, Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
   api,
   type AgentTask,
@@ -19,6 +20,7 @@ import {
   type TaskRunStatus,
 } from "../api.js";
 import { brandLogo } from "@/components/brand-logos";
+import { Page, PageBody, PageHeader } from "@/components/Page";
 import { useConnectorCatalog, type ConnectorCatalogApi } from "../hooks/use-connector-catalog.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -231,19 +233,11 @@ export function TasksView() {
 
   return (
     <div className="flex h-full min-w-0">
-      <div className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10">
-          <header className="flex items-start justify-between">
-            <div>
-              <h1 className="flex items-center gap-2 font-serif text-2xl text-paper">
-                <CalendarClock className="size-5 opacity-70" />
-                Agent Tasks
-              </h1>
-              <p className="mt-1 max-w-xl text-sm text-dim">
-                Describe what you want in plain language — including how often. The agent figures
-                out the schedule and the connectors it needs, then runs on its own.
-              </p>
-            </div>
+      <Page className="min-w-0 flex-1">
+        <PageHeader
+          title="Agent Tasks"
+          description="Describe what you want in plain language — including how often. The agent figures out the schedule and the connectors it needs, then runs on its own."
+          actions={
             <Button
               size="sm"
               onClick={() => setCreating((c) => !c)}
@@ -251,16 +245,17 @@ export function TasksView() {
             >
               <Plus className="size-4" /> New task
             </Button>
-          </header>
-
+          }
+        />
+        <PageBody>
           {error && (
-            <p className="mt-4 rounded-md border border-ember/30 bg-ember/5 px-3 py-2 text-sm text-ember">
+            <p className="mb-4 rounded-md border border-ember/30 bg-ember/5 px-3 py-2 text-sm text-ember">
               {error}
             </p>
           )}
 
           {creating && (
-            <div className="mt-5">
+            <div className="mb-5">
               <TaskComposer
                 catalog={catalog}
                 onCancel={() => setCreating(false)}
@@ -273,13 +268,13 @@ export function TasksView() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-col gap-4">
+          <div className="flex flex-col gap-4">
             {loading ? (
-              <p className="text-sm text-dim">Loading…</p>
+              <p className="text-sm text-muted-foreground">Loading…</p>
             ) : tasks.length === 0 && !creating ? (
-              <p className="rounded-lg border border-dashed border-line px-4 py-12 text-center text-sm text-dim">
-                No tasks yet. Click <span className="text-paper">New task</span> and describe what
-                the agent should do.
+              <p className="rounded-lg border border-dashed border-line px-4 py-12 text-center text-sm text-muted-foreground">
+                No tasks yet. Click <span className="text-foreground">New task</span> and describe
+                what the agent should do.
               </p>
             ) : (
               tasks.map((task) => (
@@ -295,24 +290,32 @@ export function TasksView() {
               ))
             )}
           </div>
-        </div>
-      </div>
+        </PageBody>
+      </Page>
 
       {selected && (
         <aside className="flex h-full w-[460px] shrink-0 flex-col border-l border-line bg-desk">
-          <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-            <Play className="size-3.5 shrink-0 text-lamp" />
-            <span className="truncate text-sm font-medium text-paper">
+          <header className="flex items-center gap-2 border-b border-line px-4 py-3">
+            <Play className="size-4 shrink-0 text-lamp" />
+            <h2 className="min-w-0 flex-1 truncate font-serif text-lg text-paper">
               {selectedTask?.title ?? "Run"}
-            </span>
+            </h2>
+            <Link
+              to={`/?c=${selected.conversationId}`}
+              title="Open full conversation"
+              className="rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper"
+            >
+              <Maximize2 className="size-4" />
+            </Link>
             <button
+              type="button"
               onClick={() => setSelected(null)}
-              className="ml-auto rounded p-1 text-dim hover:bg-card hover:text-paper"
-              aria-label="Close"
+              title="Close"
+              className="rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper"
             >
               <X className="size-4" />
             </button>
-          </div>
+          </header>
           <div className="min-h-0 flex-1">
             <ChatView
               key={selected.conversationId}
