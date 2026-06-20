@@ -84,11 +84,13 @@ export const AgentTaskRunSchema = z.object({
 
 /** POST /api/agent-tasks — create a task. */
 export const CreateAgentTaskBody = z.object({
-  title: z.string().min(1).max(200),
+  /** Optional; defaults to a short name derived from the instruction. */
+  title: z.string().min(1).max(200).optional(),
   prompt: z.string().min(1).max(20_000),
   agentId: z.string().optional(),
   model: z.string().optional(),
-  schedule: ScheduleSchema,
+  /** Omit to let the server derive the cadence from the instruction text. */
+  schedule: ScheduleSchema.optional(),
   /** Defaults to enabled; pass false to create it paused. */
   enabled: z.boolean().optional(),
   /** The linked connectors; omit to let the server auto-detect from the prompt. */
@@ -118,9 +120,18 @@ export const DetectedConnectorSchema = TaskConnectorLinkSchema.extend({
   matches: z.array(z.string()),
 });
 
-/** POST /api/agent-tasks/analyze — the connectors detected in the prompt. */
+/**
+ * POST /api/agent-tasks/analyze — what the platform read out of the instruction:
+ * the connectors it references and the cadence it expresses ("every hour" →
+ * an interval schedule), both derived deterministically so the composer can show
+ * them live without the user filling in any form.
+ */
 export const AnalyzeAgentTaskResponse = z.object({
   connectors: z.array(DetectedConnectorSchema),
+  /** The schedule derived from the instruction (defaults to daily when none is stated). */
+  schedule: ScheduleSchema,
+  /** A short human label for that schedule, e.g. "every hour", "every day at 9 AM". */
+  scheduleLabel: z.string(),
 });
 
 export const AgentTaskIdParam = NumericIdParam;
@@ -133,7 +144,11 @@ export const AgentTaskDetailResponse = z.object({
 });
 export const AgentTaskRunsResponse = z.object({ runs: z.array(AgentTaskRunSchema) });
 /** POST /api/agent-tasks/:id/run — enqueue an immediate run. */
-export const RunAgentTaskResponse = z.object({ runId: z.number() });
+export const RunAgentTaskResponse = z.object({
+  runId: z.number(),
+  /** The conversation the run streams into — open it to watch the agent work live. */
+  conversationId: z.number(),
+});
 export const DeleteAgentTaskResponse = z.object({ ok: z.boolean() });
 
 export type ScheduleKind = z.infer<typeof ScheduleKindSchema>;

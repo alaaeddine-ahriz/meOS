@@ -4154,6 +4154,17 @@ export class KnowledgeStore {
   }
 
   /**
+   * Pin the conversation a task's runs accumulate in. Called once, the moment the
+   * first run starts, so the UI can open and live-watch the run immediately (rather
+   * than waiting for the run to finish and write the id via {@link setAgentTaskRunState}).
+   */
+  setAgentTaskConversation(id: number, conversationId: number): void {
+    this.db
+      .prepare("UPDATE agent_tasks SET conversation_id = ? WHERE id = ?")
+      .run(conversationId, id);
+  }
+
+  /**
    * Record the outcome of a run on the task itself: when it last ran, the status,
    * its next due time, and (once created) the conversation its runs live in.
    */

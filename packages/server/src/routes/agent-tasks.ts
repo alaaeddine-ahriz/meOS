@@ -1,12 +1,19 @@
 import { agentTasks as schema } from "@meos/contracts";
 import { detectConnectorLinks, listAgents } from "@meos/core";
 import type { FastifyInstance } from "fastify";
-import { computeNextRunAfter, validateSchedule } from "../agent-task-scheduler.js";
+import { computeNextRunAfter, detectSchedule, validateSchedule } from "../agent-task-scheduler.js";
 import type { AppContext } from "../context.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { routeSchema } from "../route-schema.js";
 
 const tags = ["agent-tasks"];
+
+/** A short task name from the first line of the instruction, when none was given. */
+function deriveTitle(prompt: string): string {
+  const firstLine = prompt.trim().split("\n")[0] ?? "";
+  const words = firstLine.split(/\s+/).filter(Boolean).slice(0, 6).join(" ");
+  return (words || "Untitled task").slice(0, 80);
+}
 
 /**
  * Scheduled agent tasks (#7): CRUD over saved instructions that a coding agent
@@ -52,8 +59,11 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
     },
     async (request) => {
       const body = parseOrThrow(schema.AnalyzeAgentTaskBody, request.body, "body");
+      const { schedule, label } = detectSchedule(body.prompt);
       return schema.AnalyzeAgentTaskResponse.parse({
         connectors: detectConnectorLinks(body.prompt),
+        schedule,
+        scheduleLabel: label,
       });
     },
   );
@@ -71,14 +81,17 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
     async (request, reply) => {
       const body = parseOrThrow(schema.CreateAgentTaskBody, request.body, "body");
       assertKnownAgent(body.agentId);
+      // The cadence falls out of the instruction text ("every hour, …") unless the
+      // caller passed an explicit schedule (raw API use).
+      const schedule = body.schedule ?? detectSchedule(body.prompt).schedule;
       try {
-        validateSchedule(body.schedule);
+        validateSchedule(schedule);
       } catch (error) {
         throw httpError.validation(error instanceof Error ? error.message : "Invalid schedule");
       }
       const enabled = body.enabled ?? true;
       // Seed the first run from now; a paused task has no due time until enabled.
-      const nextRunAt = enabled ? computeNextRunAfter(body.schedule, new Date()) : null;
+      const nextRunAt = enabled ? computeNextRunAfter(schedule, new Date()) : null;
       // The UI sends the resolved links it showed the user; when omitted (e.g. a raw
       // API call) auto-identify the connectors from the instruction so the data
       // sources are always explicit. Drop the per-match metadata before storing.
@@ -86,12 +99,12 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         body.links ??
         detectConnectorLinks(body.prompt).map((l) => ({ provider: l.provider, kind: l.kind }));
       const task = ctx.store.createAgentTask({
-        title: body.title,
+        title: body.title ?? deriveTitle(body.prompt),
         prompt: body.prompt,
         agentId: body.agentId ?? null,
         model: body.model ?? null,
-        scheduleKind: body.schedule.kind,
-        scheduleValue: body.schedule.value,
+        scheduleKind: schedule.kind,
+        scheduleValue: schedule.value,
         links,
         enabled,
         nextRunAt,
@@ -138,21 +151,31 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
       const existing = ctx.store.getAgentTask(id);
       if (!existing) throw httpError.notFound("No such task");
       if (body.agentId !== undefined) assertKnownAgent(body.agentId);
-      if (body.schedule) {
+
+      // Editing the instruction re-derives the cadence + data sources from the new
+      // text (the composer is text-only), unless the caller passed them explicitly.
+      const promptChanged = body.prompt !== undefined && body.prompt !== existing.prompt;
+      const schedule =
+        body.schedule ?? (promptChanged ? detectSchedule(body.prompt!).schedule : undefined);
+      const links =
+        body.links ??
+        (promptChanged
+          ? detectConnectorLinks(body.prompt!).map((l) => ({ provider: l.provider, kind: l.kind }))
+          : undefined);
+      if (schedule) {
         try {
-          validateSchedule(body.schedule);
+          validateSchedule(schedule);
         } catch (error) {
           throw httpError.validation(error instanceof Error ? error.message : "Invalid schedule");
         }
       }
-      // Only re-seed next_run_at when the schedule or enabled state actually
-      // changes — editing the title shouldn't reset the timer.
-      const schedule = body.schedule ?? existing.schedule;
+      // Re-seed next_run_at when the cadence or enabled state changes — editing only
+      // the title shouldn't reset the timer.
       const enabled = body.enabled ?? existing.enabled;
-      const rescheduled = body.schedule !== undefined || body.enabled !== undefined;
+      const rescheduled = schedule !== undefined || body.enabled !== undefined;
       const nextRunAt = rescheduled
         ? enabled
-          ? computeNextRunAfter(schedule, new Date())
+          ? computeNextRunAfter(schedule ?? existing.schedule, new Date())
           : null
         : undefined;
       const task = ctx.store.updateAgentTask(id, {
@@ -160,10 +183,9 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
         prompt: body.prompt,
         agentId: body.agentId,
         model: body.model,
-        scheduleKind: body.schedule?.kind,
-        scheduleValue: body.schedule?.value,
-        // The workflow UI always sends the resolved set; absence means "leave as is".
-        links: body.links,
+        scheduleKind: schedule?.kind,
+        scheduleValue: schedule?.value,
+        links,
         enabled: body.enabled,
         nextRunAt,
       });
@@ -205,7 +227,11 @@ export function registerAgentTaskRoutes(app: FastifyInstance, ctx: AppContext): 
       if (!runner) throw httpError.internal("Task runner unavailable");
       const runId = runner.start(task, false);
       if (runId === null) throw httpError.conflict("This task is already running");
-      return reply.code(202).send(schema.RunAgentTaskResponse.parse({ runId }));
+      // start() pins the conversation on the task before returning, so the client
+      // can open it and watch this run stream in live.
+      const conversationId = ctx.store.getAgentTask(id)?.conversationId ?? task.conversationId;
+      if (conversationId == null) throw httpError.internal("Run started without a conversation");
+      return reply.code(202).send(schema.RunAgentTaskResponse.parse({ runId, conversationId }));
     },
   );
 

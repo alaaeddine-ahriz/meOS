@@ -494,11 +494,11 @@ export const api = {
       body: JSON.stringify({ prompt }),
     }),
   createAgentTask: (body: {
-    title: string;
+    title?: string;
     prompt: string;
     agentId?: string;
     model?: string;
-    schedule: Schedule;
+    schedule?: Schedule;
     enabled?: boolean;
     links?: TaskConnectorLink[];
   }) =>
@@ -738,6 +738,41 @@ export async function* streamChat(
       if (line.startsWith("data: ")) {
         yield JSON.parse(line.slice(6)) as ChatEvent;
       }
+    }
+  }
+}
+
+/**
+ * Watch a conversation's in-flight agent run (e.g. a scheduled task running
+ * headlessly). Yields the same frames as {@link streamChat} — start / reasoning /
+ * tool-call / delta / … / done — broadcast off the server's run bus, so the Tasks
+ * view can render the agent working live. Resolves when the socket closes.
+ */
+export async function* streamConversation(
+  conversationId: number,
+  signal?: AbortSignal,
+): AsyncGenerator<ChatEvent> {
+  const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/stream`, {
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`conversation stream failed: ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame.trim();
+      // Skip heartbeat comments (": ping") and the initial readiness frame.
+      if (!line.startsWith("data: ")) continue;
+      const event = JSON.parse(line.slice(6)) as ChatEvent | { type: "ready" };
+      if (event.type !== "ready") yield event as ChatEvent;
     }
   }
 }

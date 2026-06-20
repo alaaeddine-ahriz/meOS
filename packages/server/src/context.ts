@@ -32,6 +32,7 @@ import {
 } from "@meos/core";
 import { ActivityBus } from "./activity.js";
 import { buildCommitMessage } from "./commit-message.js";
+import { ConversationStreamBus } from "./conversation-stream.js";
 import { ConnectorManager } from "./connector-manager.js";
 import { DurableIngest } from "./durable-ingest.js";
 import { GitSync } from "./git.js";
@@ -109,6 +110,12 @@ export interface AppContext {
   events: MeosEvents;
   /** Live + persisted wiki-maintainer transcripts for the Activity view. */
   activity: ActivityBus;
+  /**
+   * Live agent-run frames keyed by conversation, so a headless scheduled task run
+   * can be watched in real time from the Tasks view (#7). Frames are also persisted
+   * on the message, so this is pure transient fan-out.
+   */
+  runStream: ConversationStreamBus;
   /**
    * Runs scheduled agent tasks (#7). Constructed in `buildServer` (the HTTP
    * process), so it's present for routes and the per-minute scheduler; absent in
@@ -234,6 +241,8 @@ export function createContext(
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   // Records each page regeneration's agent transcript and streams it live.
   const activity = new ActivityBus(store);
+  // Live fan-out of headless agent-task runs to any Tasks-view watcher (#7).
+  const runStream = new ConversationStreamBus();
   const wiki = new WikiWriter(
     store,
     llm,
@@ -458,6 +467,7 @@ export function createContext(
     git,
     events,
     activity,
+    runStream,
     connectors,
     workers,
     workerBridge: role === "app" ? bridge : undefined,

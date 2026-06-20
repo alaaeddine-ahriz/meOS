@@ -4,6 +4,7 @@ import {
   AgentTaskRunner,
   buildRunPrompt,
   computeNextRunAfter,
+  detectSchedule,
   toSqliteTime,
   validateSchedule,
   type ExecuteAgent,
@@ -168,5 +169,44 @@ describe("AgentTaskRunner", () => {
     runner.runNow(task.id);
     await until(() => store.getAgentTask(task.id)?.lastStatus === "ok");
     expect(store.getAgentTask(task.id)?.nextRunAt).toBe("2099-01-01 00:00:00");
+  });
+});
+
+describe("detectSchedule", () => {
+  it("reads explicit intervals from the instruction", () => {
+    expect(detectSchedule("every 30 minutes, summarise my inbox").schedule).toEqual({
+      kind: "interval",
+      value: "30",
+    });
+    expect(detectSchedule("every 2 hours check my calendar").schedule).toEqual({
+      kind: "interval",
+      value: "120",
+    });
+    expect(detectSchedule("every hour, look through my Gmail").schedule).toEqual({
+      kind: "interval",
+      value: "60",
+    });
+  });
+
+  it("maps daily/nightly/weekly phrasings to cron, honouring an 'at' time", () => {
+    expect(detectSchedule("every day at 7am, brief me").schedule).toEqual({
+      kind: "cron",
+      value: "0 7 * * *",
+    });
+    expect(detectSchedule("nightly, recap what changed").schedule).toEqual({
+      kind: "cron",
+      value: "0 21 * * *",
+    });
+    expect(detectSchedule("every weekday at 9, check for replies").schedule).toEqual({
+      kind: "cron",
+      value: "0 9 * * 1-5",
+    });
+  });
+
+  it("defaults to a daily 9am run when no cadence is stated", () => {
+    expect(detectSchedule("look through my email and tell me what matters").schedule).toEqual({
+      kind: "cron",
+      value: "0 9 * * *",
+    });
   });
 });
