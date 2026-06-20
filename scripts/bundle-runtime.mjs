@@ -90,98 +90,18 @@ function resolveFromApp(app, specifier) {
   return require.resolve(specifier, { paths: [app] });
 }
 
-async function findFilesByName(dir, filename, acc = []) {
-  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await findFilesByName(fullPath, filename, acc);
-    } else if (entry.isFile() && entry.name === filename) {
-      acc.push(fullPath);
-    }
+// onnxruntime-node ships no macOS x64 (Intel) prebuilt as of 1.23, and
+// transformers.js has no Node WASM fallback — a darwin/x64 bundle would build
+// but crash on first embedding. Refuse to assemble one rather than ship a broken
+// app. CI no longer runs an Intel macOS runner; this guards manual
+// `--platform=darwin --arch=x64` invocations.
+function assertSupportedTarget() {
+  if (platform === "darwin" && arch === "x64") {
+    throw new Error(
+      "macOS Intel (darwin/x64) is unsupported: onnxruntime-node ships no darwin-x64 " +
+        "binary (dropped in 1.23). Build on Apple Silicon (darwin/arm64) instead.",
+    );
   }
-  return acc;
-}
-
-async function fileExists(p) {
-  return fs.access(p).then(
-    () => true,
-    () => false,
-  );
-}
-
-async function restoreCompatibleOnnxRuntimePayload(packageDir, expectedBinding) {
-  const candidates = await findFilesByName(packageDir, "onnxruntime_binding.node");
-  const compatible = candidates.find((candidate) => {
-    const parts = candidate.split(path.sep);
-    return parts.includes("darwin") && parts.includes("x64");
-  });
-
-  if (!compatible) {
-    if (candidates.length > 0) {
-      console.warn(
-        `Found onnxruntime native candidates, but none for darwin/x64:\n${candidates.join("\n")}`,
-      );
-    }
-    return false;
-  }
-
-  const sourceDir = path.dirname(compatible);
-  const targetDir = path.dirname(expectedBinding);
-  await fs.mkdir(targetDir, { recursive: true });
-  await fs.cp(sourceDir, targetDir, { recursive: true, force: true });
-  console.warn(`Restored onnxruntime native payload from ${sourceDir} to ${targetDir}.`);
-  return fileExists(expectedBinding);
-}
-
-async function ensureOnnxRuntimeNativeBinary(app) {
-  // onnxruntime-node officially supports macOS x64 prebuilt binaries, but some
-  // npm installs leave the package present without the exact N-API folder that
-  // binding.js requires. When a compatible darwin/x64 payload exists under a
-  // different napi-v* folder, copy the full native payload into the expected one.
-  if (platform !== "darwin" || arch !== "x64") return;
-
-  const packageJson = resolveFromApp(app, "onnxruntime-node/package.json");
-  const packageDir = path.dirname(packageJson);
-  const pkg = await readJson(packageJson);
-  const binding = path.join(
-    packageDir,
-    "bin",
-    "napi-v6",
-    "darwin",
-    "x64",
-    "onnxruntime_binding.node",
-  );
-
-  if (await fileExists(binding)) return;
-  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
-
-  console.warn(
-    `onnxruntime-node native binary missing at ${binding}; rebuilding ${pkg.name}@${pkg.version}.`,
-  );
-  run(npmCmd(), ["rebuild", "onnxruntime-node", "--foreground-scripts"], { cwd: app });
-  if (await fileExists(binding)) return;
-  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
-
-  console.warn(
-    `onnxruntime-node rebuild did not restore the native binary; reinstalling ${pkg.name}@${pkg.version}.`,
-  );
-  run(
-    npmCmd(),
-    ["install", `${pkg.name}@${pkg.version}`, "--no-audit", "--no-fund", "--foreground-scripts"],
-    { cwd: app },
-  );
-
-  if (await fileExists(binding)) return;
-  if (await restoreCompatibleOnnxRuntimePayload(packageDir, binding)) return;
-
-  const candidates = await findFilesByName(packageDir, "onnxruntime_binding.node");
-  throw new Error(
-    `onnxruntime-node native binary is still missing after rebuild/reinstall: ${binding}` +
-      (candidates.length
-        ? `\nAvailable candidates:\n${candidates.join("\n")}`
-        : "\nNo onnxruntime_binding.node candidates were found."),
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +156,6 @@ async function installRuntimeDeps() {
     );
   }
   run(npmCmd(), ["install", "--omit=dev", "--no-audit", "--no-fund"], { cwd: app });
-  await ensureOnnxRuntimeNativeBinary(app);
 }
 
 // ---------------------------------------------------------------------------
@@ -358,6 +277,7 @@ async function verify() {
 
 async function main() {
   console.log(`Bundling runtime for ${platform}/${arch} (Node ${NODE_VERSION})`);
+  assertSupportedTarget();
   await resetPayload();
   await installRuntimeDeps();
   await vendorBuilds();
