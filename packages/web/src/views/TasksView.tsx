@@ -1,26 +1,20 @@
 import {
-  ChevronDown,
+  CalendarClock,
   ChevronRight,
   Clock,
   Loader2,
   Pencil,
   Play,
   Plus,
-  Sparkles,
   Trash2,
-  Workflow,
   X,
 } from "lucide-react";
 import { createElement, Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   api,
   type AgentTask,
   type AgentTaskRun,
-  type CodingAgentSummary,
-  type DetectedConnector,
   type Schedule,
-  type ScheduleKind,
   type TaskConnectorLink,
   type TaskRunStatus,
 } from "../api.js";
@@ -28,21 +22,9 @@ import { brandLogo } from "@/components/brand-logos";
 import { useConnectorCatalog, type ConnectorCatalogApi } from "../hooks/use-connector-catalog.js";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  buildWorkflowConnectors,
-  TaskWorkflow,
-  type WorkflowConnector,
-} from "./tasks/TaskWorkflow.js";
+import { ChatView } from "./ChatView.js";
 
 // ── small formatters ────────────────────────────────────────────────────────
 
@@ -73,32 +55,43 @@ function relativeFromNow(sqlite: string | null): string {
   return `in ${Math.round(hr / 24)} days`;
 }
 
-/** The trigger node's label + sub for a schedule, e.g. {"Every hour", "on the :00"}. */
-function triggerSummary(schedule: Schedule): { label: string; sub: string } {
-  if (schedule.kind === "once") {
-    return { label: "Once", sub: formatLocal(toSqlite(schedule.value)) };
+/** "9 AM" / "6:30 PM"-style label for an hour field (and optional minute). */
+function clock(hour: number, minute = 0): string {
+  const mer = hour < 12 ? "AM" : "PM";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return minute ? `${h12}:${String(minute).padStart(2, "0")} ${mer}` : `${h12} ${mer}`;
+}
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * A short human label for a schedule — mirrors how the server reads cadence out of
+ * the instruction, so the card reads the same way the user wrote it ("every hour",
+ * "every day at 9 AM"). Falls back to the raw cron expression for anything exotic.
+ */
+function describeSchedule(schedule: Schedule): string {
+  if (schedule.kind === "once") return `once · ${formatLocal(toSqlite(schedule.value))}`;
+  if (schedule.kind === "interval") {
+    const min = Number(schedule.value);
+    if (!Number.isFinite(min)) return "on a timer";
+    if (min === 1) return "every minute";
+    if (min < 60) return `every ${min} minutes`;
+    if (min === 60) return "every hour";
+    if (min % 1440 === 0) return min === 1440 ? "every day" : `every ${min / 1440} days`;
+    if (min % 60 === 0) return `every ${min / 60} hours`;
+    return `every ${min} minutes`;
   }
-  if (schedule.kind === "cron") return { label: "On schedule", sub: schedule.value };
-  const min = Number(schedule.value);
-  if (!Number.isFinite(min)) return { label: "On a timer", sub: "repeats" };
-  if (min === 60) return { label: "Every hour", sub: "on the :00" };
-  if (min === 1440) return { label: "Every day", sub: "daily" };
-  if (min % 1440 === 0) return { label: `Every ${min / 1440} days`, sub: "repeats" };
-  if (min % 60 === 0) return { label: `Every ${min / 60} hours`, sub: "repeats" };
-  return { label: `Every ${min} min`, sub: "repeats" };
-}
-
-/** The agent's display label, falling back to its id or "Claude". */
-function agentLabel(agentId: string | null, agents: CodingAgentSummary[]): string {
-  if (!agentId) return agents.find((a) => a.installed)?.label ?? "Claude";
-  return agents.find((a) => a.id === agentId)?.label ?? agentId;
-}
-
-/** A short task name derived from the instruction when the user didn't name it. */
-function deriveTitle(prompt: string): string {
-  const firstLine = prompt.trim().split("\n")[0] ?? "";
-  const words = firstLine.split(/\s+/).filter(Boolean).slice(0, 6).join(" ");
-  return (words || "Untitled task").slice(0, 80);
+  // cron — recognise the shapes detectSchedule emits; otherwise show it verbatim.
+  const m = schedule.value.trim().match(/^(\d+)\s+(\d+)\s+\*\s+\*\s+(\*|\d+(?:-\d+)?)$/);
+  if (!m) return schedule.value;
+  const minute = Number(m[1]);
+  const hour = Number(m[2]);
+  const dow = m[3]!;
+  const at = `at ${clock(hour, minute)}`;
+  if (dow === "*") return `every day ${at}`;
+  if (dow === "1-5") return `every weekday ${at}`;
+  if (/^\d+$/.test(dow)) return `every ${WEEKDAYS[Number(dow) % 7]} ${at}`;
+  return `${schedule.value}`;
 }
 
 const STATUS_STYLE: Record<TaskRunStatus, string> = {
@@ -123,20 +116,13 @@ function tintColor(hex: string | undefined): string | undefined {
   return hex ? `color-mix(in srgb, ${hex} 14%, transparent)` : "var(--color-desk)";
 }
 
-/**
- * Render a connector's brand mark from its catalog `logo` id. brandLogo resolves
- * to a stable component from the module-level LOGO_REGISTRY; `createElement` keeps
- * the dynamic lookup out of JSX so it reads as a runtime selection, not a
- * component defined per render.
- */
+/** Render a connector's brand mark from its catalog `logo` id. */
 function BrandIcon({ logo, className }: { logo?: string; className?: string }) {
   return createElement(brandLogo(logo), { className });
 }
 
 /** One connector's highlight spec: the phrases to chip-wrap + its brand. */
 interface HighlightSpec {
-  provider: string;
-  kind: string;
   brandColor?: string;
   logo?: string;
   phrases: string[];
@@ -148,8 +134,8 @@ function escapeRegExp(value: string): string {
 
 /**
  * Render an instruction with every linked-connector phrase wrapped in a small
- * branded chip (logo + word), so the prose visibly shows which connectors the
- * agent will touch — the editable-workflow read of the same text.
+ * branded chip (logo + word), so the prose itself shows which connectors the agent
+ * will touch — the whole task surface is the text, lightly annotated.
  */
 function HighlightedInstruction({ text, specs }: { text: string; specs: HighlightSpec[] }) {
   const { regex, lookup } = useMemo(() => {
@@ -165,7 +151,6 @@ function HighlightedInstruction({ text, specs }: { text: string; specs: Highligh
       }
     }
     if (all.length === 0) return { regex: null as RegExp | null, lookup: phraseToSpec };
-    // Longest phrases first so "google tasks" wins over "tasks".
     all.sort((a, b) => b.length - a.length);
     return {
       regex: new RegExp(`\\b(${all.map(escapeRegExp).join("|")})\\b`, "gi"),
@@ -207,8 +192,6 @@ function specsForLinks(links: TaskConnectorLink[], catalog: ConnectorCatalogApi)
     const kind = connector?.kinds.find((k) => k.kind === link.kind);
     if (!connector || !kind) continue;
     specs.push({
-      provider: link.provider,
-      kind: link.kind,
       brandColor: connector.brandColor,
       logo: kind.logo,
       phrases: [kind.displayName, kind.noun.one, kind.noun.many],
@@ -219,13 +202,18 @@ function specsForLinks(links: TaskConnectorLink[], catalog: ConnectorCatalogApi)
 
 // ── view ─────────────────────────────────────────────────────────────────────
 
+/** The conversation a run streams into, plus the task it belongs to (for the title). */
+interface Selection {
+  taskId: number;
+  conversationId: number;
+}
+
 export function TasksView() {
   const [tasks, setTasks] = useState<AgentTask[]>([]);
-  const [agents, setAgents] = useState<CodingAgentSummary[]>([]);
-  const [connected, setConnected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const catalog = useConnectorCatalog();
 
   const refresh = () =>
@@ -237,84 +225,103 @@ export function TasksView() {
 
   useEffect(() => {
     void refresh();
-    api
-      .listCodingAgents()
-      .then((r) => setAgents(r.agents))
-      .catch(() => {});
-    api
-      .getConnectors()
-      .then((r) =>
-        setConnected(new Set(r.providers.filter((p) => p.connected).map((p) => p.provider))),
-      )
-      .catch(() => {});
   }, []);
 
+  const selectedTask = selected ? tasks.find((t) => t.id === selected.taskId) : null;
+
   return (
-    <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-6 py-10">
-      <header className="flex items-start justify-between">
-        <div>
-          <h1 className="flex items-center gap-2 font-serif text-2xl text-paper">
-            <Workflow className="size-5 opacity-70" />
-            Agent Tasks
-          </h1>
-          <p className="mt-1 max-w-xl text-sm text-dim">
-            Describe what you want in plain language — the agent auto-detects the connectors it
-            needs and runs the workflow on a schedule.
-          </p>
+    <div className="flex h-full min-w-0">
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex w-full max-w-3xl flex-col px-6 py-10">
+          <header className="flex items-start justify-between">
+            <div>
+              <h1 className="flex items-center gap-2 font-serif text-2xl text-paper">
+                <CalendarClock className="size-5 opacity-70" />
+                Agent Tasks
+              </h1>
+              <p className="mt-1 max-w-xl text-sm text-dim">
+                Describe what you want in plain language — including how often. The agent figures
+                out the schedule and the connectors it needs, then runs on its own.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              onClick={() => setCreating((c) => !c)}
+              className="gap-1.5 bg-lamp text-desk hover:bg-lamp/90"
+            >
+              <Plus className="size-4" /> New task
+            </Button>
+          </header>
+
+          {error && (
+            <p className="mt-4 rounded-md border border-ember/30 bg-ember/5 px-3 py-2 text-sm text-ember">
+              {error}
+            </p>
+          )}
+
+          {creating && (
+            <div className="mt-5">
+              <TaskComposer
+                catalog={catalog}
+                onCancel={() => setCreating(false)}
+                onSaved={() => {
+                  setCreating(false);
+                  void refresh();
+                }}
+                onError={setError}
+              />
+            </div>
+          )}
+
+          <div className="mt-6 flex flex-col gap-4">
+            {loading ? (
+              <p className="text-sm text-dim">Loading…</p>
+            ) : tasks.length === 0 && !creating ? (
+              <p className="rounded-lg border border-dashed border-line px-4 py-12 text-center text-sm text-dim">
+                No tasks yet. Click <span className="text-paper">New task</span> and describe what
+                the agent should do.
+              </p>
+            ) : (
+              tasks.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  catalog={catalog}
+                  active={selected?.taskId === task.id}
+                  onOpen={(conversationId) => setSelected({ taskId: task.id, conversationId })}
+                  onChanged={refresh}
+                  onError={setError}
+                />
+              ))
+            )}
+          </div>
         </div>
-        <Button
-          size="sm"
-          onClick={() => setCreating((c) => !c)}
-          className="gap-1.5 bg-lamp text-desk hover:bg-lamp/90"
-        >
-          <Plus className="size-4" /> New task
-        </Button>
-      </header>
-
-      {error && (
-        <p className="mt-4 rounded-md border border-ember/30 bg-ember/5 px-3 py-2 text-sm text-ember">
-          {error}
-        </p>
-      )}
-
-      {creating && (
-        <div className="mt-5">
-          <TaskComposer
-            agents={agents}
-            catalog={catalog}
-            connected={connected}
-            onCancel={() => setCreating(false)}
-            onSaved={() => {
-              setCreating(false);
-              void refresh();
-            }}
-            onError={setError}
-          />
-        </div>
-      )}
-
-      <div className="mt-6 flex flex-col gap-4">
-        {loading ? (
-          <p className="text-sm text-dim">Loading…</p>
-        ) : tasks.length === 0 && !creating ? (
-          <p className="rounded-lg border border-dashed border-line px-4 py-12 text-center text-sm text-dim">
-            No tasks yet. Click <span className="text-paper">New task</span> and describe what the
-            agent should do.
-          </p>
-        ) : (
-          tasks.map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              agents={agents}
-              catalog={catalog}
-              connected={connected}
-              onChanged={refresh}
-              onError={setError}
-            />
-          ))
-        )}
       </div>
+
+      {selected && (
+        <aside className="flex h-full w-[460px] shrink-0 flex-col border-l border-line bg-desk">
+          <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+            <Play className="size-3.5 shrink-0 text-lamp" />
+            <span className="truncate text-sm font-medium text-paper">
+              {selectedTask?.title ?? "Run"}
+            </span>
+            <button
+              onClick={() => setSelected(null)}
+              className="ml-auto rounded p-1 text-dim hover:bg-card hover:text-paper"
+              aria-label="Close"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+          <div className="min-h-0 flex-1">
+            <ChatView
+              key={selected.conversationId}
+              conversationId={selected.conversationId}
+              embedded
+            />
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
@@ -323,24 +330,22 @@ export function TasksView() {
 
 function TaskCard({
   task,
-  agents,
   catalog,
-  connected,
+  active,
+  onOpen,
   onChanged,
   onError,
 }: {
   task: AgentTask;
-  agents: CodingAgentSummary[];
   catalog: ConnectorCatalogApi;
-  connected: Set<string>;
+  active: boolean;
+  onOpen: (conversationId: number) => void;
   onChanged: () => Promise<void> | void;
   onError: (message: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
   const [runs, setRuns] = useState<AgentTaskRun[] | null>(null);
   const [busy, setBusy] = useState(false);
-  const navigate = useNavigate();
 
   const guard = async (fn: () => Promise<unknown>) => {
     setBusy(true);
@@ -359,27 +364,21 @@ function TaskCard({
       .then((r) => setRuns(r.runs))
       .catch((e) => onError(e instanceof Error ? e.message : String(e)));
 
-  // Load the run history once so the footer can show the last run's telemetry.
   useEffect(() => {
     void loadRuns();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.id, task.lastRunAt]);
 
-  const connectors: WorkflowConnector[] = useMemo(
-    () => buildWorkflowConnectors(task.links, catalog, connected),
-    [task.links, catalog, connected],
-  );
   const specs = useMemo(() => specsForLinks(task.links, catalog), [task.links, catalog]);
   const lastRun = runs?.[0] ?? null;
+  const isRunning = lastRun?.status === "running";
 
   if (editing) {
     return (
       <div className="rounded-xl border border-line bg-card/40 p-4">
         <TaskComposer
           task={task}
-          agents={agents}
           catalog={catalog}
-          connected={connected}
           onCancel={() => setEditing(false)}
           onSaved={() => {
             setEditing(false);
@@ -391,8 +390,12 @@ function TaskCard({
     );
   }
 
+  const openConversation = () => {
+    if (task.conversationId != null) onOpen(task.conversationId);
+  };
+
   return (
-    <div className="rounded-xl border border-line bg-card/40">
+    <div className={`rounded-xl border bg-card/40 ${active ? "border-lamp/50" : "border-line"}`}>
       {/* header */}
       <div className="flex items-start gap-3 px-5 pt-4">
         <div className="min-w-0 flex-1">
@@ -408,6 +411,11 @@ function TaskCard({
             >
               {task.enabled ? "active" : "paused"}
             </Badge>
+            {isRunning && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-lamp">
+                <Loader2 className="size-3 animate-spin" /> running
+              </span>
+            )}
           </div>
           <p className="mt-2 text-[13px] leading-relaxed text-faded">
             <HighlightedInstruction text={task.prompt} specs={specs} />
@@ -423,7 +431,7 @@ function TaskCard({
                 await onChanged();
               })
             }
-            aria-label="Active"
+            aria-label={task.enabled ? "Pause task" : "Resume task"}
           />
           <Button
             size="icon"
@@ -432,8 +440,8 @@ function TaskCard({
             title="Run now"
             onClick={() =>
               guard(async () => {
-                await api.runAgentTask(task.id);
-                setShowHistory(true);
+                const { conversationId } = await api.runAgentTask(task.id);
+                onOpen(conversationId);
                 setTimeout(() => void loadRuns(), 400);
                 await onChanged();
               })
@@ -470,105 +478,45 @@ function TaskCard({
         </div>
       </div>
 
-      {/* detected-connectors banner */}
-      {task.links.length > 0 && (
-        <div className="mx-5 mt-3 flex items-center gap-2 rounded-lg border border-line/70 bg-desk/40 px-3 py-2 text-[12px] text-faded">
-          <Sparkles className="size-3.5 shrink-0 text-lamp" />
-          <span>
-            <span className="font-medium text-paper">
-              {task.links.length} connector{task.links.length === 1 ? "" : "s"}
-            </span>{" "}
-            linked — the agent reads from each on every run.
-          </span>
-          <button
-            onClick={() => setEditing(true)}
-            className="ml-auto shrink-0 font-mono text-[11px] text-dim hover:text-paper"
-          >
-            edit links
-          </button>
-        </div>
-      )}
-
-      {/* workflow graph */}
-      <div className="px-5 py-3">
-        <TaskWorkflow
-          trigger={triggerSummary(task.schedule)}
-          connectors={connectors}
-          agent={{ label: agentLabel(task.agentId, agents), sub: "reasons & writes" }}
-          delivers={{ label: "Recap", sub: "to Chat" }}
-          active={task.enabled}
-        />
-      </div>
-
-      {/* footer: last run summary */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-line px-5 py-2.5 font-mono text-[11px] text-dim">
-        {task.lastStatus ? <StatusBadge status={task.lastStatus} /> : <span>no runs yet</span>}
-        {task.lastRunAt && (
-          <span className="text-faded">Last run {formatLocal(task.lastRunAt)}</span>
-        )}
-        {lastRun?.durationMs != null && <span>{(lastRun.durationMs / 1000).toFixed(1)}s</span>}
-        {lastRun?.costUsd != null && lastRun.costUsd > 0 && (
-          <span>${lastRun.costUsd.toFixed(3)}</span>
-        )}
-        {task.conversationId != null && task.lastRunAt && (
-          <button
-            onClick={() => navigate(`/?c=${task.conversationId}`)}
-            className="text-lamp hover:underline"
-          >
-            View recap →
-          </button>
-        )}
-        <span className="ml-auto flex items-center gap-1.5">
-          <Clock className="size-3" />
-          {task.enabled ? (
-            <>
-              next {relativeFromNow(task.nextRunAt)} · {formatLocal(task.nextRunAt)}
-            </>
-          ) : (
-            "paused"
-          )}
+      {/* meta: cadence + next run */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 pb-1 pt-3 text-[12px] text-dim">
+        <span className="inline-flex items-center gap-1.5 text-faded">
+          <Clock className="size-3.5 opacity-70" />
+          {describeSchedule(task.schedule)}
         </span>
+        <span className="text-line">·</span>
+        <span>{task.enabled ? <>next {relativeFromNow(task.nextRunAt)}</> : "paused"}</span>
       </div>
 
-      {/* run history disclosure */}
-      <div className="border-t border-line px-5">
-        <button
-          onClick={() => setShowHistory((s) => !s)}
-          className="flex items-center gap-1 py-2 text-[11px] text-dim hover:text-paper"
-        >
-          {showHistory ? (
-            <ChevronDown className="size-3.5" />
-          ) : (
-            <ChevronRight className="size-3.5" />
-          )}
-          History
-        </button>
-        {showHistory && (
-          <div className="pb-3">
-            {runs === null ? (
-              <p className="text-[12px] text-dim">Loading runs…</p>
-            ) : runs.length === 0 ? (
-              <p className="text-[12px] text-dim">No runs yet.</p>
-            ) : (
-              <ul className="flex flex-col gap-1.5">
-                {runs.map((run) => (
-                  <li
-                    key={run.id}
-                    className="flex items-center gap-3 font-mono text-[11px] text-dim"
-                  >
-                    <StatusBadge status={run.status} />
-                    <span className="text-faded">{formatLocal(toSqlite(run.startedAt))}</span>
-                    {run.numTurns != null && <span>{run.numTurns} turns</span>}
-                    {run.durationMs != null && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
-                    {run.costUsd != null && run.costUsd > 0 && (
-                      <span>${run.costUsd.toFixed(3)}</span>
-                    )}
-                    {run.error && <span className="truncate text-ember">{run.error}</span>}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+      {/* run history — each row opens the conversation on the right to watch it work */}
+      <div className="mt-2 border-t border-line px-5 py-2">
+        {runs === null ? (
+          <p className="text-[12px] text-dim">Loading runs…</p>
+        ) : runs.length === 0 ? (
+          <p className="text-[12px] text-dim">No runs yet — hit play to run it now.</p>
+        ) : (
+          <ul className="flex flex-col">
+            {runs.slice(0, 6).map((run) => (
+              <li key={run.id}>
+                <button
+                  onClick={openConversation}
+                  disabled={task.conversationId == null}
+                  className="flex w-full items-center gap-3 rounded-md px-1 py-1.5 text-left font-mono text-[11px] text-dim hover:bg-card/60 disabled:cursor-default disabled:hover:bg-transparent"
+                  title="Open this run in the chat panel"
+                >
+                  <StatusBadge status={run.status} />
+                  <span className="text-faded">{formatLocal(toSqlite(run.startedAt))}</span>
+                  {run.numTurns != null && <span>{run.numTurns} turns</span>}
+                  {run.durationMs != null && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
+                  {run.costUsd != null && run.costUsd > 0 && <span>${run.costUsd.toFixed(3)}</span>}
+                  {run.error && <span className="truncate text-ember">{run.error}</span>}
+                  {task.conversationId != null && (
+                    <ChevronRight className="ml-auto size-3.5 shrink-0 opacity-60" />
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>
@@ -579,120 +527,45 @@ function TaskCard({
 
 function TaskComposer({
   task,
-  agents,
   catalog,
-  connected,
   onCancel,
   onSaved,
   onError,
 }: {
   task?: AgentTask;
-  agents: CodingAgentSummary[];
   catalog: ConnectorCatalogApi;
-  connected: Set<string>;
   onCancel: () => void;
   onSaved: () => void;
   onError: (message: string) => void;
 }) {
-  const [title, setTitle] = useState(task?.title ?? "");
   const [prompt, setPrompt] = useState(task?.prompt ?? "");
-  const [agentId, setAgentId] = useState(
-    task?.agentId ?? agents.find((a) => a.installed)?.id ?? "",
-  );
-  const [kind, setKind] = useState<ScheduleKind>(task?.schedule.kind ?? "interval");
-  const [intervalMin, setIntervalMin] = useState(
-    task?.schedule.kind === "interval" ? task.schedule.value : "60",
-  );
-  const [cronExpr, setCronExpr] = useState(
-    task?.schedule.kind === "cron" ? task.schedule.value : "0 9 * * *",
-  );
-  const [onceAt, setOnceAt] = useState("");
   const [saving, setSaving] = useState(false);
-
+  // What the platform read out of the instruction: the connectors it references
+  // and the cadence it expresses — both derived live as the user types.
   const [links, setLinks] = useState<TaskConnectorLink[]>(task?.links ?? []);
-  // In edit mode the saved links are authoritative; in create mode the links
-  // follow detection until the user touches them.
-  const [linksTouched, setLinksTouched] = useState(Boolean(task));
-  const [detected, setDetected] = useState<DetectedConnector[]>([]);
+  const [scheduleLabel, setScheduleLabel] = useState<string>(
+    task ? describeSchedule(task.schedule) : "",
+  );
 
-  // Debounced live detection: as the instruction changes, ask the server which
-  // connectors it references and (when untouched) adopt them automatically. All
-  // state updates live inside the debounced callback so the effect body never
-  // sets state synchronously.
   useEffect(() => {
     const handle = setTimeout(() => {
       if (!prompt.trim()) {
-        setDetected([]);
-        if (!linksTouched) setLinks([]);
+        setLinks([]);
+        setScheduleLabel("");
         return;
       }
       api
         .analyzeAgentTask(prompt)
         .then((r) => {
-          setDetected(r.connectors);
-          setLinks((prev) =>
-            linksTouched ? prev : r.connectors.map((c) => ({ provider: c.provider, kind: c.kind })),
-          );
+          setLinks(r.connectors.map((c) => ({ provider: c.provider, kind: c.kind })));
+          setScheduleLabel(r.scheduleLabel);
         })
         .catch(() => {});
     }, 300);
     return () => clearTimeout(handle);
-  }, [prompt, linksTouched]);
+  }, [prompt]);
 
-  const linkKey = (l: TaskConnectorLink) => `${l.provider}:${l.kind}`;
-  const linkedSet = new Set(links.map(linkKey));
-
-  const addLink = (link: TaskConnectorLink) => {
-    setLinksTouched(true);
-    setLinks((prev) => (prev.some((l) => linkKey(l) === linkKey(link)) ? prev : [...prev, link]));
-  };
-  const removeLink = (link: TaskConnectorLink) => {
-    setLinksTouched(true);
-    setLinks((prev) => prev.filter((l) => linkKey(l) !== linkKey(link)));
-  };
-
-  // Detected connectors not yet linked — one-click suggestions.
-  const suggestions = detected.filter((d) => !linkedSet.has(`${d.provider}:${d.kind}`));
-  // Every catalog kind, for the manual "add a source" picker.
-  const allKinds = catalog.connectors.flatMap((c) =>
-    c.kinds.map((k) => ({
-      provider: c.id,
-      kind: k.kind,
-      label: `${c.displayName} · ${k.displayName}`,
-    })),
-  );
-  const addable = allKinds.filter((k) => !linkedSet.has(`${k.provider}:${k.kind}`));
-
-  const workflowConnectors = useMemo(
-    () => buildWorkflowConnectors(links, catalog, connected),
-    [links, catalog, connected],
-  );
-
-  // Precise highlight: use the phrases the analyzer actually matched, falling back
-  // to catalog display names for links the user added manually.
-  const highlightSpecs: HighlightSpec[] = links.map((link) => {
-    const connector = catalog.connector(link.provider);
-    const k = connector?.kinds.find((kk) => kk.kind === link.kind);
-    const det = detected.find((d) => d.provider === link.provider && d.kind === link.kind);
-    const phrases = det?.matches.length
-      ? det.matches
-      : k
-        ? [k.displayName, k.noun.one, k.noun.many]
-        : [];
-    return {
-      provider: link.provider,
-      kind: link.kind,
-      brandColor: connector?.brandColor,
-      logo: k?.logo,
-      phrases,
-    };
-  });
-
-  const buildSchedule = (): Schedule => {
-    if (kind === "interval") return { kind, value: String(Number(intervalMin)) };
-    if (kind === "cron") return { kind, value: cronExpr.trim() };
-    return { kind: "once", value: onceAt ? new Date(onceAt).toISOString() : "" };
-  };
+  const highlightSpecs = useMemo(() => specsForLinks(links, catalog), [links, catalog]);
 
   const submit = async () => {
     if (!prompt.trim()) {
@@ -701,24 +574,12 @@ function TaskComposer({
     }
     setSaving(true);
     try {
-      const schedule = buildSchedule();
-      const finalTitle = title.trim() || deriveTitle(prompt);
+      // The schedule, title, and connectors all derive from the instruction text
+      // server-side, so the client just sends the prompt.
       if (task) {
-        await api.updateAgentTask(task.id, {
-          title: finalTitle,
-          prompt: prompt.trim(),
-          agentId: agentId || null,
-          schedule,
-          links,
-        });
+        await api.updateAgentTask(task.id, { prompt: prompt.trim() });
       } else {
-        await api.createAgentTask({
-          title: finalTitle,
-          prompt: prompt.trim(),
-          agentId: agentId || undefined,
-          schedule,
-          links,
-        });
+        await api.createAgentTask({ prompt: prompt.trim() });
       }
       onSaved();
     } catch (e) {
@@ -728,194 +589,33 @@ function TaskComposer({
     }
   };
 
-  const installed = agents.filter((a) => a.installed);
-
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-line bg-desk/50 p-4">
-      {/* the instruction — the natural-language heart of the task */}
-      <div>
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-dim">
-          Instruction
-        </label>
-        <Textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. Every hour, look through my Gmail for messages that need a reply and check my Calendar for anything coming up — then tell me what needs my attention."
-          rows={3}
-          className="border-line bg-card text-paper"
-          autoFocus
-        />
-        {prompt.trim() && highlightSpecs.some((s) => s.phrases.length > 0) && (
-          <p className="mt-2 text-[12px] leading-relaxed text-faded">
-            <HighlightedInstruction text={prompt} specs={highlightSpecs} />
-          </p>
-        )}
-      </div>
+    <div className="flex flex-col gap-3 rounded-xl border border-line bg-desk/50 p-4">
+      <Textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        placeholder="e.g. Every morning at 8, look through my Gmail for messages that need a reply and check my Calendar for what's coming up — then tell me what needs my attention."
+        rows={4}
+        className="border-line bg-card text-paper"
+        autoFocus
+      />
 
-      {/* auto-detected connectors */}
-      <div className="rounded-lg border border-line/70 bg-card/50 px-3 py-2.5">
-        <div className="flex items-center gap-2 text-[12px]">
-          <Sparkles className="size-3.5 text-lamp" />
-          {links.length > 0 ? (
-            <span className="text-faded">
-              <span className="font-medium text-paper">
-                {links.length} connector{links.length === 1 ? "" : "s"}
-              </span>{" "}
-              {linksTouched ? "linked" : "detected & linked automatically"}
-            </span>
-          ) : (
-            <span className="text-dim">
-              No connectors detected yet — mention Gmail, Calendar, Contacts… or add one below.
-            </span>
-          )}
-        </div>
-
-        {/* linked chips */}
-        {links.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {links.map((link) => {
-              const connector = catalog.connector(link.provider);
-              const k = connector?.kinds.find((kk) => kk.kind === link.kind);
-              return (
-                <span
-                  key={linkKey(link)}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-line py-1 pl-2 pr-1 text-[12px] text-paper"
-                  style={{ backgroundColor: tintColor(connector?.brandColor) }}
-                >
-                  <BrandIcon logo={k?.logo} className="size-3.5" />
-                  {k?.displayName ?? link.kind}
-                  <button
-                    onClick={() => removeLink(link)}
-                    className="ml-0.5 rounded-full p-0.5 text-dim hover:bg-ink/10 hover:text-ember"
-                    aria-label={`Remove ${k?.displayName ?? link.kind}`}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
-              );
-            })}
-          </div>
-        )}
-
-        {/* suggestions + manual add */}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {suggestions.map((s) => {
-            const connector = catalog.connector(s.provider);
-            const k = connector?.kinds.find((kk) => kk.kind === s.kind);
-            return (
-              <button
-                key={`${s.provider}:${s.kind}`}
-                onClick={() => addLink({ provider: s.provider, kind: s.kind })}
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-line px-2 py-1 text-[11px] text-faded hover:border-lamp hover:text-paper"
-              >
-                <BrandIcon logo={k?.logo} className="size-3" />+ {k?.displayName ?? s.kind}
-              </button>
-            );
-          })}
-          {addable.length > 0 && (
-            <Select
-              value=""
-              onValueChange={(v) => {
-                const [provider, kindId] = v.split(":");
-                if (provider && kindId) addLink({ provider, kind: kindId });
-              }}
-            >
-              <SelectTrigger className="h-7 w-auto gap-1 border-dashed border-line bg-transparent px-2 text-[11px] text-dim">
-                <Plus className="size-3" /> Add source
-              </SelectTrigger>
-              <SelectContent>
-                {addable.map((k) => (
-                  <SelectItem key={`${k.provider}:${k.kind}`} value={`${k.provider}:${k.kind}`}>
-                    {k.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-      </div>
-
-      {/* live workflow preview */}
-      {prompt.trim() && (
-        <div className="rounded-lg border border-line/70 bg-card/30 px-3 py-2">
-          <TaskWorkflow
-            trigger={triggerSummary(buildSchedule())}
-            connectors={workflowConnectors}
-            agent={{ label: agentLabel(agentId || null, agents), sub: "reasons & writes" }}
-            delivers={{ label: "Recap", sub: "to Chat" }}
-            active
-          />
-        </div>
+      {/* the same text, with the connectors the agent will touch highlighted */}
+      {prompt.trim() && highlightSpecs.length > 0 && (
+        <p className="text-[12px] leading-relaxed text-faded">
+          <HighlightedInstruction text={prompt} specs={highlightSpecs} />
+        </p>
       )}
 
-      {/* name + trigger + agent */}
-      <div className="flex flex-col gap-3">
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder={`Name (optional) — defaults to “${deriveTitle(prompt || "…")}”`}
-          className="border-line bg-card text-paper"
-        />
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-wide text-dim">Trigger</span>
-          <Select value={kind} onValueChange={(v) => setKind(v as ScheduleKind)}>
-            <SelectTrigger className="w-40 border-line bg-card text-paper">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="interval">Every N minutes</SelectItem>
-              <SelectItem value="cron">Cron expression</SelectItem>
-              <SelectItem value="once">Once, at a time</SelectItem>
-            </SelectContent>
-          </Select>
-          {kind === "interval" && (
-            <Input
-              type="number"
-              min={1}
-              value={intervalMin}
-              onChange={(e) => setIntervalMin(e.target.value)}
-              className="w-28 border-line bg-card text-paper"
-              placeholder="minutes"
-            />
-          )}
-          {kind === "cron" && (
-            <Input
-              value={cronExpr}
-              onChange={(e) => setCronExpr(e.target.value)}
-              className="w-44 border-line bg-card font-mono text-paper"
-              placeholder="0 9 * * *"
-            />
-          )}
-          {kind === "once" && (
-            <Input
-              type="datetime-local"
-              value={onceAt}
-              onChange={(e) => setOnceAt(e.target.value)}
-              className="w-52 border-line bg-card text-paper"
-            />
-          )}
-
-          <span className="ml-2 text-[11px] font-medium uppercase tracking-wide text-dim">
-            Agent
-          </span>
-          <Select value={agentId} onValueChange={setAgentId}>
-            <SelectTrigger className="w-40 border-line bg-card text-paper">
-              <SelectValue placeholder="Agent" />
-            </SelectTrigger>
-            <SelectContent>
-              {installed.length === 0 ? (
-                <SelectItem value="claude">Claude Code</SelectItem>
-              ) : (
-                installed.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    {a.label}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
+      {/* the cadence read out of the sentence */}
+      {prompt.trim() && (
+        <div className="flex items-center gap-1.5 text-[12px] text-dim">
+          <Clock className="size-3.5 text-lamp" />
+          Runs{" "}
+          <span className="font-medium text-paper">{scheduleLabel || "every day at 9 AM"}</span>
+          <span className="text-dim/70">— change the wording to change the schedule</span>
         </div>
-      </div>
+      )}
 
       <div className="flex items-center justify-end gap-2">
         <Button

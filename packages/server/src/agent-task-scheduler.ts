@@ -86,6 +86,95 @@ export function computeNextRunAfter(schedule: Schedule, from: Date): string | nu
   return next ? toSqliteTime(next) : null;
 }
 
+/**
+ * Derive a task's cadence from its instruction text — the same lazy, deterministic
+ * read as the connector detection, so the user writes "every hour, check my Gmail…"
+ * and the schedule falls out of the sentence (no separate trigger form). Recognises
+ * "every N minutes/hours/days", "hourly/daily/nightly/weekly/weekday", and an
+ * optional "at 9[:30][am|pm]" clock; anything unstated defaults to a daily 9 AM run.
+ */
+export function detectSchedule(text: string): { schedule: Schedule; label: string } {
+  const t = (text ?? "").toLowerCase();
+
+  // "every 30 minutes", "every 2 hours", "every 3 days" — an explicit interval.
+  const everyN = t.match(/every\s+(\d+)\s*(minute|min|hour|hr|day)s?\b/);
+  if (everyN) {
+    const n = Math.max(1, Number(everyN[1]));
+    const unit = everyN[2]!;
+    const minutes = unit.startsWith("day") ? n * 1440 : unit.startsWith("h") ? n * 60 : n;
+    return {
+      schedule: { kind: "interval", value: String(minutes) },
+      label: intervalLabel(minutes),
+    };
+  }
+  if (/\bevery\s+minute\b/.test(t)) {
+    return { schedule: { kind: "interval", value: "1" }, label: "every minute" };
+  }
+  if (/\bevery\s+hour\b|\bhourly\b/.test(t)) {
+    return { schedule: { kind: "interval", value: "60" }, label: "every hour" };
+  }
+
+  // A clock time mentioned anywhere ("at 9am", "at 18:30") pins the hour of a
+  // day-grained cadence; absent one, daily cadences default to 9 AM.
+  const hour = parseHour(t) ?? 9;
+  if (/\bevery\s+weekday\b|\bon\s+weekdays\b|\bweekdays\b/.test(t)) {
+    return {
+      schedule: { kind: "cron", value: `0 ${hour} * * 1-5` },
+      label: `every weekday at ${clockLabel(hour)}`,
+    };
+  }
+  if (/\bweekly\b|\bevery\s+week\b/.test(t)) {
+    return {
+      schedule: { kind: "cron", value: `0 ${hour} * * 1` },
+      label: `every Monday at ${clockLabel(hour)}`,
+    };
+  }
+  if (/\bnightly\b|\bevery\s+night\b|\bevery\s+evening\b/.test(t)) {
+    const h = parseHour(t) ?? 21;
+    return {
+      schedule: { kind: "cron", value: `0 ${h} * * *` },
+      label: `every day at ${clockLabel(h)}`,
+    };
+  }
+  // daily / every day / each morning / "at 9am" on its own — and the default.
+  return {
+    schedule: { kind: "cron", value: `0 ${hour} * * *` },
+    label: `every day at ${clockLabel(hour)}`,
+  };
+}
+
+/** Pull an "at 9", "at 9:30am", "at 18:00" clock hour (0–23) out of `text`, if any. */
+function parseHour(text: string): number | null {
+  const m = text.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/);
+  if (!m) return null;
+  let h = Number(m[1]);
+  if (h > 23) return null;
+  const mer = m[3];
+  if (mer === "pm" && h < 12) h += 12;
+  if (mer === "am" && h === 12) h = 0;
+  return h;
+}
+
+/** "9 AM" / "12 PM" / "6:30 PM"-style label for a 0–23 hour. */
+function clockLabel(hour: number): string {
+  const mer = hour < 12 ? "AM" : "PM";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12} ${mer}`;
+}
+
+/** "every 30 minutes" / "every hour" / "every 2 hours" / "every day" for a minute count. */
+function intervalLabel(minutes: number): string {
+  if (minutes === 1) return "every minute";
+  if (minutes < 60) return `every ${minutes} minutes`;
+  if (minutes === 60) return "every hour";
+  if (minutes % 1440 === 0) {
+    const days = minutes / 1440;
+    return days === 1 ? "every day" : `every ${days} days`;
+  }
+  if (minutes % 60 === 0) return `every ${minutes / 60} hours`;
+  return `every ${minutes} minutes`;
+}
+
 /** Map an agent run's outcome onto a task-run status (`aborted` → `error`). */
 function runStatus(outcome: AgentRunOutcome): "ok" | "empty" | "error" {
   return outcome.status === "aborted" ? "error" : outcome.status;
@@ -116,9 +205,19 @@ export type ExecuteAgent = (
   agentId: string | undefined,
 ) => Promise<AgentRunOutcome>;
 
-/** The real executor: a headless agent turn with no SSE sink (it's persisted). */
-const defaultExecute: ExecuteAgent = (ctx, conversationId, prompt, model, agentId) =>
-  runCodingAgent(ctx, conversationId, prompt, () => {}, undefined, model, agentId);
+/**
+ * The real executor: a headless agent turn whose frames are fanned out on the
+ * conversation run bus (so the Tasks view can watch it live) and persisted on the
+ * message exactly as an interactive turn. `start`/`done` bracket the frames so a
+ * watcher knows when to open the in-flight turn and when to refetch the result.
+ */
+const defaultExecute: ExecuteAgent = (ctx, conversationId, prompt, model, agentId) => {
+  const send = (frame: object) => ctx.runStream.publish(conversationId, frame);
+  send({ type: "start", conversationId });
+  return runCodingAgent(ctx, conversationId, prompt, send, undefined, model, agentId).finally(() =>
+    send({ type: "done" }),
+  );
+};
 
 /**
  * Runs scheduled tasks. `tick()` (called each minute by the Cron) starts every due
@@ -150,8 +249,13 @@ export class AgentTaskRunner {
     if (this.inFlight.has(task.id)) return null;
     this.inFlight.add(task.id);
     // The conversation persists across a task's runs so a recurring task resumes
-    // its own session (e.g. a daily brief that remembers yesterday).
+    // its own session (e.g. a daily brief that remembers yesterday). Pin it on the
+    // task immediately on the first run so the Tasks view can open and live-watch
+    // it right away (not only after the run finishes).
     const conversationId = task.conversationId ?? this.ctx.store.createConversation(task.title);
+    if (task.conversationId == null) {
+      this.ctx.store.setAgentTaskConversation(task.id, conversationId);
+    }
     const runId = this.ctx.store.startAgentTaskRun(task.id);
     void this.execute(
       this.ctx,

@@ -74,6 +74,43 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
+  // Watch a conversation's in-flight agent run live (SSE). A scheduled/"run now"
+  // task executes headlessly, so its frames are broadcast on the run bus rather
+  // than down a request socket; the Tasks view subscribes here to see the agent
+  // work in real time. Mirrors the chat/activity raw-socket approach so the
+  // desktop shell's CORS headers survive. Frames are the same shape as /api/chat
+  // (start / reasoning / tool-call / delta / … / done); a viewer that connects
+  // mid-run still gets the final transcript by refetching messages on `done`.
+  app.get<{ Params: { id: string } }>(
+    "/api/conversations/:id/stream",
+    { schema: { tags, summary: "Watch a conversation's live agent run (SSE)" } },
+    async (request, reply) => {
+      const { id } = parseOrThrow(chatSchema.ConversationIdParam, request.params, "params");
+      reply.hijack();
+      const headers: Record<string, string | number | string[]> = {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      };
+      for (const [name, value] of Object.entries(reply.getHeaders())) {
+        if (value !== undefined && !(name in headers)) headers[name] = value;
+      }
+      reply.raw.writeHead(200, headers);
+      reply.raw.write(`data: ${JSON.stringify({ type: "ready" })}\n\n`);
+
+      const unsubscribe = ctx.runStream.subscribe(id, (frame) => {
+        reply.raw.write(`data: ${JSON.stringify(frame)}\n\n`);
+      });
+      const heartbeat = setInterval(() => reply.raw.write(": ping\n\n"), 25000);
+      const close = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      };
+      request.raw.on("close", close);
+      request.raw.on("error", close);
+    },
+  );
+
   // Close a conversation: distil it into a first-class session source in the
   // background (crystallization). Fires the onSessionEnd hook.
   app.post<{ Params: { id: string } }>(
