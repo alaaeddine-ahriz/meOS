@@ -13,6 +13,7 @@ import {
 } from "../knowledge/visibility.js";
 import type { Connector, KindManifest } from "./framework.js";
 import { googleConnector } from "./google/connector.js";
+import { githubConnector } from "./github/connector.js";
 import { imapConnector } from "./imap/connector.js";
 
 export class ConnectorRegistry {
@@ -88,4 +89,8 @@ export class ConnectorRegistry {
  * The default registry, pre-loaded with the built-in connectors. The server uses
  * this; tests build their own {@link ConnectorRegistry} to slot in a fake.
  */
-export const connectorRegistry = new ConnectorRegistry([googleConnector, imapConnector]);
+export const connectorRegistry = new ConnectorRegistry([
+  googleConnector,
+  imapConnector,
+  githubConnector,
+]);
