@@ -13,7 +13,6 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   api,
   streamChat,
-  streamConversation,
   type ChatEvent,
   type AgentTracePart,
   type AskAnswerItem,
@@ -390,34 +389,12 @@ function toolArg(input: unknown): string | null {
   return null;
 }
 
-export function ChatView({
-  conversationId,
-  embedded = false,
-}: {
-  /** Pin the view to a specific conversation (e.g. the Tasks side panel) instead
-   * of reading it from the URL — and, when set, never write back to the URL. */
-  conversationId?: number;
-  /** Embedded mode (a side panel): subscribe to the conversation's live run bus so
-   * a headless task run streams in, and skip the full-screen empty-state hero. */
-  embedded?: boolean;
-} = {}) {
+export function ChatView() {
   // the active conversation lives in the URL (?c=<id>) so the command palette
-  // can open past chats; no `c` means a fresh conversation. A `conversationId`
-  // prop (the Tasks panel) overrides the URL and pins the view to one chat.
+  // can open past chats; no `c` means a fresh conversation.
   const [searchParams, setSearchParams] = useSearchParams();
-  const pinned = conversationId != null;
-  const activeId = pinned
-    ? conversationId
-    : searchParams.has("c")
-      ? Number(searchParams.get("c"))
-      : null;
+  const activeId = searchParams.has("c") ? Number(searchParams.get("c")) : null;
   const [messages, setMessages] = useState<MessageRecord[]>([]);
-  // Always-current view of `messages`, so the embedded live subscription can place
-  // a streamed turn at the right index without depending on a stale render closure.
-  const messagesRef = useRef<MessageRecord[]>(messages);
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
   const [entities, setEntities] = useState<EntitySummary[]>([]);
   const [status, setStatus] = useState<ChatStatus>("ready");
   const [error, setError] = useState<{ message: string; kind?: LlmErrorKind } | null>(null);
@@ -548,69 +525,6 @@ export function ChatView({
       .catch(() => {});
   }, [activeId]);
 
-  // Embedded panel only (the Tasks view): watch the pinned conversation's run bus
-  // so a headless scheduled/"run now" task streams in live — the same frames the
-  // composer's own turns render. The in-flight assistant turn is created lazily on
-  // the first frame (so attaching mid-run works) and reconciled against the
-  // persisted transcript on `done`.
-  useEffect(() => {
-    if (!embedded || activeId == null) return;
-    const controller = new AbortController();
-    let liveIndex: number | null = null;
-
-    const ensureTurn = (): number => {
-      if (liveIndex != null) return liveIndex;
-      const idx = messagesRef.current.length;
-      liveIndex = idx;
-      setStatus("submitted");
-      setAgentTurns((current) => new Map(current).set(idx, true));
-      setMessages((current) => [
-        ...current,
-        { id: -2, role: "assistant", content: "", created_at: "" },
-      ]);
-      return idx;
-    };
-    const clearLive = () => {
-      liveIndex = null;
-      setLiveSources(new Map());
-      setLivePages(new Map());
-      setLiveTrace(new Map());
-      setLiveGraph(new Map());
-      setLiveTelemetry(new Map());
-      setLiveFiles(new Map());
-      setAgentTurns(new Map());
-    };
-
-    void (async () => {
-      try {
-        for await (const event of streamConversation(activeId, controller.signal)) {
-          if (event.type === "start") {
-            ensureTurn();
-          } else if (event.type === "done") {
-            // Replace the streamed placeholder with the persisted turn (final
-            // answer + trace + telemetry), so a reopen renders identically.
-            try {
-              const r = await api.getMessages(activeId);
-              clearLive();
-              setMessages(r.messages);
-            } catch {
-              clearLive();
-            }
-            setStatus("ready");
-          } else if (event.type !== "error") {
-            applyFrame(event, ensureTurn(), true);
-          }
-        }
-      } catch {
-        // Socket closed or aborted (panel closed / task switched) — nothing to do.
-      }
-    })();
-
-    return () => controller.abort();
-    // Re-subscribe only when the pinned conversation changes; applyFrame and the
-    // setters are stable closures, so they needn't be dependencies.
-  }, [embedded, activeId]);
-
   // Streamdown renders its own link element (a <button>, not an <a href>), so we
   // override the link renderer instead of delegating clicks: a wiki link opens
   // beside the chat (side panel), other internal links route, externals open out.
@@ -663,10 +577,9 @@ export function ChatView({
 
   const busy = status === "submitted" || status === "streaming";
 
-  // Apply one streamed run frame to the live view state. Shared by the composer's
-  // own send loop and the embedded panel's subscription to a headless task run, so
-  // both render reasoning / tools / answer identically. `start`, `done`, and
-  // `error` are owned by the callers (they drive the conversation/turn lifecycle).
+  // Apply one streamed run frame to the live view state, rendering reasoning /
+  // tools / answer for the composer's send loop. `start`, `done`, and `error` are
+  // owned by the caller (it drives the conversation/turn lifecycle).
   const applyFrame = (event: ChatEvent, assistantIndex: number, isAgent: boolean): void => {
     if (event.type === "sources") {
       setLiveSources((current) => new Map(current).set(assistantIndex, event.sources));
@@ -781,9 +694,9 @@ export function ChatView({
           produced = true;
         }
         if (event.type === "start") {
-          // A pinned (panel) view never rewrites the URL; a fresh chat adopts the
-          // server-assigned conversation id so reload/the palette can reopen it.
-          if (!pinned && event.conversationId !== activeId) {
+          // A fresh chat adopts the server-assigned conversation id so a reload or
+          // the command palette can reopen it.
+          if (event.conversationId !== activeId) {
             streamAssignedId.current = true;
             setSearchParams({ c: String(event.conversationId) }, { replace: true });
           }
@@ -831,17 +744,7 @@ export function ChatView({
 
   const lastIndex = messages.length - 1;
 
-  // Embedded panel with nothing yet: a quiet placeholder rather than the
-  // full-screen "How can I help you?" hero (which is for a fresh standalone chat).
-  if (messages.length === 0 && embedded) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center px-6 text-center text-sm text-dim">
-        {busy ? "Starting the run…" : "This task hasn’t produced a run yet."}
-      </div>
-    );
-  }
-
-  if (messages.length === 0 && !embedded) {
+  if (messages.length === 0) {
     return (
       <PromptInputProvider>
         <div className="flex h-full flex-col items-center justify-center px-6">
@@ -997,28 +900,24 @@ export function ChatView({
             <ConversationScrollButton className="border-line bg-desk text-faded hover:bg-card hover:text-paper" />
           </Conversation>
 
-          {/* The embedded panel (Tasks view) is for watching a run, not chatting,
-              so it hides the composer and just streams the agent's work. */}
-          {!embedded && (
-            <div className="px-6 pb-5 pt-1">
-              <div className="mx-auto max-w-2xl">
-                <Composer
-                  status={status}
-                  busy={busy}
-                  onSend={send}
-                  onStop={() => abortRef.current?.abort()}
-                  entities={entities}
-                  agentMode={agentMode}
-                  onAgentModeChange={setAgentMode}
-                  agents={agents}
-                  agentId={agentId}
-                  onAgentIdChange={handleAgentIdChange}
-                  agentModel={agentModel}
-                  onAgentModelChange={handleAgentModelChange}
-                />
-              </div>
+          <div className="px-6 pb-5 pt-1">
+            <div className="mx-auto max-w-2xl">
+              <Composer
+                status={status}
+                busy={busy}
+                onSend={send}
+                onStop={() => abortRef.current?.abort()}
+                entities={entities}
+                agentMode={agentMode}
+                onAgentModeChange={setAgentMode}
+                agents={agents}
+                agentId={agentId}
+                onAgentIdChange={handleAgentIdChange}
+                agentModel={agentModel}
+                onAgentModelChange={handleAgentModelChange}
+              />
             </div>
-          )}
+          </div>
         </div>
 
         {wikiPanelSlug && (

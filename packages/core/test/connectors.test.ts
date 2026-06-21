@@ -1217,7 +1217,7 @@ describe("connector coverage state + structured sync metrics (#88)", () => {
 
 describe("migration 23 (connector materialization)", () => {
   it("migrates a v22-shape DB cleanly, preserving connector ledger rows", () => {
-    expect(migrations.length).toBe(39);
+    expect(migrations.length).toBe(40);
 
     const file = path.join(os.tmpdir(), `meos-mig23-${Date.now()}-${Math.random()}.db`);
     try {
@@ -1291,7 +1291,7 @@ describe("migration 23 (connector materialization)", () => {
 
 describe("migration 25 (provider-agnostic connector kinds)", () => {
   it("drops the kind CHECK so a non-Google kind is accepted, preserving rows", () => {
-    expect(migrations.length).toBe(39);
+    expect(migrations.length).toBe(40);
 
     const file = path.join(os.tmpdir(), `meos-mig25-${Date.now()}-${Math.random()}.db`);
     try {

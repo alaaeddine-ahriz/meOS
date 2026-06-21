@@ -1,6 +1,5 @@
 import {
   Activity,
-  CalendarClock,
   Database,
   Library,
   type LucideIcon,
@@ -20,7 +19,6 @@ import { ChangesView } from "./views/ChangesView.js";
 import { ChatView } from "./views/ChatView.js";
 import { SettingsView } from "./views/SettingsView.js";
 import { SourcePageView, SourcesView } from "./views/SourcesView.js";
-import { TasksView } from "./views/TasksView.js";
 import { WikiPageView } from "./views/WikiPage.js";
 import { WikiView } from "./views/WikiView.js";
 
@@ -30,8 +28,7 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/", label: "Chat", key: "1", icon: MessageSquare },
   { to: "/wiki", label: "Wiki", key: "2", icon: Library },
   { to: "/sources", label: "Sources", key: "3", icon: Database },
-  { to: "/tasks", label: "Tasks", key: "4", icon: CalendarClock },
-  { to: "/activity", label: "Activity", key: "5", icon: Activity },
+  { to: "/activity", label: "Activity", key: "4", icon: Activity },
 ];
 
 export function App() {
@@ -137,7 +134,6 @@ export function App() {
           <Route path="/wiki/:slug" element={<WikiPageView />} />
           <Route path="/sources" element={<SourcesView />} />
           <Route path="/sources/:id" element={<SourcePageView />} />
-          <Route path="/tasks" element={<TasksView />} />
           <Route path="/activity" element={<ActivityHub />} />
           <Route path="/changes/:sourceId" element={<ChangesView />} />
           <Route path="/settings" element={<SettingsView />} />

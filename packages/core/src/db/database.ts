@@ -1022,6 +1022,16 @@ export const migrations: readonly string[] = [
   `
   ALTER TABLE agent_tasks ADD COLUMN links TEXT;
   `,
+
+  // 40 — retire scheduled agent tasks (#7). The feature was removed: its routes,
+  // scheduler, store methods, and UI are gone, so the tables that backed it are
+  // dropped. Migrations are append-only, so 38/39 still CREATE then ALTER these on
+  // a fresh DB; this final step drops them, leaving no schema residue. The run rows
+  // go with their parent (the FK already cascades, but DROP makes it explicit).
+  `
+  DROP TABLE IF EXISTS agent_task_runs;
+  DROP TABLE IF EXISTS agent_tasks;
+  `,
 ];
 
 export type MeosDatabase = Database.Database;

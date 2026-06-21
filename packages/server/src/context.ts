@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import {
-  type AgentTaskRecord,
   createEmbedder,
   createLlmClient,
   createLogger,
@@ -39,7 +38,6 @@ import {
 import { ActivityBus } from "./activity.js";
 import { buildMeosMcp } from "./meos-mcp.js";
 import { buildCommitMessage } from "./commit-message.js";
-import { ConversationStreamBus } from "./conversation-stream.js";
 import { ConnectorManager } from "./connector-manager.js";
 import { DurableIngest } from "./durable-ingest.js";
 import { GitSync } from "./git.js";
@@ -79,23 +77,6 @@ const FS_OPEN_CONCURRENCY = 32;
 const gitLog = createLogger("git");
 const wikiLog = createLogger("wiki");
 const eventsLog = createLogger("events");
-
-/**
- * The scheduled-task runner's public surface (concrete impl: `AgentTaskRunner` in
- * agent-task-scheduler.ts). Declared here, structurally, so `AppContext` can hold
- * one without importing the module — which would form a cycle through
- * coding-agent-command.ts (scheduler → command → context → scheduler).
- */
-export interface TaskRunnerHandle {
-  /** Start a run unless one is already in flight; returns the run id or null. */
-  start(task: AgentTaskRecord, reschedule: boolean): number | null;
-  /** Run a task immediately by id; returns the run id, or null if missing/running. */
-  runNow(taskId: number): number | null;
-  /** Whether a run for this task is currently executing. */
-  isRunning(taskId: number): boolean;
-  /** Start every due task not already running (the per-minute poll). */
-  tick(): void;
-}
 
 export interface AppContext {
   /** Which slice of the runtime this process drives (#94). */
@@ -139,20 +120,6 @@ export interface AppContext {
   events: MeosEvents;
   /** Live + persisted wiki-maintainer transcripts for the Activity view. */
   activity: ActivityBus;
-  /**
-   * Live agent-run frames keyed by conversation, so a headless scheduled task run
-   * can be watched in real time from the Tasks view (#7). Frames are also persisted
-   * on the message, so this is pure transient fan-out.
-   */
-  runStream: ConversationStreamBus;
-  /**
-   * Runs scheduled agent tasks (#7). Constructed in `buildServer` (the HTTP
-   * process), so it's present for routes and the per-minute scheduler; absent in
-   * the worker host, which serves no task routes. Typed structurally (the concrete
-   * `AgentTaskRunner` lives in agent-task-scheduler.ts) so context.ts doesn't import
-   * it — that would close a module cycle through coding-agent-command.ts.
-   */
-  agentTasks?: TaskRunnerHandle;
   /** Background sync schedule for connected external accounts (Google). */
   connectors: ConnectorManager;
   /**
@@ -194,7 +161,9 @@ export const INTELLIGENCE_ROUTING_KEY = "intelligence-routing";
 
 /** Read the persisted routing (filling defaults) — `{ backend: "api" }` on a fresh DB. */
 export function loadIntelligenceRouting(store: KnowledgeStore): IntelligenceRouting {
-  return withRoutingDefaults(store.getSetting<Partial<IntelligenceRouting>>(INTELLIGENCE_ROUTING_KEY));
+  return withRoutingDefaults(
+    store.getSetting<Partial<IntelligenceRouting>>(INTELLIGENCE_ROUTING_KEY),
+  );
 }
 
 /**
@@ -229,9 +198,7 @@ export async function applyIntelligenceRouting(
   // stream to answer into during headless maintenance. Built only when running on
   // an agent; null when wiki-mcp isn't built, in which case the run is tool-less.
   const meos =
-    routing.backend === "agent"
-      ? buildMeosMcp(ctx.config.server.port, "wiki-maintenance")
-      : null;
+    routing.backend === "agent" ? buildMeosMcp(ctx.config.server.port, "wiki-maintenance") : null;
   const wikiServers = meos?.servers.meos ? { meos: meos.servers.meos } : undefined;
   for (const group of TASK_GROUPS) {
     const mcpServers = group === "wiki" ? wikiServers : undefined;
@@ -343,8 +310,6 @@ export function createContext(
   const embedder = createEmbedder(config.embedding.provider, config.embedding.model);
   // Records each page regeneration's agent transcript and streams it live.
   const activity = new ActivityBus(store);
-  // Live fan-out of headless agent-task runs to any Tasks-view watcher (#7).
-  const runStream = new ConversationStreamBus();
   // The wiki maintainer routes through the `"wiki"` group — its own routing slot
   // so the agentic page rewrites can run on a (free) local coding agent.
   const wiki = new WikiWriter(
@@ -585,7 +550,6 @@ export function createContext(
     git,
     events,
     activity,
-    runStream,
     connectors,
     workers,
     workerBridge: role === "app" ? bridge : undefined,

@@ -67,8 +67,6 @@ import type {
   ProviderStatus,
   ResolutionAction,
   RuntimeHealth,
-  Schedule,
-  TaskConnectorLink,
   SourceDiff,
   SourceRef,
   WatchedFolder,
@@ -87,13 +85,6 @@ import type {
   AddFolderResponse,
   AgentModeResponse,
   AgentQueueResponse,
-  AgentTaskDetailResponse,
-  AgentTaskResponse,
-  AgentTaskRunsResponse,
-  AgentTasksResponse,
-  AnalyzeAgentTaskResponse,
-  DeleteAgentTaskResponse,
-  RunAgentTaskResponse,
   ApplyProfileResponse,
   AskAnswerItem,
   AskQuestion,
@@ -155,19 +146,12 @@ export type {
   ActivityEvent,
   AgentModeResponse,
   AgentQueueResponse,
-  AgentTask,
-  AgentTaskRun,
   AgentTracePart,
   AskAnswerItem,
   AskQuestion,
   AuditEntry,
-  DetectedConnector,
   FileChange,
   RunTelemetry,
-  Schedule,
-  ScheduleKind,
-  TaskConnectorLink,
-  TaskRunStatus,
   IndexedSource,
   IndexedEntityLink,
   RelatedSource,
@@ -425,8 +409,7 @@ export const api = {
   // API or a local coding agent — runs each task group's LLM work. The GET returns
   // the current routing plus every supported coding agent (with an `installed`
   // flag) so the picker renders in one round-trip; the PUT persists + hot-swaps.
-  getIntelligenceRouting: () =>
-    json<IntelligenceRoutingResponse>("/api/intelligence-routing"),
+  getIntelligenceRouting: () => json<IntelligenceRoutingResponse>("/api/intelligence-routing"),
   putIntelligenceRouting: (routing: IntelligenceRouting) =>
     json<IntelligenceRoutingResponse>("/api/intelligence-routing", {
       method: "PUT",
@@ -499,52 +482,6 @@ export const api = {
   listConversations: () => json<ListConversationsResponse>("/api/conversations"),
   getMessages: (id: number) => json<MessagesResponse>(`/api/conversations/${id}/messages`),
 
-  // Scheduled agent tasks (#7): saved instructions a coding agent runs on a schedule.
-  listAgentTasks: () => json<AgentTasksResponse>("/api/agent-tasks"),
-  getAgentTask: (id: number) => json<AgentTaskDetailResponse>(`/api/agent-tasks/${id}`),
-  // Live connector detection for the workflow composer (debounced as the user types).
-  analyzeAgentTask: (prompt: string) =>
-    json<AnalyzeAgentTaskResponse>("/api/agent-tasks/analyze", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ prompt }),
-    }),
-  createAgentTask: (body: {
-    title?: string;
-    prompt: string;
-    agentId?: string;
-    model?: string;
-    schedule?: Schedule;
-    enabled?: boolean;
-    links?: TaskConnectorLink[];
-  }) =>
-    json<AgentTaskResponse>("/api/agent-tasks", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  updateAgentTask: (
-    id: number,
-    patch: {
-      title?: string;
-      prompt?: string;
-      agentId?: string | null;
-      model?: string | null;
-      schedule?: Schedule;
-      enabled?: boolean;
-      links?: TaskConnectorLink[];
-    },
-  ) =>
-    json<AgentTaskResponse>(`/api/agent-tasks/${id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(patch),
-    }),
-  deleteAgentTask: (id: number) =>
-    json<DeleteAgentTaskResponse>(`/api/agent-tasks/${id}`, { method: "DELETE" }),
-  runAgentTask: (id: number) =>
-    json<RunAgentTaskResponse>(`/api/agent-tasks/${id}/run`, { method: "POST" }),
-  listAgentTaskRuns: (id: number) => json<AgentTaskRunsResponse>(`/api/agent-tasks/${id}/runs`),
   getLatestDigest: () => json<DigestResponse>("/api/digest/latest"),
   runConsolidation: () => json<ConsolidateResponse>("/api/jobs/consolidate", { method: "POST" }),
   getGitStatus: () => json<GitStatus>("/api/settings/git"),
@@ -754,41 +691,6 @@ export async function* streamChat(
       if (line.startsWith("data: ")) {
         yield JSON.parse(line.slice(6)) as ChatEvent;
       }
-    }
-  }
-}
-
-/**
- * Watch a conversation's in-flight agent run (e.g. a scheduled task running
- * headlessly). Yields the same frames as {@link streamChat} — start / reasoning /
- * tool-call / delta / … / done — broadcast off the server's run bus, so the Tasks
- * view can render the agent working live. Resolves when the socket closes.
- */
-export async function* streamConversation(
-  conversationId: number,
-  signal?: AbortSignal,
-): AsyncGenerator<ChatEvent> {
-  const response = await fetch(`${API_BASE}/api/conversations/${conversationId}/stream`, {
-    signal,
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`conversation stream failed: ${response.status}`);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame.trim();
-      // Skip heartbeat comments (": ping") and the initial readiness frame.
-      if (!line.startsWith("data: ")) continue;
-      const event = JSON.parse(line.slice(6)) as ChatEvent | { type: "ready" };
-      if (event.type !== "ready") yield event as ChatEvent;
     }
   }
 }

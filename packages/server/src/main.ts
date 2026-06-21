@@ -2,7 +2,6 @@ import { createLogger } from "@meos/core";
 import { type AppContext, createContext, recoverWikiBacklog } from "./context.js";
 import { repairSourcePaths } from "./repair.js";
 import { resolveSplitRole, WorkerSupervisor } from "./runtime/process-split.js";
-import { startAgentTaskScheduler } from "./agent-task-scheduler.js";
 import { SchedulerWorker } from "./runtime/workers.js";
 import { startScheduler } from "./scheduler.js";
 import { buildServer } from "./server.js";
@@ -86,11 +85,6 @@ if (role === "all") {
 }
 await ctx.workers.startAll();
 
-// Scheduled agent tasks (#7) run in this HTTP-serving process (both "all" and the
-// UI "app" role), so the per-minute poll and the "run now" route share one runner
-// — never the worker host, which serves no task routes.
-const agentTaskScheduler = startAgentTaskScheduler(ctx);
-
 // Single-process: drain any wiki backlog stranded by the last shutdown (#97).
 // In "app" role the worker host owns this; here it would only run wiki work in
 // the UI process.
@@ -112,7 +106,6 @@ try {
 const shutdown = async () => {
   // Stop the worker host first, then this process's own workers + server.
   await supervisor?.stop();
-  agentTaskScheduler.stop();
   await ctx.workers.stopAll();
   await app.close();
   ctx.db.close();

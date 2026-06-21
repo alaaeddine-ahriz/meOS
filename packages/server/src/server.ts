@@ -6,13 +6,11 @@ import { logger } from "@meos/core";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import { AgentTaskRunner } from "./agent-task-scheduler.js";
 import type { AppContext } from "./context.js";
 import { registerErrorHandler } from "./errors.js";
 import { McpManifest, registerMcpManifestHook } from "./mcp-manifest.js";
 import { registerOpenApi } from "./openapi.js";
 import { registerActivityRoutes } from "./routes/activity.js";
-import { registerAgentTaskRoutes } from "./routes/agent-tasks.js";
 import { registerAgentToolRoutes } from "./routes/agent-tools.js";
 import { registerCalendarRoutes } from "./routes/calendar.js";
 import { registerChatRoutes } from "./routes/chat.js";
@@ -96,10 +94,6 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   registerAgentToolRoutes(app, ctx, mcpManifest);
   registerVaultRoutes(app, ctx);
   registerChatRoutes(app, ctx);
-  // The runner is shared between the task routes (run-now) and the per-minute
-  // poller (started in main.ts), so a task never double-runs across the two.
-  ctx.agentTasks = new AgentTaskRunner(ctx);
-  registerAgentTaskRoutes(app, ctx);
   registerActivityRoutes(app, ctx);
   registerDigestRoutes(app, ctx);
   registerOutputRoutes(app, ctx);

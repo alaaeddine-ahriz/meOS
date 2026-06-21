@@ -112,7 +112,7 @@ describe("GET /api/agent/tool-manifest", () => {
     expect(paths.has("/api/intelligence-routing")).toBe(false);
 
     // No DELETE is ever projected (they are all annotated destructive or left off):
-    // the agent-task / vault deletes never reach the manifest.
+    // the vault delete never reaches the manifest.
     const deletes = tools.filter((t) => t.method === "DELETE");
     expect(deletes).toEqual([]);
     expect(paths.has("/api/vault/note")).toBe(true); // the GET/PUT/POST forms ARE exposed…
