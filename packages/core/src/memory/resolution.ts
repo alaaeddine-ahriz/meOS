@@ -78,20 +78,19 @@ export function proposeResolution(
     };
   }
 
-  const winner = scoreA > scoreB ? a : b;
-  const loser = scoreA > scoreB ? b : a;
-  const newer = winner.recency > loser.recency;
-  const stronger = winner.confidence > loser.confidence;
+  const aWins = scoreA > scoreB;
+  const winner = aWins ? a : b;
+  const loser = aWins ? b : a;
   const reasons = [
-    newer ? "more recent" : null,
+    winner.recency > loser.recency ? "more recent" : null,
     winner.authority > loser.authority ? "from a more authoritative source" : null,
-    stronger ? "higher confidence" : null,
+    winner.confidence > loser.confidence ? "higher confidence" : null,
     winner.sourceCount > loser.sourceCount ? "corroborated by more sources" : null,
   ].filter(Boolean);
 
   return {
     contradictionId,
-    suggested: winner.id === a.id ? "supersede_b" : "supersede_a",
+    suggested: aWins ? "supersede_b" : "supersede_a",
     rationale: `Supersede the other claim: this one is ${reasons.join(", ") || "better supported"}.`,
     margin,
   };

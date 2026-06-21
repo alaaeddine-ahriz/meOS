@@ -139,15 +139,15 @@ export async function detectMeeting(
     return { isMeeting: false, confidence: heuristicScore, heuristicScore };
   }
 
-  // Heuristic-only path (no LLM available): require the heuristic itself to be
-  // strong. Blended below would only ever lower this, so use it directly.
-  if (!llm) {
-    return {
-      isMeeting: heuristicScore >= MEETING_DETECTION_THRESHOLD,
-      confidence: heuristicScore,
-      heuristicScore,
-    };
-  }
+  // Heuristic-only decision: require the heuristic itself to be strong. Blending
+  // below would only ever lower this, so use it directly. This is the fallback
+  // both when no LLM is available and when the LLM call throws.
+  const heuristicOnly: MeetingDetectionResult = {
+    isMeeting: heuristicScore >= MEETING_DETECTION_THRESHOLD,
+    confidence: heuristicScore,
+    heuristicScore,
+  };
+  if (!llm) return heuristicOnly;
 
   let classification: MeetingClassification | undefined;
   try {
@@ -176,11 +176,7 @@ export async function detectMeeting(
     // The LLM is best-effort — a failure must never break ingestion. Fall back
     // to the heuristic-only decision.
     log.warn({ err: error }, "meeting detection LLM call failed; using heuristic only");
-    return {
-      isMeeting: heuristicScore >= MEETING_DETECTION_THRESHOLD,
-      confidence: heuristicScore,
-      heuristicScore,
-    };
+    return heuristicOnly;
   }
 
   // Blend: the LLM is the primary judge, the heuristic a corroborating prior.

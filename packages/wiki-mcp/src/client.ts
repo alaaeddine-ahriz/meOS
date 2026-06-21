@@ -30,19 +30,27 @@ function unreachable(url: string, cause: unknown): Error {
 /** The HTTP methods the generated MCP tools can map to (a superset of the curated calls). */
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-async function request<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
-  const url = `${baseUrl()}${path}`;
-
+/**
+ * Fetch `${base}${path}`, turning a network failure into an {@link unreachable}
+ * error and a non-2xx response into one carrying whatever detail the API returned.
+ * Returns the raw response body so callers decide how to parse it.
+ */
+async function fetchText(
+  origin: string,
+  method: HttpMethod,
+  path: string,
+  body?: unknown,
+): Promise<string> {
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(`${origin}${path}`, {
       method,
       headers: body === undefined ? undefined : { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (cause) {
     // fetch rejects on network errors (connection refused, DNS, etc.).
-    throw unreachable(baseUrl(), cause);
+    throw unreachable(origin, cause);
   }
 
   const text = await res.text();
@@ -59,6 +67,11 @@ async function request<T>(method: HttpMethod, path: string, body?: unknown): Pro
     throw new Error(`meOS API ${method} ${path} failed (${res.status}): ${detail}`);
   }
 
+  return text;
+}
+
+async function request<T>(method: HttpMethod, path: string, body?: unknown): Promise<T> {
+  const text = await fetchText(baseUrl(), method, path, body);
   if (text.length === 0) return undefined as T;
   return JSON.parse(text) as T;
 }
@@ -214,30 +227,7 @@ export async function callGenerated(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
-  const url = `${base.replace(/\/+$/, "")}${path}`;
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method,
-      headers: body === undefined ? undefined : { "content-type": "application/json" },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
-  } catch (cause) {
-    throw unreachable(base, cause);
-  }
-
-  const text = await res.text();
-  if (!res.ok) {
-    let detail = text;
-    try {
-      const parsed = JSON.parse(text) as { message?: string; error?: string };
-      detail = parsed.message ?? parsed.error ?? text;
-    } catch {
-      // keep raw text
-    }
-    throw new Error(`meOS API ${method} ${path} failed (${res.status}): ${detail}`);
-  }
-
+  const text = await fetchText(base.replace(/\/+$/, ""), method, path, body);
   if (text.length === 0) return undefined;
   try {
     return JSON.parse(text);

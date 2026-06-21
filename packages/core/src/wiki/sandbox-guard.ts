@@ -1,6 +1,9 @@
 import path from "node:path";
 import type { ToolSet } from "ai";
 
+/** Normalise a path to posix form (backslashes → slashes, then collapsed). */
+const toPosixNormalized = (p: string): string => path.posix.normalize(p.replaceAll("\\", "/"));
+
 /**
  * Execution + filesystem limits for a single agentic wiki regeneration. Defaults
  * are deliberately generous so legitimate multi-section, multi-page edits always
@@ -99,7 +102,7 @@ export function checkWorkspacePath(
   }
   // Normalise with posix semantics and forbid any climb above the root. A
   // normalised path that still starts with ".." escaped the workspace.
-  const normalized = path.posix.normalize(rawPath.replaceAll("\\", "/"));
+  const normalized = toPosixNormalized(rawPath);
   if (normalized === ".." || normalized.startsWith("../")) return reason("path traversal (..)");
   // Belt-and-suspenders: reject any raw ".." segment too (catches odd inputs).
   if (rawPath.split(/[\\/]/).includes("..")) return reason("path traversal (..)");
@@ -151,7 +154,7 @@ export class RunLimitTracker {
 
   /** Record a file mutation; throw once the distinct-files cap is exceeded. */
   noteFileTouched(filePath: string): void {
-    this.touched.add(path.posix.normalize(filePath.replaceAll("\\", "/")));
+    this.touched.add(toPosixNormalized(filePath));
     if (this.touched.size > this.limits.maxFilesTouched) {
       throw new WikiLimitExceededError({
         kind: "limit",

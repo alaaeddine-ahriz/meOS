@@ -47,7 +47,9 @@ export async function parsePptx(buffer: Buffer): Promise<{ text: string; blocks:
     };
     for (const node of tree) collectParagraphs(node);
 
-    const title = paragraphs[0] ?? `Slide ${slideNo}`;
+    // The first paragraph is the slide title; the rest are body text.
+    const [firstPara, ...body] = paragraphs;
+    const title = firstPara ?? `Slide ${slideNo}`;
     builder.push({
       type: "heading",
       text: title,
@@ -55,8 +57,6 @@ export async function parsePptx(buffer: Buffer): Promise<{ text: string; blocks:
       meta: { level: 1, slide: slideNo },
     });
 
-    // Remaining paragraphs are body text (the first was used as the title).
-    const body = paragraphs[0] ? paragraphs.slice(1) : paragraphs;
     for (const para of body) {
       builder.push({
         type: "paragraph",

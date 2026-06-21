@@ -28,15 +28,11 @@ export const GOOGLE_SCOPES = [
   "openid",
 ];
 
-function base64url(buffer: Buffer): string {
-  return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /** A fresh PKCE verifier/challenge pair (S256). Stash the verifier under `state`. */
 export function createPkcePair(): { verifier: string; challenge: string; state: string } {
-  const verifier = base64url(crypto.randomBytes(32));
-  const challenge = base64url(crypto.createHash("sha256").update(verifier).digest());
-  const state = base64url(crypto.randomBytes(16));
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  const state = crypto.randomBytes(16).toString("base64url");
   return { verifier, challenge, state };
 }
 

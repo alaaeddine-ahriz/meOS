@@ -166,13 +166,7 @@ export async function extractKnowledgeMapReduce(
     }
     const extraction = await extractKnowledge(llm, source, schemaMd, profileContext, preferences);
     options.store.putCachedExtraction(keyFor(wholeHash), extraction, "single", 0);
-    return {
-      extraction,
-      strategy: "single",
-      tokenUsage: 0,
-      llmCalls: 1,
-      cacheHits: 0,
-    };
+    return { extraction, strategy: "single", tokenUsage: 0, llmCalls: 1, cacheHits: 0 };
   }
 
   // ---- Map: per-section extraction with local context (+ cache). ----------

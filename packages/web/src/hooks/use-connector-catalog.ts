@@ -107,13 +107,13 @@ export function useConnectorCatalog(): ConnectorCatalogApi {
       if (!resolved) {
         return { label: sourceType, Logo: brandLogo(undefined), order: Number.MAX_SAFE_INTEGER };
       }
-      const { connector: owner, kind } = resolved;
+      const { connector: owner, kind, order } = resolved;
       // Prefer the kind's own display name; when it would read as a bare noun
       // (e.g. "Calendar"), prefix the connector so chips read "Google Calendar".
       const label = kind.displayName.includes(owner.displayName)
         ? kind.displayName
         : `${owner.displayName} ${kind.displayName}`;
-      return { label, Logo: brandLogo(kind.logo), order: resolved.order };
+      return { label, Logo: brandLogo(kind.logo), order };
     };
 
     return { connectors, loaded, connector, kindOf, brandForSourceType };

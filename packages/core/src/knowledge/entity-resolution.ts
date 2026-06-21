@@ -1,4 +1,3 @@
-import type { Embedder } from "../embedding/embedder.js";
 import { cosineSimilarity } from "../embedding/vectors.js";
 import type { EntityType } from "../extract/schema.js";
 import type { EntityRow, KnowledgeStore } from "./store.js";
@@ -178,7 +177,11 @@ function roleKeys(store: KnowledgeStore, entityId: number): Set<string> {
 export function findDuplicateEntities(store: KnowledgeStore): DuplicateProposal[] {
   const entities = store.listEntities();
   const byType = new Map<string, typeof entities>();
-  for (const e of entities) byType.set(e.type, [...(byType.get(e.type) ?? []), e]);
+  for (const e of entities) {
+    const group = byType.get(e.type);
+    if (group) group.push(e);
+    else byType.set(e.type, [e]);
+  }
 
   // Pairs the user has explicitly rejected merging — never re-propose them.
   const dismissed = store.dismissedDuplicateKeys();
@@ -350,11 +353,10 @@ function scoreCandidate(
   // weak nominal match over the review line.
   const entityContacts = contactKeys(entity.name, store.aliasesFor(entity.id));
   const sharedContact = [...candidateContacts].filter((k) => entityContacts.has(k));
+  const sharedEmail = sharedContact.some((k) => k.startsWith("email:"));
   if (sharedContact.length > 0) {
-    confidence += sharedContact.some((k) => k.startsWith("email:")) ? 0.4 : 0.25;
-    reasons.push(
-      sharedContact.some((k) => k.startsWith("email:")) ? "shared email" : "shared domain",
-    );
+    confidence += sharedEmail ? 0.4 : 0.25;
+    reasons.push(sharedEmail ? "shared email" : "shared domain");
   }
 
   // Embedding similarity corroborates but never proposes on its own — it only
@@ -391,7 +393,6 @@ export function resolveCandidate(
     return { entity: exact, action: "merge", confidence: 1, reasons: ["exact name"] };
   }
 
-  const dismissed = opts.dismissed;
   const contacts = contactKeys(candidate.name, candidate.aliases ?? []);
   let best: ResolutionDecision | null = null;
   for (const entity of store.listEntities()) {

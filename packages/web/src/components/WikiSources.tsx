@@ -53,7 +53,9 @@ function buildChips(sources: SourceRef[], catalog: ConnectorCatalogApi): Chip[] 
   const files: SourceRef[] = [];
   for (const source of sources) {
     if (isConnectorSource(source)) {
-      byService.set(source.type!, [...(byService.get(source.type!) ?? []), source]);
+      const refs = byService.get(source.type!);
+      if (refs) refs.push(source);
+      else byService.set(source.type!, [source]);
     } else {
       files.push(source);
     }

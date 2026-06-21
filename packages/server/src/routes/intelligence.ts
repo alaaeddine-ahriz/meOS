@@ -20,6 +20,16 @@ const tags = ["intelligence"];
  * and re-resolves every group through {@link applyIntelligenceRouting}.
  */
 export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // Both handlers return the same payload: the current routing plus the agent
+  // picker. `routing` defaults are filled, so a fresh DB yields the safe
+  // `{ backend: "api" }`; `agents` is the full list (with `installed` flags) so
+  // the UI can render the picker — selectable vs. needs-installing — in one trip.
+  const currentRouting = () =>
+    intelligenceSchema.IntelligenceRoutingResponse.parse({
+      routing: loadIntelligenceRouting(ctx.store),
+      agents: listAgents(),
+    });
+
   app.get(
     "/api/intelligence-routing",
     {
@@ -29,14 +39,7 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
         response: intelligenceSchema.IntelligenceRoutingResponse,
       }),
     },
-    async () =>
-      intelligenceSchema.IntelligenceRoutingResponse.parse({
-        // Defaults filled, so a fresh DB returns the safe `{ backend: "api" }`.
-        routing: loadIntelligenceRouting(ctx.store),
-        // The full agent list (with `installed` flags) so the UI can render the
-        // picker — which agents are selectable, which need installing — in one trip.
-        agents: listAgents(),
-      }),
+    async () => currentRouting(),
   );
 
   app.put<{ Body: unknown }>(
@@ -58,11 +61,8 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
 
       // Validate a pinned agent id against the agents meOS actually supports — a
       // typo'd id must 400, not silently fall back to Claude at resolve time.
-      if (routing.agentId) {
-        const knownAgents = new Set<string>(listAgents().map((a) => a.id));
-        if (!knownAgents.has(routing.agentId)) {
-          throw httpError.badRequest(`Unknown coding agent: ${routing.agentId}`);
-        }
+      if (routing.agentId && !listAgents().some((a) => a.id === routing.agentId)) {
+        throw httpError.badRequest(`Unknown coding agent: ${routing.agentId}`);
       }
 
       // Persist first, then re-resolve every group (which re-reads the setting +
@@ -70,10 +70,7 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
       ctx.store.setSetting(INTELLIGENCE_ROUTING_KEY, routing);
       await applyIntelligenceRouting(ctx);
 
-      return intelligenceSchema.IntelligenceRoutingResponse.parse({
-        routing: loadIntelligenceRouting(ctx.store),
-        agents: listAgents(),
-      });
+      return currentRouting();
     },
   );
 }

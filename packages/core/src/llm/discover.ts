@@ -50,19 +50,14 @@ async function discoverOpenRouter(apiKey: string): Promise<string[]> {
   const body = await getJson("https://openrouter.ai/api/v1/models", {
     Authorization: `Bearer ${apiKey}`,
   });
-  const data = (body as { data?: Array<{ id?: string }> }).data ?? [];
-  return data.map((m) => m.id).filter((id): id is string => Boolean(id));
+  return idsFromDataList(body);
 }
 
 async function discoverOpenAi(apiKey: string): Promise<string[]> {
   const body = await getJson("https://api.openai.com/v1/models", {
     Authorization: `Bearer ${apiKey}`,
   });
-  const data = (body as { data?: Array<{ id?: string }> }).data ?? [];
-  return data
-    .map((m) => m.id)
-    .filter((id): id is string => Boolean(id))
-    .filter(isOpenAiChatModel);
+  return idsFromDataList(body).filter(isOpenAiChatModel);
 }
 
 // Keep GPT/o-series chat models; drop the audio, image, embedding and other
@@ -79,6 +74,12 @@ async function discoverAnthropic(apiKey: string): Promise<string[]> {
     "x-api-key": apiKey,
     "anthropic-version": "2023-06-01",
   });
+  return idsFromDataList(body);
+}
+
+/** Pull the non-empty `id`s out of a `{ data: [{ id }] }` list — the shape
+ * OpenAI, OpenRouter and Anthropic all return. */
+function idsFromDataList(body: unknown): string[] {
   const data = (body as { data?: Array<{ id?: string }> }).data ?? [];
   return data.map((m) => m.id).filter((id): id is string => Boolean(id));
 }

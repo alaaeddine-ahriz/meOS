@@ -70,6 +70,20 @@ export async function parseHtml(html: string): Promise<{ text: string; blocks: B
     builder.push({ type, text: clean, headingPath, ...(extra ? { meta: extra } : {}) });
   };
 
+  // Flatten a table subtree into "cell | cell" rows; cells are already
+  // whitespace-collapsed so the joined row needs no further cleanup.
+  const flattenRows = (node: ElementLike): string[] => {
+    if (node.nodeType !== 1 || !node.tagName) return [];
+    const tag = node.tagName.toUpperCase();
+    if (tag === "TR") {
+      const cells = (node.childNodes ?? [])
+        .filter((c) => c.nodeType === 1 && /^T[HD]$/.test(c.tagName?.toUpperCase() ?? ""))
+        .map((c) => collapse(c.text));
+      return [cells.join(" | ")];
+    }
+    return (node.childNodes ?? []).flatMap((c) => flattenRows(c));
+  };
+
   const walk = (node: ElementLike) => {
     if (node.nodeType !== 1 || !node.tagName) return;
     const tag = node.tagName.toUpperCase();
@@ -95,10 +109,7 @@ export async function parseHtml(html: string): Promise<{ text: string; blocks: B
         return;
       }
       case "TABLE": {
-        const rows = (node.childNodes ?? [])
-          .flatMap((c) => flattenRows(c))
-          .map((r) => collapse(r))
-          .filter(Boolean);
+        const rows = (node.childNodes ?? []).flatMap((c) => flattenRows(c)).filter(Boolean);
         emit("table", rows.join("\n"));
         return;
       }
@@ -114,18 +125,6 @@ export async function parseHtml(html: string): Promise<{ text: string; blocks: B
           emit("paragraph", node.text);
         }
     }
-  };
-
-  const flattenRows = (node: ElementLike): string[] => {
-    if (node.nodeType !== 1 || !node.tagName) return [];
-    const tag = node.tagName.toUpperCase();
-    if (tag === "TR") {
-      const cells = (node.childNodes ?? [])
-        .filter((c) => c.nodeType === 1 && /^T[HD]$/.test(c.tagName?.toUpperCase() ?? ""))
-        .map((c) => collapse(c.text));
-      return [cells.join(" | ")];
-    }
-    return (node.childNodes ?? []).flatMap((c) => flattenRows(c));
   };
 
   const body = (root.querySelector("body") ?? root) as unknown as ElementLike;

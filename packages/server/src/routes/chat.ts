@@ -159,6 +159,16 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
       }
       reply.raw.writeHead(200, headers);
       const send = (event: object) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      // LlmError carries an already-user-facing message and a kind the client uses
+      // to offer the right fix (e.g. open Settings on auth/credit errors); anything
+      // else collapses to a plain message frame.
+      const sendError = (error: unknown) => {
+        if (error instanceof LlmError) {
+          send({ type: "error", message: error.message, kind: error.kind });
+        } else {
+          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
+        }
+      };
 
       send({ type: "start", conversationId });
 
@@ -205,14 +215,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
           await runProfileCommand(ctx, conversationId, message, send);
           send({ type: "done" });
         } catch (error) {
-          if (error instanceof LlmError) {
-            send({ type: "error", message: error.message, kind: error.kind });
-          } else {
-            send({
-              type: "error",
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
+          sendError(error);
         }
         reply.raw.end();
         return;
@@ -224,13 +227,7 @@ export function registerChatRoutes(app: FastifyInstance, ctx: AppContext): void 
         }
         send({ type: "done" });
       } catch (error) {
-        // LlmError carries an already-user-facing message and a kind the client
-        // uses to offer the right fix (e.g. open Settings on auth/credit errors).
-        if (error instanceof LlmError) {
-          send({ type: "error", message: error.message, kind: error.kind });
-        } else {
-          send({ type: "error", message: error instanceof Error ? error.message : String(error) });
-        }
+        sendError(error);
       }
       reply.raw.end();
     },

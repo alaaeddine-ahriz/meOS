@@ -105,6 +105,7 @@ export async function syncConnector(
   }
   const state = store.getSyncState(account.id, kind);
   const config = store.getSyncConfig(account.id, kind);
+  const ctx = { accessToken, authConfig, config };
 
   const result: SyncResult = {
     ingested: 0,
@@ -116,15 +117,11 @@ export async function syncConnector(
     // Fetch inside the try so a delta failure (e.g. a provider 429) is recorded as
     // an `error` status the UI can surface, rather than bubbling out unrecorded and
     // leaving the kind looking enabled-but-never-synced.
-    let delta = await connector.fetchDelta(
-      { accessToken, authConfig, config },
-      kind,
-      state?.sync_token ?? null,
-    );
+    let delta = await connector.fetchDelta(ctx, kind, state?.sync_token ?? null);
     if (delta.fullResync) {
       // Saved cursor expired — clear it and re-pull from scratch (config preserved).
       store.setSyncState(account.id, kind, { syncToken: null });
-      delta = await connector.fetchDelta({ accessToken, authConfig, config }, kind, null);
+      delta = await connector.fetchDelta(ctx, kind, null);
     }
     result.hasMore = Boolean(delta.hasMore);
 

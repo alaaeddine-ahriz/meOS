@@ -64,7 +64,7 @@ export async function mergeExtraction(
   const changed = new Set<number>();
 
   const resolve = (name: string): number | undefined => {
-    const key = name.trim().toLowerCase();
+    const key = foldKey(name);
     if (entityIdByName.has(key)) return entityIdByName.get(key);
     // Exact name / alias first, then a slug match so whitespace, casing, and
     // accent variants of the same name fold into one entity instead of
@@ -123,9 +123,9 @@ export async function mergeExtraction(
         // the duplicates screen for a human to merge or dismiss.
       }
     }
-    entityIdByName.set(candidate.name.trim().toLowerCase(), id);
+    entityIdByName.set(foldKey(candidate.name), id);
     for (const alias of candidate.aliases) {
-      if (alias.trim() && alias.trim().toLowerCase() !== candidate.name.trim().toLowerCase()) {
+      if (alias.trim() && foldKey(alias) !== foldKey(candidate.name)) {
         store.addAlias(id, alias);
       }
     }

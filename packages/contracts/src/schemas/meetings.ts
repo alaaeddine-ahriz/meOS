@@ -14,21 +14,19 @@ const meetingDate = z
   .nullable()
   .optional();
 
-/** POST /api/meetings */
-export const CreateMeetingBody = z.object({
+/** Shared write payload for creating and updating a meeting. */
+const meetingBodyShape = {
   title: z.string().min(1),
   date: meetingDate,
   attendees: z.array(z.string()).default([]),
   content: z.string().default(""),
-});
+} as const;
+
+/** POST /api/meetings */
+export const CreateMeetingBody = z.object(meetingBodyShape);
 
 /** PUT /api/meetings/:id */
-export const UpdateMeetingBody = z.object({
-  title: z.string().min(1),
-  date: meetingDate,
-  attendees: z.array(z.string()).default([]),
-  content: z.string().default(""),
-});
+export const UpdateMeetingBody = z.object(meetingBodyShape);
 
 /** A row in the meeting list. */
 export const MeetingSummarySchema = z.object({

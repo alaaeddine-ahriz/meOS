@@ -143,14 +143,15 @@ export function resolvePreferences(
     prefs.preset && KNOWLEDGE_PRESETS.includes(prefs.preset) ? prefs.preset : "custom";
   const entityTypes = { ...base.entityTypes };
   const observationKinds = { ...base.observationKinds };
-  for (const t of ENTITY_TYPES) {
-    if (prefs.entityTypes && typeof prefs.entityTypes[t] === "boolean") {
-      entityTypes[t] = prefs.entityTypes[t];
+  if (prefs.entityTypes) {
+    for (const t of ENTITY_TYPES) {
+      if (typeof prefs.entityTypes[t] === "boolean") entityTypes[t] = prefs.entityTypes[t];
     }
   }
-  for (const k of OBSERVATION_KINDS) {
-    if (prefs.observationKinds && typeof prefs.observationKinds[k] === "boolean") {
-      observationKinds[k] = prefs.observationKinds[k];
+  if (prefs.observationKinds) {
+    for (const k of OBSERVATION_KINDS) {
+      if (typeof prefs.observationKinds[k] === "boolean")
+        observationKinds[k] = prefs.observationKinds[k];
     }
   }
   return { preset, entityTypes, observationKinds };

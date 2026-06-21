@@ -6,6 +6,13 @@ export class SyncTokenExpiredError extends Error {
   }
 }
 
+/** Build an Error mirroring a non-2xx Google response, with the path and body. */
+async function googleApiError(url: string, response: Response): Promise<Error> {
+  return new Error(
+    `Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`,
+  );
+}
+
 /**
  * Authorized GET against a Google REST endpoint, returning parsed JSON. A 410
  * surfaces as {@link SyncTokenExpiredError} so the caller can clear its cursor
@@ -16,11 +23,7 @@ export async function googleGet<T>(url: string, accessToken: string): Promise<T>
     headers: { authorization: `Bearer ${accessToken}` },
   });
   if (response.status === 410) throw new SyncTokenExpiredError();
-  if (!response.ok) {
-    throw new Error(
-      `Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`,
-    );
-  }
+  if (!response.ok) throw await googleApiError(url, response);
   return (await response.json()) as T;
 }
 
@@ -44,10 +47,6 @@ export async function googleWrite<T>(
     },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(
-      `Google API ${response.status} for ${url.split("?")[0]}: ${await response.text()}`,
-    );
-  }
+  if (!response.ok) throw await googleApiError(url, response);
   return (await response.json()) as T;
 }

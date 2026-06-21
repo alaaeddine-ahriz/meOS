@@ -48,6 +48,29 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     return connector;
   };
 
+  /** Best-effort message extraction for upstream/SDK errors. */
+  const messageOf = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+  /**
+   * Resolve the connector, validate `:kind` against its manifest, and require a
+   * connected account — the shared guard for the per-kind config + sync routes.
+   * Returns the resolved connector account (never undefined) plus the kind.
+   */
+  const requireConnectedKind = (rawParams: unknown) => {
+    const { provider, kind } = parseOrThrow(
+      connectorsSchema.ConnectorKindParam.extend({ provider: z.string() }),
+      rawParams,
+      "params",
+    );
+    const connector = requireConnector(provider);
+    if (!connector.manifest.kinds.some((k) => k.kind === kind)) {
+      throw httpError.badRequest(`Unknown kind: ${kind}`);
+    }
+    const account = ctx.store.getConnectorAccount(provider);
+    if (!account) throw httpError.badRequest(`${provider} is not connected`);
+    return { provider, kind, account };
+  };
+
   /**
    * Resolve a connector AND its OAuth surface for the OAuth-only flow (consent
    * start + callback), narrowing past the optional `oauth` field. Basic-auth
@@ -169,10 +192,15 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     };
   };
 
-  /** The multi-provider status payload — one entry per registered connector. */
-  const statusView = () => ({
-    providers: connectorRegistry.list().map((c) => providerStatusFor(c)),
-  });
+  /**
+   * The multi-provider status payload — one entry per registered connector,
+   * validated through the response schema so every call site returns the exact
+   * contract shape.
+   */
+  const statusView = () =>
+    connectorsSchema.ConnectorStatusSchema.parse({
+      providers: connectorRegistry.list().map((c) => providerStatusFor(c)),
+    });
 
   app.get(
     "/api/connectors",
@@ -185,7 +213,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         mcp: { expose: true, name: "connectors", safety: "read" },
       }),
     },
-    async () => connectorsSchema.ConnectorStatusSchema.parse(statusView()),
+    async () => statusView(),
   );
 
   // Save the connector's credentials, branching on its auth model: an OAuth
@@ -237,7 +265,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
           }
         }
         ctx.store.upsertConnectorAccount({ provider, authConfig: JSON.stringify(values) });
-        return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+        return statusView();
       }
 
       // OAuth: client id/secret only (no tokens yet — those come from the consent flow).
@@ -248,7 +276,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         throw httpError.validation("Both clientId and clientSecret are required");
       }
       ctx.store.upsertConnectorAccount({ provider, clientId, clientSecret });
-      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+      return statusView();
     },
   );
 
@@ -340,7 +368,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         `MeOS can now sync your ${connector.manifest.displayName} data. You can close this window.`,
       );
     } catch (err) {
-      return page("Authorization failed", err instanceof Error ? err.message : String(err));
+      return page("Authorization failed", messageOf(err));
     }
   });
 
@@ -378,15 +406,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       }),
     },
     async (request) => {
-      const provider = request.params.provider;
-      const connector = requireConnector(provider);
-      const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
-      const kind = params.kind;
-      if (!connector.manifest.kinds.some((k) => k.kind === kind)) {
-        throw httpError.badRequest(`Unknown kind: ${kind}`);
-      }
-      const account = ctx.store.getConnectorAccount(provider);
-      if (!account) throw httpError.badRequest(`${provider} is not connected`);
+      const { provider, kind, account } = requireConnectedKind(request.params);
 
       const body = parseOrThrow(connectorsSchema.ConfigureKindBody, request.body, "body");
       const {
@@ -447,7 +467,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       // Pull immediately on first enable, a coverage change, or a reset so the user
       // sees the new coverage without waiting for the next scheduled tick.
       if (enabled || coverageChanged || resetting) ctx.connectors.enqueueSync(provider, kind);
-      return connectorsSchema.ConnectorStatusSchema.parse(statusView());
+      return statusView();
     },
   );
 
@@ -488,15 +508,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
       }),
     },
     async (request, reply) => {
-      const provider = request.params.provider;
-      const connector = requireConnector(provider);
-      const params = parseOrThrow(connectorsSchema.ConnectorKindParam, request.params, "params");
-      const kind = params.kind;
-      if (!connector.manifest.kinds.some((k) => k.kind === kind)) {
-        throw httpError.badRequest(`Unknown kind: ${kind}`);
-      }
-      const account = ctx.store.getConnectorAccount(provider);
-      if (!account) throw httpError.badRequest(`${provider} is not connected`);
+      const { provider, kind } = requireConnectedKind(request.params);
       ctx.connectors.enqueueSync(provider, kind);
       return reply.code(202).send(connectorsSchema.SyncKindResponse.parse({ syncing: true }));
     },
@@ -514,7 +526,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
     try {
       return await ensureAccessToken(ctx.store, account, connector);
     } catch (err) {
-      throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+      throw httpError.badRequest(messageOf(err));
     }
   };
 
@@ -536,7 +548,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         const lists = await listTaskLists(token);
         return { lists };
       } catch (err) {
-        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+        throw httpError.badRequest(messageOf(err));
       }
     },
   );
@@ -582,7 +594,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         return reply.code(201).send({ task });
       } catch (err) {
         if (err && typeof err === "object" && "statusCode" in err) throw err;
-        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+        throw httpError.badRequest(messageOf(err));
       }
     },
   );
@@ -618,7 +630,7 @@ export function registerConnectorRoutes(app: FastifyInstance, ctx: AppContext): 
         return { task };
       } catch (err) {
         if (err && typeof err === "object" && "statusCode" in err) throw err;
-        throw httpError.badRequest(err instanceof Error ? err.message : String(err));
+        throw httpError.badRequest(messageOf(err));
       }
     },
   );

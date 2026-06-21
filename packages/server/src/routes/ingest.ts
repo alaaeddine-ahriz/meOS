@@ -321,14 +321,17 @@ export function registerIngestRoutes(app: FastifyInstance, ctx: AppContext): voi
         { hash: string; subject: string; committedAt: string; files: typeof rows }
       >();
       for (const row of rows) {
-        const entry = byCommit.get(row.hash) ?? {
-          hash: row.hash,
-          subject: row.subject,
-          committedAt: row.committedAt,
-          files: [] as typeof rows,
-        };
+        let entry = byCommit.get(row.hash);
+        if (!entry) {
+          entry = {
+            hash: row.hash,
+            subject: row.subject,
+            committedAt: row.committedAt,
+            files: [] as typeof rows,
+          };
+          byCommit.set(row.hash, entry);
+        }
         entry.files.push(row);
-        byCommit.set(row.hash, entry);
       }
 
       const commits = [];

@@ -93,19 +93,17 @@ export async function* runAgentProcess(opts: AgentProcessOptions): AsyncIterable
   }
 
   let sawResult = false;
-  try {
-    for await (const line of rl) {
-      for (const event of adapter.push(line)) {
-        if (event.type === "result") sawResult = true;
-        yield event;
-      }
-    }
-    // Flush any buffered terminal state (text-only adapters synthesize their
-    // `result` here, since their CLI has no result line to key off of).
-    for (const event of adapter.flush?.() ?? []) {
+  const emit = function* (events: AgentEvent[]): Iterable<AgentEvent> {
+    for (const event of events) {
       if (event.type === "result") sawResult = true;
       yield event;
     }
+  };
+  try {
+    for await (const line of rl) yield* emit(adapter.push(line));
+    // Flush any buffered terminal state (text-only adapters synthesize their
+    // `result` here, since their CLI has no result line to key off of).
+    yield* emit(adapter.flush?.() ?? []);
   } finally {
     opts.signal?.removeEventListener("abort", abort);
     killChild(child); // consumer stopped early → don't leak the process

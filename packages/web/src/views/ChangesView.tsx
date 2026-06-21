@@ -83,19 +83,19 @@ export function ChangesView() {
                     {file.entitySlug && <ChevronRight className="size-3 text-dim" />}
                   </>
                 );
+                const chipClass =
+                  "flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm";
                 return (
                   <li key={file.path}>
                     {file.entitySlug ? (
                       <Link
                         to={`/wiki/${file.entitySlug}`}
-                        className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm transition-colors hover:border-lamp-dim"
+                        className={cn(chipClass, "transition-colors hover:border-lamp-dim")}
                       >
                         {label}
                       </Link>
                     ) : (
-                      <span className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-sm">
-                        {label}
-                      </span>
+                      <span className={chipClass}>{label}</span>
                     )}
                   </li>
                 );

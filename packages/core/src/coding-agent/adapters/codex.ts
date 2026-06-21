@@ -48,7 +48,7 @@ export class CodexStreamAdapter implements StreamAdapter {
       case "item.completed":
         return this.item(obj(msg.item), true);
       case "turn.completed":
-        return [this.result(false, "success", "")];
+        return [this.result()];
       case "turn.failed": {
         const error = obj(msg.error);
         return [{ type: "error", message: str(error?.message) ?? "Codex turn failed." }];
@@ -164,13 +164,13 @@ export class CodexStreamAdapter implements StreamAdapter {
     return out;
   }
 
-  private result(isError: boolean, subtype: string, text: string): AgentEvent {
+  private result(): AgentEvent {
     return {
       type: "result",
       sessionId: this.threadId,
-      isError,
-      subtype,
-      text: text || this.lastAgentText,
+      isError: false,
+      subtype: "success",
+      text: this.lastAgentText,
       costUsd: 0,
       numTurns: 0,
       durationMs: 0,

@@ -89,7 +89,8 @@ export function lintPage(store: KnowledgeStore, entityId: number, body: string):
   // Staleness: claims unconfirmed past their kind's horizon (a stale task and a
   // stale architecture decision are not the same age).
   const stale = observations.filter((o) => isStale(o)).length;
-  if (observations.length > 0 && stale / observations.length > 0.5) {
+  const staleRatio = observations.length === 0 ? 0 : stale / observations.length;
+  if (staleRatio > 0.5) {
     issues.push({
       code: "stale_claims",
       severity: "review",
@@ -117,7 +118,7 @@ export function lintPage(store: KnowledgeStore, entityId: number, body: string):
   if (relationships.length === 0) quality -= 0.15;
   quality -= (1 - groundingRatio) * 0.25;
   quality -= (1 - meanConfidence) * 0.15;
-  if (observations.length > 0) quality -= (stale / observations.length) * 0.1;
+  quality -= staleRatio * 0.1;
   if (vagueHits >= 4) quality -= 0.1;
   quality = Math.max(0, Math.min(1, quality));
 

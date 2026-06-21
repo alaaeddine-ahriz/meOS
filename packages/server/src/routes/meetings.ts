@@ -20,11 +20,9 @@ const ACTION_KIND = "task";
 export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): void {
   /** Assemble the detail payload (note + extracted structure + suggested links). */
   const detail = (sourceId: number): meetings.MeetingDetail => {
-    const note = ctx.store.getMeetingNote(sourceId);
+    const note = requireMeeting(sourceId);
     const source = ctx.store.getSource(sourceId);
-    if (!note || !source || ctx.store.getSourceType(sourceId) !== MEETING_SOURCE_TYPE) {
-      throw httpError.notFound("No such meeting note");
-    }
+    if (!source) throw httpError.notFound("No such meeting note");
     const observations = ctx.store.observationsForSource(sourceId).map((o) => ({
       id: o.id,
       kind: o.kind,
@@ -152,7 +150,7 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const sourceId = parseId(request.params.id);
-      requireMeeting(ctx, sourceId);
+      requireMeeting(sourceId);
       const body = parseOrThrow(meetings.UpdateMeetingBody, request.body, "body");
       await processMeetingNote(
         { store: ctx.store, pipeline: ctx.pipeline },
@@ -183,7 +181,7 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const sourceId = parseId(request.params.id);
-      const note = requireMeeting(ctx, sourceId);
+      const note = requireMeeting(sourceId);
       const source = ctx.store.getSource(sourceId);
       const { outcome } = await processMeetingNote(
         { store: ctx.store, pipeline: ctx.pipeline },
@@ -215,7 +213,7 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const sourceId = parseId(request.params.id);
-      requireMeeting(ctx, sourceId);
+      requireMeeting(sourceId);
       const linkId = parseId(request.params.linkId);
       const { status } = parseOrThrow(meetings.ReviewLinkBody, request.body, "body");
       const updated = ctx.store.reviewMeetingLinkSuggestion(linkId, status);
@@ -230,9 +228,9 @@ export function registerMeetingRoutes(app: FastifyInstance, ctx: AppContext): vo
     return id;
   }
 
-  function requireMeeting(context: AppContext, sourceId: number) {
-    const note = context.store.getMeetingNote(sourceId);
-    if (!note || context.store.getSourceType(sourceId) !== MEETING_SOURCE_TYPE) {
+  function requireMeeting(sourceId: number) {
+    const note = ctx.store.getMeetingNote(sourceId);
+    if (!note || ctx.store.getSourceType(sourceId) !== MEETING_SOURCE_TYPE) {
       throw httpError.notFound("No such meeting note");
     }
     return note;

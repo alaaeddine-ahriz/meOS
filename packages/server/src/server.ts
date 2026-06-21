@@ -124,21 +124,15 @@ export async function buildServer(ctx: AppContext): Promise<FastifyInstance> {
   // is mounted — so the error model is identical in dev, test, and production.
   // Non-API misses fall back to the SPA's index.html when it's available.
   app.setNotFoundHandler((request, reply) => {
-    if (request.url.startsWith("/api/")) {
-      return reply.code(404).send({
-        code: "NOT_FOUND",
-        message: "Not found",
-        requestId: request.id,
-        recoverable: false,
-      });
-    }
-    if (serveStatic) return reply.sendFile("index.html");
-    return reply.code(404).send({
+    const notFound = {
       code: "NOT_FOUND",
       message: "Not found",
       requestId: request.id,
       recoverable: false,
-    });
+    };
+    if (request.url.startsWith("/api/")) return reply.code(404).send(notFound);
+    if (serveStatic) return reply.sendFile("index.html");
+    return reply.code(404).send(notFound);
   });
 
   return app;

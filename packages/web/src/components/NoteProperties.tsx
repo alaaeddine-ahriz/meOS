@@ -84,20 +84,12 @@ export function NoteProperties({
           <Row icon={<Users className="size-3.5" />} label="Attendees">
             <div className="flex flex-1 flex-wrap items-center gap-1">
               {attendees.map((name) => (
-                <span
+                <Chip
                   key={name}
-                  className="flex items-center gap-1 rounded-md bg-card px-1.5 py-0.5 text-xs text-paper"
-                >
-                  {name}
-                  <button
-                    type="button"
-                    onClick={() => removeAttendee(name)}
-                    className="text-dim transition-colors hover:text-rust"
-                    title={`Remove ${name}`}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </span>
+                  label={name}
+                  onRemove={() => removeAttendee(name)}
+                  title={`Remove ${name}`}
+                />
               ))}
               <input
                 value={draft}
@@ -126,17 +118,11 @@ export function NoteProperties({
           {/* referenced event */}
           {value.event?.title && (
             <Row icon={<CalendarDays className="size-3.5" />} label="Event">
-              <span className="flex items-center gap-1 rounded-md bg-card px-1.5 py-0.5 text-xs text-paper">
-                {value.event.title}
-                <button
-                  type="button"
-                  onClick={() => onChange({ ...value, event: undefined })}
-                  className="text-dim transition-colors hover:text-rust"
-                  title="Remove event"
-                >
-                  <X className="size-3" />
-                </button>
-              </span>
+              <Chip
+                label={value.event.title}
+                onRemove={() => onChange({ ...value, event: undefined })}
+                title="Remove event"
+              />
             </Row>
           )}
         </>
@@ -163,5 +149,22 @@ function Row({
       </span>
       <div className="flex min-w-0 flex-1 items-center">{children}</div>
     </div>
+  );
+}
+
+/** A removable pill showing a label with an inline ✕ button. */
+function Chip({ label, onRemove, title }: { label: string; onRemove: () => void; title: string }) {
+  return (
+    <span className="flex items-center gap-1 rounded-md bg-card px-1.5 py-0.5 text-xs text-paper">
+      {label}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="text-dim transition-colors hover:text-rust"
+        title={title}
+      >
+        <X className="size-3" />
+      </button>
+    </span>
   );
 }

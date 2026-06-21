@@ -82,26 +82,20 @@ export function detectConnectorLinks(
   const haystack = text ?? "";
   if (!haystack.trim()) return [];
   const links: DetectedConnectorLink[] = [];
-  for (const connector of registry.list()) {
-    for (const kind of connector.manifest.kinds) {
-      const phrases = phrasesForKind(kind.sourceType, kind.displayName, kind.noun);
-      if (phrases.length === 0) continue;
-      const seen = new Map<string, string>(); // lowercased → original-cased sample
-      for (const phrase of phrases) {
-        const re = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, "gi");
-        for (const m of haystack.matchAll(re)) {
-          const sample = m[0];
-          const key = sample.toLowerCase();
-          if (!seen.has(key)) seen.set(key, sample);
-        }
+  for (const { provider, kind } of registry.allKinds()) {
+    const phrases = phrasesForKind(kind.sourceType, kind.displayName, kind.noun);
+    if (phrases.length === 0) continue;
+    const seen = new Map<string, string>(); // lowercased → original-cased sample
+    for (const phrase of phrases) {
+      const re = new RegExp(`\\b${escapeRegExp(phrase)}\\b`, "gi");
+      for (const m of haystack.matchAll(re)) {
+        const sample = m[0];
+        const key = sample.toLowerCase();
+        if (!seen.has(key)) seen.set(key, sample);
       }
-      if (seen.size > 0) {
-        links.push({
-          provider: connector.manifest.id,
-          kind: kind.kind,
-          matches: [...seen.values()],
-        });
-      }
+    }
+    if (seen.size > 0) {
+      links.push({ provider, kind: kind.kind, matches: [...seen.values()] });
     }
   }
   return links;
@@ -129,7 +123,7 @@ export function connectorLinkLabels(
 ): ConnectorLinkLabel[] {
   const out: ConnectorLinkLabel[] = [];
   for (const link of links) {
-    const connector = registry.list().find((c) => c.manifest.id === link.provider);
+    const connector = registry.get(link.provider);
     const kind = connector?.manifest.kinds.find((k) => k.kind === link.kind);
     if (!connector || !kind) continue;
     out.push({

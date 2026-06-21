@@ -30,6 +30,19 @@ function suggestedWinner(action: ResolutionAction | undefined): "a" | "b" | null
   return null;
 }
 
+/** Stable key for a duplicate proposal (a pair of entity ids). */
+const pairKey = (d: DuplicateProposal) => `${d.aId}-${d.bId}`;
+
+/** Resolve a proposal's suggested winner/loser into ids and display names. */
+function duplicateParts(d: DuplicateProposal) {
+  const winnerIsA = d.suggestedWinnerId === d.aId;
+  return {
+    loserId: winnerIsA ? d.bId : d.aId,
+    winnerName: winnerIsA ? d.aName : d.bName,
+    loserName: winnerIsA ? d.bName : d.aName,
+  };
+}
+
 export function ContradictionsView({ embedded = false }: { embedded?: boolean }) {
   const [items, setItems] = useState<Contradiction[]>([]);
   const [duplicates, setDuplicates] = useState<DuplicateProposal[]>([]);
@@ -60,11 +73,9 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   }, []);
 
   const merge = async (d: DuplicateProposal) => {
-    const key = `${d.aId}-${d.bId}`;
-    setPending(key);
+    setPending(pairKey(d));
     try {
-      const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
-      await api.mergeEntities(loserId, d.suggestedWinnerId);
+      await api.mergeEntities(duplicateParts(d).loserId, d.suggestedWinnerId);
       // Re-fetch rather than dropping just this pair: a merge deletes an entity,
       // and in a duplicate cluster (A≈B≈C) other proposals still reference the
       // now-gone entity. Merging those would silently 400 ("unknown entity").
@@ -80,11 +91,11 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   };
 
   const dismiss = async (d: DuplicateProposal) => {
-    const key = `${d.aId}-${d.bId}`;
+    const key = pairKey(d);
     setPending(key);
     try {
       await api.dismissDuplicate(d.aId, d.bId);
-      setDuplicates((cur) => cur.filter((x) => `${x.aId}-${x.bId}` !== key));
+      setDuplicates((cur) => cur.filter((x) => pairKey(x) !== key));
     } catch {
       // leave it; the user can retry
     } finally {
@@ -114,24 +125,22 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
   // server-recomputed list is the only safe source of the next valid merge.
   const runAutoMerge = async () => {
     setAutoRunning(true);
-    try {
-      let queue = await api
+    const fetchQueue = () =>
+      api
         .getDuplicates()
         .then((r) => r.duplicates)
-        .catch(() => []);
+        .catch(() => [] as DuplicateProposal[]);
+    try {
+      let queue = await fetchQueue();
       // Each successful merge removes one entity, so the proposal count strictly
       // trends down; this bound just guarantees termination if a pair keeps failing.
       let guard = queue.length * 2 + 5;
       while (guard-- > 0) {
         const d = queue[0];
         if (!d) break;
-        const loserId = d.suggestedWinnerId === d.aId ? d.bId : d.aId;
         try {
-          await api.mergeEntities(loserId, d.suggestedWinnerId);
-          queue = await api
-            .getDuplicates()
-            .then((r) => r.duplicates)
-            .catch(() => []);
+          await api.mergeEntities(duplicateParts(d).loserId, d.suggestedWinnerId);
+          queue = await fetchQueue();
         } catch {
           // Drop the offending pair locally so we don't spin on it; keep going.
           queue = queue.slice(1);
@@ -180,9 +189,8 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
             <p className="text-sm text-faded">No likely duplicates. Every entity looks distinct.</p>
           ) : (
             duplicates.map((d) => {
-              const key = `${d.aId}-${d.bId}`;
-              const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
-              const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
+              const key = pairKey(d);
+              const { winnerName, loserName } = duplicateParts(d);
               return (
                 <div
                   key={key}
@@ -322,10 +330,9 @@ export function ContradictionsView({ embedded = false }: { embedded?: boolean })
               </DialogHeader>
               <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-faded">
                 {duplicates.map((d) => {
-                  const winnerName = d.suggestedWinnerId === d.aId ? d.aName : d.bName;
-                  const loserName = d.suggestedWinnerId === d.aId ? d.bName : d.aName;
+                  const { winnerName, loserName } = duplicateParts(d);
                   return (
-                    <li key={`${d.aId}-${d.bId}`}>
+                    <li key={pairKey(d)}>
                       Keep <span className="text-paper">{winnerName}</span>, merge in {loserName}
                     </li>
                   );

@@ -54,6 +54,9 @@ export interface CalendarEventItem {
   htmlLink: string;
 }
 
+/** A Gmail sender/recipient: an email with an optional display name. */
+type EmailParty = { name?: string; email: string };
+
 /** One Gmail message, normalized to metadata + snippet (never the full body). */
 export interface GmailMessageItem {
   externalId: string;
@@ -61,8 +64,8 @@ export interface GmailMessageItem {
   subject: string;
   /** ISO date the message was sent. */
   date?: string | null;
-  from: { name?: string; email: string };
-  to: Array<{ name?: string; email: string }>;
+  from: EmailParty;
+  to: EmailParty[];
   snippet: string;
   /**
    * The decoded plain-text body, present ONLY in the explicit "rich" content mode

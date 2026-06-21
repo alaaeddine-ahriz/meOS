@@ -268,6 +268,11 @@ function meanOf(observations: ObservationRow[]): number {
     : observations.reduce((sum, o) => sum + o.confidence, 0) / observations.length;
 }
 
+/** The page's data-dir-relative POSIX path, as reported back to callers/agents. */
+function relPagePath(entity: EntityRow): string {
+  return path.posix.join("wiki", entity.type, `${entity.slug}.md`);
+}
+
 export class WikiWriter {
   constructor(
     private readonly store: KnowledgeStore,
@@ -308,6 +313,19 @@ export class WikiWriter {
 
   pagePath(entity: EntityRow): string {
     return path.join(this.wikiDir, entity.type, `${entity.slug}.md`);
+  }
+
+  /** Write the composed page (frontmatter + body) to disk, creating its dir. */
+  private writePage(
+    entity: EntityRow,
+    body: string,
+    observationCount: number,
+    meanConfidence: number,
+    synthetic: boolean,
+  ): void {
+    const file = this.pagePath(entity);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, composePage(entity, body, observationCount, meanConfidence, synthetic));
   }
 
   readPage(entity: EntityRow): string | null {
@@ -386,13 +404,8 @@ export class WikiWriter {
   stageBody(entity: EntityRow, body: string): string {
     const prose = stripFrontmatter(body) || body.trim();
     const observations = this.store.visibleObservations(entity.id);
-    const file = this.pagePath(entity);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(
-      file,
-      composePage(entity, prose, observations.length, meanOf(observations), false),
-    );
-    return path.posix.join("wiki", entity.type, `${entity.slug}.md`);
+    this.writePage(entity, prose, observations.length, meanOf(observations), false);
+    return relPagePath(entity);
   }
 
   /**
@@ -427,12 +440,7 @@ export class WikiWriter {
 
     // Re-impose the system-owned frontmatter so the agent can never corrupt the
     // identity/counters, then persist exactly as the in-app writer does.
-    const file = this.pagePath(entity);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(
-      file,
-      composePage(entity, body, observations.length, meanOf(observations), false),
-    );
+    this.writePage(entity, body, observations.length, meanOf(observations), false);
 
     const [vector] = this.embedder ? await this.embedder.embed([body]) : [undefined];
     this.store.upsertWikiPage(entity.id, body, vector, opts.authoredBy ?? "agent");
@@ -453,7 +461,7 @@ export class WikiWriter {
         name: entity.name,
         type: entity.type,
         slug: entity.slug,
-        filePath: path.posix.join("wiki", entity.type, `${entity.slug}.md`),
+        filePath: relPagePath(entity),
         kind: created ? "created" : "updated",
         sourceIds: runSourceIds,
       },
@@ -677,12 +685,7 @@ export class WikiWriter {
     const created = beforeBody === null;
     const changed = created || beforeBody !== body;
     if (changed) {
-      const file = this.pagePath(entity);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(
-        file,
-        composePage(entity, body, observations.length, meanOf(observations), usedSynthesis),
-      );
+      this.writePage(entity, body, observations.length, meanOf(observations), usedSynthesis);
       // Persist the compiled prose so chat retrieves it directly (and BM25 can
       // index it); embed it when an embedder is available for semantic recall.
       if (body) {
@@ -704,7 +707,7 @@ export class WikiWriter {
       name: entity.name,
       type: entity.type,
       slug: entity.slug,
-      filePath: path.posix.join("wiki", entity.type, `${entity.slug}.md`),
+      filePath: relPagePath(entity),
       kind: created ? "created" : "updated",
       sourceIds: runSourceIds,
     };
@@ -765,12 +768,7 @@ export class WikiWriter {
         const relationships = this.store.relationshipsFor(entity.id);
         const body = synthesizeBody(entity, observations, relationships, knownNames);
         if (body) {
-          const dest = this.pagePath(entity);
-          fs.mkdirSync(path.dirname(dest), { recursive: true });
-          fs.writeFileSync(
-            dest,
-            composePage(entity, body, observations.length, meanOf(observations), true),
-          );
+          this.writePage(entity, body, observations.length, meanOf(observations), true);
           diskBody = body;
         }
       }
@@ -816,9 +814,7 @@ export class WikiWriter {
     if (updates.length === 0) return 0;
     const vectors = await this.embedder.embed(updates.map((u) => u.body));
     updates.forEach((u, i) => {
-      const dest = this.pagePath(u.entity);
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, composePage(u.entity, u.body, u.count, u.mean, true));
+      this.writePage(u.entity, u.body, u.count, u.mean, true);
       this.store.upsertWikiPage(u.entity.id, u.body, vectors[i]);
     });
     return updates.length;

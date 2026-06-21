@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CommandDialog,
@@ -23,6 +23,16 @@ const VIEWS = [
   { label: "Digest", to: "/activity?tab=digest" },
   { label: "Settings", to: "/settings" },
 ];
+
+function Badge({ children, shrink }: { children: ReactNode; shrink?: boolean }) {
+  return (
+    <span
+      className={`ml-auto ${shrink ? "shrink-0 " : ""}font-mono text-[10px] uppercase tracking-wider text-dim`}
+    >
+      {children}
+    </span>
+  );
+}
 
 export function CommandPalette({
   open,
@@ -68,9 +78,7 @@ export function CommandPalette({
         <CommandGroup heading="Actions">
           <CommandItem value="new-chat" onSelect={() => choose("/")}>
             <span>New chat</span>
-            <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
-              chat
-            </span>
+            <Badge>chat</Badge>
           </CommandItem>
         </CommandGroup>
         {conversations.length > 0 && (
@@ -84,9 +92,7 @@ export function CommandPalette({
                 <span className="truncate">
                   {conversation.title ?? `Conversation ${conversation.id}`}
                 </span>
-                <span className="ml-auto shrink-0 font-mono text-[10px] uppercase tracking-wider text-dim">
-                  chat
-                </span>
+                <Badge shrink>chat</Badge>
               </CommandItem>
             ))}
           </CommandGroup>
@@ -99,9 +105,7 @@ export function CommandPalette({
               onSelect={() => choose(view.to)}
             >
               <span>{view.label}</span>
-              <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
-                view
-              </span>
+              <Badge>view</Badge>
             </CommandItem>
           ))}
         </CommandGroup>
@@ -117,9 +121,7 @@ export function CommandPalette({
                 >
                   {Icon && <Icon className="size-3.5 text-dim" />}
                   <span>{entity.name}</span>
-                  <span className="ml-auto font-mono text-[10px] uppercase tracking-wider text-dim">
-                    {entity.type}
-                  </span>
+                  <Badge>{entity.type}</Badge>
                 </CommandItem>
               );
             })}

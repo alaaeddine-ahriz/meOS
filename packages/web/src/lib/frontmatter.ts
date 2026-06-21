@@ -89,8 +89,9 @@ function parseFlatYaml(text: string): Record<string, string | string[]> {
     const [, key, valuePart] = m;
     if (valuePart === "") {
       const items: string[] = [];
-      while (i < lines.length && /^\s*-\s+/.test(lines[i] ?? "")) {
-        items.push(unquote((lines[i] ?? "").replace(/^\s*-\s+/, "").trim()));
+      let item: string;
+      while (i < lines.length && /^\s*-\s+/.test((item = lines[i] ?? ""))) {
+        items.push(unquote(item.replace(/^\s*-\s+/, "").trim()));
         i++;
       }
       out[key!] = items;

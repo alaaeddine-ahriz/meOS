@@ -127,18 +127,23 @@ function deepMerge<T>(base: T, override: Partial<T>): T {
   return result;
 }
 
-export function loadConfig(rootDir: string): MeosConfig {
-  const configPath = path.join(rootDir, "meos.config.json");
-  let fileConfig: Partial<MeosConfig> = {};
-  if (fs.existsSync(configPath)) {
-    fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-  }
-  const config = deepMerge(defaultConfig, fileConfig);
-
+// MEOS_LLM_PROVIDER overrides the provider for one-off runs and tests; it wins
+// over both file config and UI-stored settings.
+function applyEnvProvider(config: MeosConfig): void {
   const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;
   if (envProvider && LLM_PROVIDERS.includes(envProvider)) {
     config.llm.provider = envProvider;
   }
+}
+
+export function loadConfig(rootDir: string): MeosConfig {
+  const configPath = path.join(rootDir, "meos.config.json");
+  const fileConfig: Partial<MeosConfig> = fs.existsSync(configPath)
+    ? JSON.parse(fs.readFileSync(configPath, "utf-8"))
+    : {};
+  const config = deepMerge(defaultConfig, fileConfig);
+
+  applyEnvProvider(config);
   // The desktop shell relocates data to a writable per-user directory because
   // the app bundle itself is read-only; MEOS_DATA_DIR (absolute) wins outright.
   const envDataDir = process.env.MEOS_DATA_DIR;
@@ -177,10 +182,7 @@ export function overlayStoredLlmConfig(
       maintainer: { ...config.llm.maintainer, ...stored.maintainer },
     };
   }
-  const envProvider = process.env.MEOS_LLM_PROVIDER as LlmProvider | undefined;
-  if (envProvider && LLM_PROVIDERS.includes(envProvider)) {
-    config.llm.provider = envProvider;
-  }
+  applyEnvProvider(config);
 }
 
 export function ensureDataDirs(config: MeosConfig): void {

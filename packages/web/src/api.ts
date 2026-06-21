@@ -660,6 +660,33 @@ export const api = {
     }),
 };
 
+/**
+ * Read an SSE response body and yield each `data:` frame's parsed JSON. Shared by
+ * the streaming endpoints; heartbeat comments (`: ping`) carry no data frame and
+ * are skipped. `label` names the source for the not-OK / no-body error message.
+ */
+async function* streamSse<T>(response: Response, label: string): AsyncGenerator<T> {
+  if (!response.ok || !response.body) {
+    throw new Error(`${label} failed: ${response.status}`);
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const line = frame.trim();
+      if (line.startsWith("data: ")) {
+        yield JSON.parse(line.slice(6)) as T;
+      }
+    }
+  }
+}
+
 export async function* streamChat(
   message: string,
   conversationId?: number,
@@ -674,52 +701,15 @@ export async function* streamChat(
     body: JSON.stringify({ message, conversationId, agent, agentId, model }),
     signal,
   });
-  if (!response.ok || !response.body) {
-    throw new Error(`chat failed: ${response.status}`);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame.trim();
-      if (line.startsWith("data: ")) {
-        yield JSON.parse(line.slice(6)) as ChatEvent;
-      }
-    }
-  }
+  yield* streamSse<ChatEvent>(response, "chat");
 }
 
 /**
  * Subscribe to the live wiki-maintainer feed. Yields every run's activity
- * (start, transcript deltas, finish) until `signal` aborts. Mirrors streamChat's
- * SSE frame parsing; the caller groups events by `runId`.
+ * (start, transcript deltas, finish) until `signal` aborts; the caller groups
+ * events by `runId`.
  */
 export async function* streamActivity(signal?: AbortSignal): AsyncGenerator<ActivityEvent> {
   const response = await fetch(API_BASE + "/api/activity/stream", { signal });
-  if (!response.ok || !response.body) {
-    throw new Error(`activity stream failed: ${response.status}`);
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const frames = buffer.split("\n\n");
-    buffer = frames.pop() ?? "";
-    for (const frame of frames) {
-      const line = frame.trim();
-      // Skip heartbeat comments (": ping"); only data frames carry events.
-      if (line.startsWith("data: ")) {
-        yield JSON.parse(line.slice(6)) as ActivityEvent;
-      }
-    }
-  }
+  yield* streamSse<ActivityEvent>(response, "activity stream");
 }

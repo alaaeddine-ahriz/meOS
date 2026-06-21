@@ -6,6 +6,7 @@ import {
   syncConnector,
   type CalendarListEntry,
   type Connector,
+  type ConnectorAccountRow,
   type ConnectorRegistry,
   type IngestionPipeline,
   type JobQueue,
@@ -63,11 +64,13 @@ export class ConnectorManager {
   }
 
   /** The connector + account for a provider, when an account exists. */
-  private resolve(provider: string): { connector: Connector; accountId: number } | undefined {
+  private resolve(
+    provider: string,
+  ): { connector: Connector; account: ConnectorAccountRow } | undefined {
     const connector = this.registry.get(provider);
     const account = this.deps.store.getConnectorAccount(provider);
     if (!connector || !account) return undefined;
-    return { connector, accountId: account.id };
+    return { connector, account };
   }
 
   private timerKey(provider: string, kind: string): string {
@@ -81,7 +84,7 @@ export class ConnectorManager {
     for (const provider of this.providers) {
       const resolved = this.resolve(provider);
       if (!resolved) continue;
-      for (const state of this.deps.store.listSyncState(resolved.accountId)) {
+      for (const state of this.deps.store.listSyncState(resolved.account.id)) {
         if (!state.enabled) continue;
         const ms = Math.max(1, state.interval_minutes) * 60_000;
         const timer = setInterval(() => this.enqueueSync(provider, state.kind), ms);
@@ -100,10 +103,8 @@ export class ConnectorManager {
       async () => {
         const resolved = this.resolve(provider);
         if (!resolved) return;
-        const account = this.deps.store.getConnectorAccount(provider);
-        if (!account) return;
         try {
-          const result = await syncConnector(this.deps, account, kind, resolved.connector);
+          const result = await syncConnector(this.deps, resolved.account, kind, resolved.connector);
           log.info(
             { provider, kind, ingested: result.ingested, skipped: result.skipped },
             `${provider}/${kind} sync: ${result.ingested} updated, ${result.skipped} unchanged`,
@@ -127,7 +128,7 @@ export class ConnectorManager {
     for (const provider of this.providers) {
       const resolved = this.resolve(provider);
       if (!resolved) continue;
-      for (const state of this.deps.store.listSyncState(resolved.accountId)) {
+      for (const state of this.deps.store.listSyncState(resolved.account.id)) {
         if (state.enabled) this.enqueueSync(provider, state.kind);
       }
     }
@@ -151,9 +152,11 @@ export class ConnectorManager {
   async listCalendars(provider: string): Promise<CalendarListEntry[]> {
     const resolved = this.resolve(provider);
     if (!resolved?.connector.listCalendars) return [];
-    const account = this.deps.store.getConnectorAccount(provider);
-    if (!account) return [];
-    const accessToken = await ensureAccessToken(this.deps.store, account, resolved.connector);
+    const accessToken = await ensureAccessToken(
+      this.deps.store,
+      resolved.account,
+      resolved.connector,
+    );
     return resolved.connector.listCalendars({ accessToken });
   }
 }

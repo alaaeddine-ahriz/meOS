@@ -155,21 +155,17 @@ function ConnectorCard({ k, brand }: { k: ConnectorHealth; brand: SourceTypeBran
         {k.lastSuccessAt && <> · last synced {formatRelative(k.lastSuccessAt)}</>}
       </p>
       <CountsRow counts={k.counts} />
-      {k.lastError &&
-        (() => {
-          // Translate the raw sync error to plain English; keep the original as a
-          // hover tooltip for anyone who wants the literal provider text.
-          const explained = explainError(k.lastError);
-          return (
-            <p
-              className="mt-2 flex items-start gap-1.5 text-[11px] text-ember"
-              title={k.lastError ?? undefined}
-            >
-              <AlertTriangle className="mt-0.5 size-3 shrink-0" />
-              <span className="break-words">{explained?.title ?? k.lastError}</span>
-            </p>
-          );
-        })()}
+      {/* Translate the raw sync error to plain English; keep the original as a
+          hover tooltip for anyone who wants the literal provider text. */}
+      {k.lastError && (
+        <p
+          className="mt-2 flex items-start gap-1.5 text-[11px] text-ember"
+          title={k.lastError ?? undefined}
+        >
+          <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+          <span className="break-words">{explainError(k.lastError)?.title ?? k.lastError}</span>
+        </p>
+      )}
     </div>
   );
 }

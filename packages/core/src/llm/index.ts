@@ -108,7 +108,10 @@ function reasoningOptions(provider: LlmProvider, modelId: string): AgentProvider
 /**
  * Resolve a `LanguageModel` for any provider from the stored keys/endpoints,
  * independent of the active provider — so the wiki maintainer can run on a
- * different (reasoning-capable) provider than chat does.
+ * different (reasoning-capable) provider than chat does. The `.chat()` calls
+ * pin the OpenAI-compatible providers to /chat/completions: OpenRouter and most
+ * local servers (LM Studio, llama.cpp, Ollama's /v1) don't implement the
+ * Responses API the default route would use.
  */
 function resolveModel(
   llm: LlmConfig,
@@ -125,6 +128,7 @@ function resolveModel(
     case "openrouter":
       return createOpenRouter(llm.openrouter.apiKey).chat(modelId);
     case "local":
+      // The key is unused by local servers but the SDK requires a non-empty one.
       return createOpenAI({
         baseURL: normalizeLocalBaseUrl(llm.local.baseUrl),
         apiKey: "local",
@@ -132,6 +136,22 @@ function resolveModel(
       }).chat(modelId);
     case "stub":
       return null;
+  }
+}
+
+/** The active provider's main chat model id. */
+function mainModelId(llm: LlmConfig, provider: Exclude<LlmProvider, "stub">): string {
+  switch (provider) {
+    case "anthropic":
+      return llm.anthropic.model;
+    case "openai":
+      return llm.openai.model;
+    case "google":
+      return llm.google.model;
+    case "openrouter":
+      return llm.openrouter.model;
+    case "local":
+      return llm.local.model;
   }
 }
 
@@ -157,72 +177,22 @@ export function createLlmClient(config: MeosConfig): LlmClient {
     ? reasoningOptions(maintainerProvider, maintainerModelId)
     : undefined;
 
-  switch (llm.provider) {
-    case "anthropic": {
-      const provider = createAnthropic({ apiKey: llm.anthropic.apiKey });
-      return new AiSdkClient(
-        provider(llm.anthropic.model),
-        provider(llm.anthropic.extractionModel),
-        undefined,
-        "anthropic",
-        agentModel ?? provider(llm.anthropic.model),
-        agentOptions,
-      );
-    }
-    case "openai": {
-      const provider = createOpenAI({ apiKey: llm.openai.apiKey });
-      return new AiSdkClient(
-        provider(llm.openai.model),
-        undefined,
-        undefined,
-        "openai",
-        agentModel ?? provider(llm.openai.model),
-        agentOptions,
-      );
-    }
-    case "google": {
-      const provider = createGoogleGenerativeAI({ apiKey: llm.google.apiKey });
-      return new AiSdkClient(
-        provider(llm.google.model),
-        undefined,
-        undefined,
-        "google",
-        agentModel ?? provider(llm.google.model),
-        agentOptions,
-      );
-    }
-    case "openrouter": {
-      // OpenAI-compatible gateway; `.chat()` forces /chat/completions (OpenRouter
-      // doesn't implement the OpenAI Responses API the default route would use).
-      const provider = createOpenRouter(llm.openrouter.apiKey);
-      return new AiSdkClient(
-        provider.chat(llm.openrouter.model),
-        undefined,
-        undefined,
-        "openrouter",
-        agentModel ?? provider.chat(llm.openrouter.model),
-        agentOptions,
-      );
-    }
-    case "local": {
-      // Any OpenAI-compatible local server (LM Studio, llama.cpp, Ollama's /v1).
-      // The key is unused by local servers but the SDK requires a non-empty one.
-      // `.chat()` forces the /chat/completions route these servers implement.
-      const provider = createOpenAI({
-        baseURL: normalizeLocalBaseUrl(llm.local.baseUrl),
-        apiKey: "local",
-        name: "local",
-      });
-      return new AiSdkClient(
-        provider.chat(llm.local.model),
-        undefined,
-        undefined,
-        "local",
-        agentModel ?? provider.chat(llm.local.model),
-        agentOptions,
-      );
-    }
-  }
+  // resolveModel returns non-null for every provider except "stub", handled above.
+  const mainModel = resolveModel(llm, llm.provider, mainModelId(llm, llm.provider))!;
+  // Only Anthropic runs extraction on a dedicated model; others reuse the main one.
+  const extractionModel =
+    llm.provider === "anthropic"
+      ? createAnthropic({ apiKey: llm.anthropic.apiKey })(llm.anthropic.extractionModel)
+      : undefined;
+
+  return new AiSdkClient(
+    mainModel,
+    extractionModel,
+    undefined,
+    llm.provider,
+    agentModel ?? mainModel,
+    agentOptions,
+  );
 }
 
 /**

@@ -209,6 +209,14 @@ export async function runCodingAgent(
   const sourcesById = new Map<number, AgentSource>();
   const pagesBySlug = new Map<string, AgentPage>();
 
+  // Stream a chunk of answer text: keep the live delta, the accumulated reply, and
+  // the persisted trace in lockstep so what the client sees matches what's saved.
+  const emitText = (text: string) => {
+    reply += text;
+    appendText(trace, text);
+    send({ type: "delta", text });
+  };
+
   try {
     for await (const event of agent.run({
       prompt,
@@ -256,9 +264,7 @@ export async function runCodingAgent(
           });
           break;
         case "text":
-          reply += event.text;
-          appendText(trace, event.text);
-          send({ type: "delta", text: event.text });
+          emitText(event.text);
           break;
         case "result":
           sawResult = true;
@@ -266,11 +272,7 @@ export async function runCodingAgent(
           if (event.isError) failure = failureMessage(agent.label, event.subtype, event.text);
           // Some turns speak only through the final result (no streamed text blocks)
           // — stream it now so the live answer matches what gets persisted.
-          if (!reply.trim() && event.text) {
-            reply += event.text;
-            appendText(trace, event.text);
-            send({ type: "delta", text: event.text });
-          }
+          if (!reply.trim() && event.text) emitText(event.text);
           // The run's cost/turns/duration. Surface it as a footer (and persist it)
           // only when it's real — the CLIs that don't report leave it all-zero.
           telemetry = {

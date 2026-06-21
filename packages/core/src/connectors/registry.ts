@@ -44,7 +44,7 @@ export class ConnectorRegistry {
 
   /** The connector for `provider`, throwing if it isn't registered. */
   require(provider: string): Connector {
-    const connector = this.byId.get(provider);
+    const connector = this.get(provider);
     if (!connector) throw new Error(`No connector registered for provider: ${provider}`);
     return connector;
   }

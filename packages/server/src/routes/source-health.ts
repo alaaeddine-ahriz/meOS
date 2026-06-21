@@ -7,16 +7,22 @@ import { routeSchema } from "../route-schema.js";
 
 const tags = ["source-health"];
 
+type HealthLabel = "healthy" | "degraded" | "disconnected";
+
+/**
+ * The shared health rollup: "disconnected" unless live, "degraded" when there's
+ * a problem, else "healthy". Used for every category and section header.
+ */
+function rollupHealth(live: boolean, degraded: boolean): HealthLabel {
+  if (!live) return "disconnected";
+  return degraded ? "degraded" : "healthy";
+}
+
 /** Map a connector's coverage state → a user-facing health label. */
-function connectorHealth(
-  enabled: boolean,
-  state: CoverageState,
-): "healthy" | "degraded" | "disconnected" {
-  if (!enabled) return "disconnected";
-  if (state === "failed") return "degraded";
+function connectorHealth(enabled: boolean, state: CoverageState): HealthLabel {
   // recent-only / partial / backfilling are all "working but not yet complete" —
   // healthy enough to use, surfaced with their precise state alongside.
-  return "healthy";
+  return rollupHealth(enabled, state === "failed");
 }
 
 /**
@@ -103,28 +109,24 @@ export function registerSourceHealthRoutes(app: FastifyInstance, ctx: AppContext
               };
             })
           : [];
-        const anyDegraded = kinds.some((k) => k.health === "degraded");
-        const health: "healthy" | "degraded" | "disconnected" = !connected
-          ? "disconnected"
-          : anyDegraded
-            ? "degraded"
-            : "healthy";
         return {
           provider,
           displayName: connector.manifest.displayName,
           connected,
           accountEmail: account?.account_email ?? null,
-          health,
+          health: rollupHealth(
+            connected,
+            kinds.some((k) => k.health === "degraded"),
+          ),
           kinds,
         };
       });
       // Section header aggregate across every provider: degraded wins, then any
       // connected provider makes the section "healthy", else "disconnected".
-      const connectorsHealth = providers.some((p) => p.health === "degraded")
-        ? "degraded"
-        : providers.some((p) => p.connected)
-          ? "healthy"
-          : "disconnected";
+      const connectorsHealth = rollupHealth(
+        providers.some((p) => p.connected),
+        providers.some((p) => p.health === "degraded"),
+      );
 
       // --- Pipeline / queues (reuse the #18 aggregate) ---
       const queues = ctx.store.ingestQueueMetrics();

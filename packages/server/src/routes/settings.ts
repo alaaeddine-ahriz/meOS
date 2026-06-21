@@ -13,6 +13,7 @@ import {
 import { applyIntelligenceRouting, type AppContext } from "../context.js";
 import { ApiError, httpError, parseOrThrow } from "../errors.js";
 import { routeSchema } from "../route-schema.js";
+import { errorMessage } from "../runtime/worker.js";
 
 const tags = ["settings"];
 
@@ -55,6 +56,21 @@ function llmSettingsView(ctx: AppContext) {
       reasoning: isReasoningModel(maintainerProvider, maintainerModel),
     },
   };
+}
+
+/**
+ * Re-resolve EVERY task group (the api-backed groups + the probe, all built from
+ * `ctx.config`) through the one routing seam after the provider/model/key changed.
+ * `createLlmClient` is exercised eagerly first so a bad provider config surfaces
+ * as a 400 rather than a silent boot upgrade.
+ */
+async function reresolveRouting(ctx: AppContext): Promise<void> {
+  try {
+    createLlmClient(ctx.config);
+  } catch (error) {
+    throw httpError.badRequest(errorMessage(error));
+  }
+  await applyIntelligenceRouting(ctx);
 }
 
 export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): void {
@@ -190,16 +206,8 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
         }
       }
 
-      // The provider/key just changed: re-resolve EVERY task group (the api-backed
-      // groups + the probe are built from `ctx.config`) and rebuild the probe, all
-      // through the one routing seam. createLlmClient is exercised eagerly first so
-      // a bad provider config surfaces as a 400 rather than a silent boot upgrade.
-      try {
-        createLlmClient(ctx.config);
-      } catch (error) {
-        throw httpError.badRequest(error instanceof Error ? error.message : String(error));
-      }
-      await applyIntelligenceRouting(ctx);
+      // The provider/key just changed: re-resolve every task group and the probe.
+      await reresolveRouting(ctx);
       // The provider/model/key just changed — clear any ingest hold the old,
       // broken provider tripped (#circuit) so a stalled backlog drains on the new
       // one immediately rather than waiting for the recovery probe.
@@ -240,14 +248,8 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
       }
 
       // The maintainer model feeds into createLlmClient, so re-resolve every group
-      // (and the probe) through the routing seam — keeping wiki/background/assistant
-      // in lockstep with the changed config.
-      try {
-        createLlmClient(ctx.config);
-      } catch (error) {
-        throw httpError.badRequest(error instanceof Error ? error.message : String(error));
-      }
-      await applyIntelligenceRouting(ctx);
+      // (and the probe) — keeping wiki/background/assistant in lockstep with config.
+      await reresolveRouting(ctx);
       ctx.store.setSetting("llm", llm);
       return settingsSchema.LlmSettingsSchema.parse(llmSettingsView(ctx));
     },
@@ -392,7 +394,7 @@ export function registerSettingsRoutes(app: FastifyInstance, ctx: AppContext): v
 
         return settingsSchema.ResetResponse.parse({ ok: true });
       } catch (error) {
-        throw httpError.internal(error instanceof Error ? error.message : String(error));
+        throw httpError.internal(errorMessage(error));
       }
     },
   );

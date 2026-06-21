@@ -62,7 +62,7 @@ function verifyIdentity(binPath: string, versionArgs: readonly string[]): boolea
   if (cached && now - cached.at < VERIFY_TTL_MS) return cached.ok;
   let ok = false;
   try {
-    const res = spawnSync(binPath, [...versionArgs], {
+    const res = spawnSync(binPath, versionArgs, {
       timeout: 4000,
       encoding: "utf8",
       windowsHide: true,
@@ -79,18 +79,14 @@ function verifyIdentity(binPath: string, versionArgs: readonly string[]): boolea
   return ok;
 }
 
-/** Version flags to probe for identity (per-agent override is possible via the definition). */
-function versionArgs(def: CodingAgentDefinition): readonly string[] {
-  return def.versionArgs ?? ["--version"];
-}
-
 /** True iff the agent's binary is on PATH AND verifies as the real CLI. */
 export function isAgentInstalled(
   def: CodingAgentDefinition,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
   const binPath = findOnPath(def.bin, env);
-  return binPath !== null && verifyIdentity(binPath, versionArgs(def));
+  // Version flags to probe for identity (per-agent override via the definition).
+  return binPath !== null && verifyIdentity(binPath, def.versionArgs ?? ["--version"]);
 }
 
 /**

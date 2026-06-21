@@ -31,6 +31,9 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
       .replace(/\s*\n\s*/g, "\n")
       .trim();
 
+  // Strip the namespace prefix from an ODF tag (`text:h` → `h`).
+  const localName = (tag: string) => (tag.includes(":") ? tag.split(":")[1]! : tag);
+
   const emitHeading = (text: string, level: number) => {
     const clean = collapse(text);
     if (!clean) return;
@@ -55,9 +58,8 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
   const walk = (node: XmlNode) => {
     const tag = tagOf(node);
     if (!tag || tag === "#text") return;
-    const local = tag.includes(":") ? tag.split(":")[1]! : tag;
 
-    switch (local) {
+    switch (localName(tag)) {
       case "h": {
         const levelAttr = node[":@"]?.["@_text:outline-level"];
         const level = Math.min(6, Math.max(1, Number(levelAttr) || 1));
@@ -71,13 +73,13 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
         emit("list", collectListItems(node));
         return;
       case "table":
+        // Tables: flatten cell text per row.
+        emit("table", collectTableText(node));
+        return;
       case "table-row":
       case "table-cell":
-        // Tables: flatten cell text per row.
-        if (local === "table") {
-          emit("table", collectTableText(node));
-          return;
-        }
+        // Swallow rows/cells reached outside a `table` so their text isn't
+        // re-emitted as stray paragraphs by the default recursion.
         return;
       default:
         for (const child of childrenOf(node, tag)) walk(child);
@@ -89,8 +91,7 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
     const tag = tagOf(node)!;
     for (const child of childrenOf(node, tag)) {
       const childTag = tagOf(child);
-      const childLocal = childTag?.includes(":") ? childTag.split(":")[1] : childTag;
-      if (childLocal === "list-item") {
+      if (childTag && localName(childTag) === "list-item") {
         items.push(collapse(collectText(child)));
       }
     }
@@ -102,14 +103,12 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
     const visit = (n: XmlNode) => {
       const tag = tagOf(n);
       if (!tag || tag === "#text") return;
-      const local = tag.includes(":") ? tag.split(":")[1]! : tag;
-      if (local === "table-row") {
+      if (localName(tag) === "table-row") {
         const cells: string[] = [];
         const collectCells = (rn: XmlNode) => {
           const rtag = tagOf(rn);
           if (!rtag || rtag === "#text") return;
-          const rlocal = rtag.includes(":") ? rtag.split(":")[1]! : rtag;
-          if (rlocal === "table-cell") {
+          if (localName(rtag) === "table-cell") {
             cells.push(collapse(collectText(rn)));
           } else {
             for (const c of childrenOf(rn, rtag)) collectCells(c);
@@ -130,7 +129,7 @@ export async function parseOdt(buffer: Buffer): Promise<{ text: string; blocks: 
     for (const node of nodes) {
       const tag = tagOf(node);
       if (!tag || tag === "#text") continue;
-      const local = tag.includes(":") ? tag.split(":")[1]! : tag;
+      const local = localName(tag);
       if (local === "text" || local === "presentation" || local === "spreadsheet") {
         for (const child of childrenOf(node, tag)) walk(child);
       } else {

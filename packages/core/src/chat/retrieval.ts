@@ -69,8 +69,7 @@ export async function buildContextPack(
   const intent = options.intent ?? classifyIntent(query);
   // "Where did I mention X" wants raw evidence, so widen the excerpt budget.
   const chunkCount = options.chunkCount ?? (intent === "find_source" ? 12 : 6);
-  const [queryVector] = await embedder.embed([query], { interactive: true });
-  const qv = queryVector!;
+  const [qv] = (await embedder.embed([query], { interactive: true })) as [Float32Array];
 
   // Source-visibility (privacy): non-`searchable` sources are dropped as
   // retrieval candidates entirely; non-`answerable` ones are never surfaced as a

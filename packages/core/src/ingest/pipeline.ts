@@ -180,6 +180,50 @@ export class IngestionPipeline {
     return result;
   }
 
+  /** Chunk + embed + persist `blocks` as search rows under a source/revision —
+   * the SEARCH/INDEX commit shared by {@link ingest} and {@link materialize}. */
+  private async indexChunks(sourceId: number, revisionId: number, blocks: Block[]): Promise<void> {
+    const { embedder, store } = this.deps;
+    const chunks = chunkBlocks(blocks);
+    const vectors = await embedder.embed(chunks.map((c) => c.text));
+    store.addChunks(
+      sourceId,
+      chunks.map((chunk, i) => ({
+        text: chunk.text,
+        embedding: vectors[i]!,
+        sourceBlockIds: chunk.sourceBlockIds,
+        sectionTitle: chunk.sectionTitle,
+        pageStart: chunk.pageStart,
+        pageEnd: chunk.pageEnd,
+        charStart: chunk.charStart,
+        charEnd: chunk.charEnd,
+        tokenEstimate: chunk.tokenEstimate,
+        contentType: chunk.contentType,
+      })),
+      revisionId,
+    );
+  }
+
+  /** Fire the post-merge automation hooks (a source landed, memory was written).
+   * Awaited so subscriber failures surface to the caller. */
+  private async emitMerged(sourceId: number, merge: MergeResult): Promise<void> {
+    await this.deps.events?.emit("onMemoryWrite", {
+      sourceId,
+      newObservationIds: merge.newObservationIds,
+    });
+    await this.deps.events?.emit("onNewSource", { sourceId, merge });
+  }
+
+  /** Hand wiki regeneration to the server's batched refresh when wired, else run
+   * it inline. */
+  private async refreshWiki(): Promise<void> {
+    if (this.deps.scheduleWikiRefresh) {
+      this.deps.scheduleWikiRefresh();
+    } else {
+      await this.deps.wiki.regenerateStale();
+    }
+  }
+
   /**
    * Deterministic sibling of {@link ingest}: integrate a pre-built extraction
    * (e.g. a Google contact mapped without an LLM) through the *same* merge seam —
@@ -232,17 +276,8 @@ export class IngestionPipeline {
       return merge;
     });
 
-    await this.deps.events?.emit("onMemoryWrite", {
-      sourceId,
-      newObservationIds: merge.newObservationIds,
-    });
-    await this.deps.events?.emit("onNewSource", { sourceId, merge });
-
-    if (this.deps.scheduleWikiRefresh) {
-      this.deps.scheduleWikiRefresh();
-    } else {
-      await this.deps.wiki.regenerateStale();
-    }
+    await this.emitMerged(sourceId, merge);
+    await this.refreshWiki();
 
     return { sourceId, merge };
   }
@@ -335,25 +370,7 @@ export class IngestionPipeline {
 
     // (3) The SEARCH/INDEX commit — lands independently of extraction (#13/#14),
     // so the item is searchable even if the derived extraction below fails.
-    const blocks = blocksFromText(input.normalizedContent);
-    const chunks = chunkBlocks(blocks);
-    const vectors = await embedder.embed(chunks.map((c) => c.text));
-    store.addChunks(
-      sourceId,
-      chunks.map((chunk, i) => ({
-        text: chunk.text,
-        embedding: vectors[i]!,
-        sourceBlockIds: chunk.sourceBlockIds,
-        sectionTitle: chunk.sectionTitle,
-        pageStart: chunk.pageStart,
-        pageEnd: chunk.pageEnd,
-        charStart: chunk.charStart,
-        charEnd: chunk.charEnd,
-        tokenEstimate: chunk.tokenEstimate,
-        contentType: chunk.contentType,
-      })),
-      revisionId,
-    );
+    await this.indexChunks(sourceId, revisionId, blocksFromText(input.normalizedContent));
 
     // (4) Derived semantic extraction off the saved revision. Failure leaves the
     // index intact (searchable), parks the revision incomplete, and is retryable.
@@ -374,21 +391,11 @@ export class IngestionPipeline {
         return merge;
       });
 
-      await this.deps.events?.emit("onMemoryWrite", {
-        sourceId,
-        newObservationIds: merge.newObservationIds,
-      });
-      await this.deps.events?.emit("onNewSource", { sourceId, merge });
+      await this.emitMerged(sourceId, merge);
 
       // Index-only mode stops here: entities/links are merged and the item is
       // searchable + flagged stale, but the sync doesn't author the wiki itself.
-      if (!input.skipWikiRefresh) {
-        if (this.deps.scheduleWikiRefresh) {
-          this.deps.scheduleWikiRefresh();
-        } else {
-          await this.deps.wiki.regenerateStale();
-        }
-      }
+      if (!input.skipWikiRefresh) await this.refreshWiki();
 
       return { sourceId, sourceRevisionId: revisionId, status: "done", merge };
     } catch {
@@ -399,7 +406,7 @@ export class IngestionPipeline {
   }
 
   async ingest(input: IngestInput, existingInboxItemId?: number): Promise<IngestOutcome> {
-    const { store, embedder, wiki } = this.deps;
+    const { store } = this.deps;
     const title = input.kind === "file" ? input.filename : input.title;
     const inboxItemId = existingInboxItemId ?? store.createInboxItem(title);
 
@@ -519,27 +526,10 @@ export class IngestionPipeline {
       // (#13), so a source is searchable even if the LLM extraction later fails.
       step = "indexing";
       const blocks = parsed.blocks?.length ? parsed.blocks : blocksFromText(parsed.text);
-      const chunks = chunkBlocks(blocks);
-      const vectors = await embedder.embed(chunks.map((c) => c.text));
       // Idempotent re-index: drop any chunks a prior (crashed) attempt left on
       // this source before re-adding, so a re-run never duplicates search rows.
       store.clearChunksForSource(sourceId);
-      store.addChunks(
-        sourceId,
-        chunks.map((chunk, i) => ({
-          text: chunk.text,
-          embedding: vectors[i]!,
-          sourceBlockIds: chunk.sourceBlockIds,
-          sectionTitle: chunk.sectionTitle,
-          pageStart: chunk.pageStart,
-          pageEnd: chunk.pageEnd,
-          charStart: chunk.charStart,
-          charEnd: chunk.charEnd,
-          tokenEstimate: chunk.tokenEstimate,
-          contentType: chunk.contentType,
-        })),
-        revisionId,
-      );
+      await this.indexChunks(sourceId, revisionId, blocks);
 
       // External wiki maintenance (#wiki-agent, Option 2): the user's own coding
       // agent owns extraction too. The source is parsed + indexed above (so it
@@ -733,7 +723,7 @@ export class IngestionPipeline {
       extraction: Extraction;
     }) => void | Promise<void>;
   }): Promise<MergeResult> {
-    const { store, embedder, wiki } = this.deps;
+    const { store, embedder } = this.deps;
     const { sourceId, revisionId, parsed, inboxItemId } = args;
 
     if (inboxItemId) store.updateInboxItem(inboxItemId, "extracting");
@@ -797,17 +787,8 @@ export class IngestionPipeline {
     // Automation hooks: a source landed, and memory was written. Subscribers
     // (contradiction checks, crystallization, etc.) react without the pipeline
     // knowing them. Awaited so failures surface to the caller.
-    await this.deps.events?.emit("onMemoryWrite", {
-      sourceId,
-      newObservationIds: merge.newObservationIds,
-    });
-    await this.deps.events?.emit("onNewSource", { sourceId, merge });
-
-    if (this.deps.scheduleWikiRefresh) {
-      this.deps.scheduleWikiRefresh();
-    } else {
-      await wiki.regenerateStale();
-    }
+    await this.emitMerged(sourceId, merge);
+    await this.refreshWiki();
 
     if (inboxItemId) {
       store.updateInboxItem(

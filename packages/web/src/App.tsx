@@ -31,6 +31,12 @@ const NAV: Array<{ to: string; label: string; key: string; icon: LucideIcon }> =
   { to: "/activity", label: "Activity", key: "4", icon: Activity },
 ];
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
+    isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
+  );
+
 export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { queuePending } = useInbox();
@@ -68,17 +74,7 @@ export function App() {
       >
         <nav className="flex flex-col gap-0.5">
           {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === "/"}
-              className={({ isActive }) =>
-                cn(
-                  "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-                  isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
-                )
-              }
-            >
+            <NavLink key={item.to} to={item.to} end={item.to === "/"} className={navLinkClass}>
               <item.icon className="size-4 shrink-0 opacity-70" />
               <span>{item.label}</span>
               {item.to === "/activity" && queuePending > 0 && (
@@ -105,15 +101,7 @@ export function App() {
               ⌘K
             </Kbd>
           </button>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              cn(
-                "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm transition-colors",
-                isActive ? "bg-card text-paper" : "text-faded hover:bg-card/50 hover:text-paper",
-              )
-            }
-          >
+          <NavLink to="/settings" className={navLinkClass}>
             <Settings className="size-4 shrink-0 opacity-70" />
             <span>Settings</span>
             <Kbd className="ml-auto bg-transparent text-[10px] text-dim opacity-0 transition-opacity group-hover:opacity-100">

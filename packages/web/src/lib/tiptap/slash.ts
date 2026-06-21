@@ -224,7 +224,7 @@ function renderSlashMenu(): ReturnType<NonNullable<SuggestionOptions<SlashItem>[
       document.querySelectorAll(".slash-menu").forEach((n) => n.remove());
       items = props.items;
       active = 0;
-      pick = (item) => props.command(item);
+      pick = props.command;
       el = document.createElement("div");
       el.className = "slash-menu";
       document.body.appendChild(el);
@@ -234,23 +234,19 @@ function renderSlashMenu(): ReturnType<NonNullable<SuggestionOptions<SlashItem>[
     onUpdate: (props) => {
       items = props.items;
       active = Math.min(active, Math.max(0, items.length - 1));
-      pick = (item) => props.command(item);
+      pick = props.command;
       paint();
       place(props.clientRect?.() ?? null);
     },
     onKeyDown: (props) => {
-      if (props.event.key === "ArrowDown") {
-        active = items.length ? (active + 1) % items.length : 0;
+      const move = (delta: number) => {
+        active = items.length ? (active + delta + items.length) % items.length : 0;
         paint();
         scrollActiveIntoView();
         return true;
-      }
-      if (props.event.key === "ArrowUp") {
-        active = items.length ? (active - 1 + items.length) % items.length : 0;
-        paint();
-        scrollActiveIntoView();
-        return true;
-      }
+      };
+      if (props.event.key === "ArrowDown") return move(1);
+      if (props.event.key === "ArrowUp") return move(-1);
       if (props.event.key === "Enter") {
         const selected = items[active];
         if (selected) pick(selected);

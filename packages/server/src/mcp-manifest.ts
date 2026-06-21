@@ -104,12 +104,14 @@ export function buildInputSchema(
   const properties: Record<string, unknown> = {};
   const required = new Set<string>();
 
-  // Query first so body/path overwrite a same-named query prop.
-  Object.assign(properties, propsOf(schema.querystring));
-  for (const key of requiredOf(schema.querystring)) required.add(key);
+  const merge = (source: unknown): void => {
+    Object.assign(properties, propsOf(source));
+    for (const key of requiredOf(source)) required.add(key);
+  };
 
-  Object.assign(properties, propsOf(schema.body));
-  for (const key of requiredOf(schema.body)) required.add(key);
+  // Query first so body/path overwrite a same-named query prop.
+  merge(schema.querystring);
+  merge(schema.body);
 
   // Path params last and authoritative: always present, always a required string.
   for (const name of pathParamNames(path)) {

@@ -146,6 +146,21 @@ export class DurableIngest {
     else this.pump();
   }
 
+  /** Pump on a later tick so callers observe the new state first; closed-DB-safe. */
+  private deferPump(delayMs: number): void {
+    setTimeout(() => this.pump(), delayMs).unref();
+  }
+
+  /**
+   * Like {@link wake}, but defers the local pump to the next tick so the job is
+   * observably `pending` the moment the caller returns (the UI/contract reads it
+   * back immediately); the executor then claims it asynchronously.
+   */
+  private wakeDeferred(): void {
+    if (this.enqueueOnly) this.notify?.();
+    else this.deferPump(0);
+  }
+
   /**
    * Persist + enqueue a file/upload ingest. The buffer is held only for this
    * run (it stays on disk for watched files); the persisted payload references
@@ -235,8 +250,7 @@ export class DurableIngest {
     if (!this.deps.store.retryIngestJob(jobId)) return false;
     // In producer-only mode the executor is another process — wake it; otherwise
     // re-pump locally on the next tick so the job is observably pending first.
-    if (this.enqueueOnly) this.notify?.();
-    else setTimeout(() => this.pump(), 0).unref();
+    this.wakeDeferred();
     return true;
   }
 
@@ -246,10 +260,7 @@ export class DurableIngest {
    */
   retryAllDeadLetter(): number {
     const count = this.deps.store.retryAllDeadLetterIngestJobs();
-    if (count > 0) {
-      if (this.enqueueOnly) this.notify?.();
-      else setTimeout(() => this.pump(), 0).unref();
-    }
+    if (count > 0) this.wakeDeferred();
     return count;
   }
 
@@ -490,7 +501,7 @@ export class DurableIngest {
       // Backpressure (#18): each finished job frees a per-pump admission slot, so
       // re-pump to admit the next batch of a capped large import. Deferred to the
       // next tick so this runs after the executor records this job as done.
-      setTimeout(() => this.pump(), 0).unref();
+      this.deferPump(0);
     }
   }
 
@@ -563,7 +574,7 @@ export class DurableIngest {
       // Re-pump after the backoff window elapses so the retry actually fires
       // even if no new ingest arrives to drive the queue. Keep the staged bytes:
       // the retry re-runs from them.
-      setTimeout(() => this.pump(), 1500).unref();
+      this.deferPump(1500);
     } else {
       // Terminal failure (dead-letter): the bytes will never be re-run, drop them.
       this.discardStaging(job.id);

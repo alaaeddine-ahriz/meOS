@@ -29,6 +29,9 @@ import {
   type ConnectorToolDescriptor,
 } from "./client.js";
 
+/** The shape the low-level MCP Server requires for a tool's `inputSchema` (a JSON-Schema object). */
+type ToolInputSchema = { type: "object" } & Record<string, unknown>;
+
 /** The slice of the MCP request handler's `extra` the ask tool uses (progress keepalive). */
 interface AskExtra {
   _meta?: { progressToken?: string | number };
@@ -90,7 +93,7 @@ const askUserToolDescriptor = {
       },
     },
     required: ["questions"],
-  } as { type: "object" } & Record<string, unknown>,
+  } as ToolInputSchema,
 };
 
 /** A human-wait can outlast the agent's MCP tool-call timeout; periodic progress resets it. */
@@ -204,7 +207,7 @@ async function main(): Promise<void> {
       ...tools.map((t) => ({
         name: t.name,
         description: t.description,
-        inputSchema: t.inputSchema as { type: "object" } & Record<string, unknown>,
+        inputSchema: t.inputSchema as ToolInputSchema,
       })),
     ],
   }));

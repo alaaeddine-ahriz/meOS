@@ -121,16 +121,16 @@ export function saveProfileSection(
 
   // Snapshot the version we're about to overwrite, but only when it carried
   // real content (don't litter history with empty seeds or no-op saves).
-  const previous = (() => {
-    try {
-      return fs.readFileSync(file, "utf-8");
-    } catch {
-      return "";
-    }
-  })();
+  let previous = "";
+  try {
+    previous = fs.readFileSync(file, "utf-8");
+  } catch {
+    // No prior file: nothing to snapshot.
+  }
 
+  const trimmed = previous.trim();
   let snapshot: string | null = null;
-  if (previous.trim() && previous.trim() !== content.trim()) {
+  if (trimmed && trimmed !== content.trim()) {
     snapshot = snapshotVersion(dataDir, id, previous);
   }
 

@@ -60,10 +60,8 @@ export function buildMeosMcp(
   // into its own MCP wiring (Claude's --mcp-config JSON, Codex's config.toml,
   // Cursor/Gemini project config files, Copilot's --additional-mcp-config).
   const servers: Record<string, McpServerSpec> = {};
-  if (wiki) servers.meos = { command: wiki.command, args: wiki.args, env };
-  if (connectors) {
-    servers["meos-connectors"] = { command: connectors.command, args: connectors.args, env };
-  }
+  if (wiki) servers.meos = { ...wiki, env };
+  if (connectors) servers["meos-connectors"] = { ...connectors, env };
   return { servers, systemPrompt: MEOS_SYSTEM_PROMPT };
 }
 

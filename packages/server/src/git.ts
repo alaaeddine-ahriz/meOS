@@ -5,6 +5,12 @@ import { promisify } from "node:util";
 
 const exec = promisify(execFile);
 
+/** Unit separator used to delimit fields inside a single `git log`/`show` record. */
+const FIELD = "\x1f";
+
+/** Identity flags so commits aren't attributed to the user's global git config. */
+const COMMIT_IDENTITY = ["-c", "user.name=MeOS", "-c", "user.email=meos@localhost"];
+
 export interface GitStatus {
   /** Whether the data directory is a git repository yet. */
   initialized: boolean;
@@ -175,15 +181,7 @@ export class GitSync {
     const staged = await this.tryRun(["diff", "--cached", "--name-only"]);
     if (!staged) return false;
     const msg = message ?? `Sync ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
-    await this.run([
-      "-c",
-      "user.name=MeOS",
-      "-c",
-      "user.email=meos@localhost",
-      "commit",
-      "-m",
-      msg,
-    ]);
+    await this.run([...COMMIT_IDENTITY, "commit", "-m", msg]);
     return true;
   }
 
@@ -200,7 +198,6 @@ export class GitSync {
   async log(limit = 50): Promise<GitCommit[]> {
     if (!this.isInitialized()) return [];
     // A unit-separator-delimited record per commit, records split on NUL.
-    const FIELD = "\x1f";
     const format = ["%h", "%s", "%b", "%cr"].join(FIELD);
     const raw = await this.tryRun(["log", `--max-count=${limit}`, `--format=${format}%x00`]);
     if (!raw) return [];
@@ -224,7 +221,6 @@ export class GitSync {
 
   /** A commit's message and unified diff, optionally scoped to specific paths. */
   async show(hash: string, paths?: string[]): Promise<GitCommitDetail> {
-    const FIELD = "\x1f";
     const meta = await this.run(["show", "--no-patch", `--format=%h${FIELD}%s${FIELD}%b`, hash]);
     const [shortHash, subject, body] = meta.split(FIELD);
     const args = ["show", "--patch", "--format=", hash];
@@ -251,17 +247,7 @@ export class GitSync {
     await this.run(["add", "--", ...paths]);
     const changed = await this.tryRun(["status", "--porcelain", "--", ...paths]);
     if (!changed) return false;
-    await this.run([
-      "-c",
-      "user.name=MeOS",
-      "-c",
-      "user.email=meos@localhost",
-      "commit",
-      "-m",
-      message,
-      "--",
-      ...paths,
-    ]);
+    await this.run([...COMMIT_IDENTITY, "commit", "-m", message, "--", ...paths]);
     return true;
   }
 

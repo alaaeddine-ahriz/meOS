@@ -283,19 +283,34 @@ export class CodingAgentLlmClient implements LlmClient {
     // so a queued caller can't begin spawning until this run finishes. The buffer
     // is bounded by the answer length, which the CLI already caps.
     const chunks = await this.sem.run(async () =>
-      this.drainStream(this.agent.run({ prompt, cwd, model: this.model })),
+      this.drain(
+        this.agent.run({ prompt, cwd, model: this.model }),
+        (event): StreamChunk | null => {
+          if (event.type === "text") return { type: "text", text: event.text };
+          if (event.type === "reasoning") return { type: "reasoning", text: event.text };
+          return null;
+        },
+      ),
     );
     yield* chunks;
   }
 
-  /** Collect a run's text/reasoning into stream chunks (buffered under one permit). */
-  private async drainStream(events: AsyncIterable<AgentEvent>): Promise<StreamChunk[]> {
-    const chunks: StreamChunk[] = [];
+  /**
+   * Buffer a run's events into chunks under one permit: map each event, dropping
+   * `null`s, surface a terminal `error` as a thrown {@link normalizeLlmError}.
+   * Buffering (rather than yielding live) is what holds the permit for the whole
+   * run, so a queued caller can't begin spawning until this one finishes.
+   */
+  private async drain<T>(
+    events: AsyncIterable<AgentEvent>,
+    map: (event: AgentEvent) => T | null,
+  ): Promise<T[]> {
+    const chunks: T[] = [];
     try {
       for await (const event of events) {
-        if (event.type === "text") chunks.push({ type: "text", text: event.text });
-        else if (event.type === "reasoning") chunks.push({ type: "reasoning", text: event.text });
-        else if (event.type === "error") throw new Error(event.message);
+        if (event.type === "error") throw new Error(event.message);
+        const chunk = map(event);
+        if (chunk) chunks.push(chunk);
       }
     } catch (error) {
       throw normalizeLlmError(error, this.agent.id);
@@ -377,7 +392,7 @@ export class CodingAgentLlmClient implements LlmClient {
     const cwd = this.freshDir();
     const prompt = CodingAgentLlmClient.flattenAgentStream(request);
     const chunks = await this.sem.run(async () =>
-      this.drainActivity(
+      this.drain(
         this.agent.run({
           prompt,
           cwd,
@@ -385,6 +400,7 @@ export class CodingAgentLlmClient implements LlmClient {
           systemPrompt: request.system,
           mcpServers: this.mcpServers,
         }),
+        (event) => CodingAgentLlmClient.toActivity(event),
       ),
     );
     yield* chunks;
@@ -396,21 +412,6 @@ export class CodingAgentLlmClient implements LlmClient {
       system: request.system,
       messages: request.messages,
     });
-  }
-
-  /** Buffer a tool-using run's events into activity chunks (under one permit). */
-  private async drainActivity(events: AsyncIterable<AgentEvent>): Promise<AgentActivityChunk[]> {
-    const chunks: AgentActivityChunk[] = [];
-    try {
-      for await (const event of events) {
-        if (event.type === "error") throw new Error(event.message);
-        const chunk = CodingAgentLlmClient.toActivity(event);
-        if (chunk) chunks.push(chunk);
-      }
-    } catch (error) {
-      throw normalizeLlmError(error, this.agent.id);
-    }
-    return chunks;
   }
 
   // ── runAgent sandbox bridge ────────────────────────────────────────────────

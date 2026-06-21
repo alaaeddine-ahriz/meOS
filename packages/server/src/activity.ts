@@ -36,6 +36,9 @@ export type ActivityStreamEvent =
     }
   | { type: "run-finish"; runId: number; status: "done" | "failed" };
 
+/** The persisted/broadcast fields of a single transcript step (the `event` variant, minus its envelope). */
+type EventStep = Omit<Extract<ActivityStreamEvent, { type: "event" }>, "type" | "runId">;
+
 /** Cap on a single tool payload so large file reads/writes don't bloat the DB or stream. */
 const MAX_PAYLOAD = 4000;
 
@@ -74,6 +77,12 @@ export class ActivityBus {
 
   private publish(event: ActivityStreamEvent): void {
     this.emitter.emit("activity", event);
+  }
+
+  /** Persist one event row and broadcast the matching live `event` from the same fields. */
+  private recordEvent(runId: number, seq: number, step: EventStep): void {
+    this.store.appendWikiRunEvent(runId, { seq, ...step });
+    this.publish({ type: "event", runId, ...step });
   }
 
   /** The hook handed to WikiWriter — opens a recording+broadcasting sink per run. */
@@ -117,21 +126,8 @@ export class ActivityBus {
             return;
           }
           flush();
-          const isCall = chunk.type === "tool-call";
-          const payload = stringify(isCall ? chunk.input : chunk.output);
-          this.store.appendWikiRunEvent(runId, {
-            seq: seq++,
-            kind: chunk.type,
-            toolName: chunk.toolName,
-            payload,
-          });
-          this.publish({
-            type: "event",
-            runId,
-            kind: chunk.type,
-            toolName: chunk.toolName,
-            payload,
-          });
+          const payload = stringify(chunk.type === "tool-call" ? chunk.input : chunk.output);
+          this.recordEvent(runId, seq++, { kind: chunk.type, toolName: chunk.toolName, payload });
         } catch (error) {
           // A persistence/broadcast hiccup must never break the agent run.
           log.error({ err: error, runId }, "failed to record run event");
@@ -182,8 +178,7 @@ export class ActivityBus {
         slug: input.slug ?? "",
         author: "agent",
       });
-      this.store.appendWikiRunEvent(runId, { seq: 0, kind: "text", payload: input.summary });
-      this.publish({ type: "event", runId, kind: "text", payload: input.summary });
+      this.recordEvent(runId, 0, { kind: "text", payload: input.summary });
       this.store.finishWikiRun(runId, "done");
       this.publish({ type: "run-finish", runId, status: "done" });
     } catch (error) {

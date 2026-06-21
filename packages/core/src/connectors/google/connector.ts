@@ -370,6 +370,10 @@ export class GoogleConnector implements Connector {
       });
     }
 
+    if (kind !== "calendar" && kind !== "gmail") {
+      throw new Error(`Google connector does not support kind: ${kind}`);
+    }
+
     // Calendar + Gmail anchor "knows" edges to you, so they need the self identity.
     const self: SelfIdentity = await fetchSelf(accessToken);
     if (kind === "calendar") {
@@ -386,21 +390,19 @@ export class GoogleConnector implements Connector {
         };
       });
     }
-    if (kind === "gmail") {
-      const delta = await fetchGmailDelta(accessToken, cursor, config);
-      return toNormalized(delta, (raw) => {
-        const m = raw as GmailMessageItem;
-        return {
-          externalId: m.externalId,
-          title: m.subject,
-          path: m.deepLink,
-          rawContent: rawPayload(m),
-          normalizedContent: renderMessage(m),
-          extraction: mapGmailMessage(m, self),
-        };
-      });
-    }
-    throw new Error(`Google connector does not support kind: ${kind}`);
+    // The only remaining kind is gmail (the guard above rejected anything else).
+    const delta = await fetchGmailDelta(accessToken, cursor, config);
+    return toNormalized(delta, (raw) => {
+      const m = raw as GmailMessageItem;
+      return {
+        externalId: m.externalId,
+        title: m.subject,
+        path: m.deepLink,
+        rawContent: rawPayload(m),
+        normalizedContent: renderMessage(m),
+        extraction: mapGmailMessage(m, self),
+      };
+    });
   }
 }
 

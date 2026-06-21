@@ -113,6 +113,9 @@ export interface StreamAdapter {
 /** The coding agents meOS knows how to drive. Detection narrows this to those installed. */
 export type CodingAgentId = "claude" | "codex" | "cursor" | "gemini" | "copilot";
 
+/** One selectable model in the picker: the full id the CLI forwards plus its display label. */
+type AgentModelOption = { value: string; label: string };
+
 /** A stdio MCP server to inject into an agent run (the canonical, agent-neutral shape). */
 export interface McpServerSpec {
   command: string;
@@ -154,7 +157,7 @@ export interface CodingAgentDefinition {
   /** Shown when the binary isn't found — how to install it. */
   installHint: string;
   /** Models the picker offers for this agent (full ids the CLI forwards verbatim). */
-  models: ReadonlyArray<{ value: string; label: string }>;
+  models: ReadonlyArray<AgentModelOption>;
   /** The model selected by default. */
   defaultModel: string;
   /**
@@ -175,7 +178,7 @@ export interface CodingAgentDefinition {
 export interface CodingAgentSummary {
   id: CodingAgentId;
   label: string;
-  models: ReadonlyArray<{ value: string; label: string }>;
+  models: ReadonlyArray<AgentModelOption>;
   defaultModel: string;
   streaming: boolean;
   /** Whether the CLI is installed AND verified on this machine. */

@@ -68,6 +68,9 @@ export const FileChangeSchema = z.object({
   status: z.enum(["added", "modified", "deleted"]),
 });
 
+/** A named graph entity (wiki page / search hit): its display name, slug, and type. */
+const EntityRefShape = z.object({ name: z.string(), slug: z.string(), type: z.string() });
+
 /** GET /api/conversations/:id/messages */
 export const ConversationIdParam = NumericIdParam;
 export const MessageSchema = z.object({
@@ -192,7 +195,7 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
      * to a wiki page, not a file. Live-only — like the traversed `graph`, not
      * persisted on the message.
      */
-    pages: z.array(z.object({ name: z.string(), slug: z.string(), type: z.string() })).optional(),
+    pages: z.array(EntityRefShape).optional(),
   }),
   z.object({ type: z.literal("reasoning"), text: z.string() }),
   z.object({
@@ -231,12 +234,7 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
    * A coding-agent run's cost/turns/duration, emitted once the run completes.
    * Rendered as a small footer under the answer and persisted on the message.
    */
-  z.object({
-    type: z.literal("run-telemetry"),
-    costUsd: z.number(),
-    numTurns: z.number(),
-    durationMs: z.number(),
-  }),
+  z.object({ type: z.literal("run-telemetry"), ...RunTelemetrySchema.shape }),
   /**
    * The files a coding-agent run created/edited/removed, diffed from a snapshot of
    * its workspace taken before vs after the run. Rendered under the answer and
@@ -250,7 +248,7 @@ export const ChatEventSchema = z.discriminatedUnion("type", [
 /** GET /api/search?q= */
 export const SearchQuery = z.object({ q: z.string().min(1) });
 export const SearchResponse = z.object({
-  entities: z.array(z.object({ name: z.string(), slug: z.string(), type: z.string() })),
+  entities: z.array(EntityRefShape),
   sources: z.array(SourceRefSchema),
 });
 

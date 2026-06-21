@@ -14,10 +14,9 @@ export function mapContact(item: ContactItem): Extraction {
   // email sender with the same address into this person (name match today; an
   // email-keyed resolver is a noted follow-up).
   const aliases = [...item.nicknames, ...item.emails];
-  const observations: Extraction["observations"] = [];
 
-  for (const email of item.emails) {
-    observations.push(
+  const observations: Extraction["observations"] = [
+    ...item.emails.map((email) =>
       observation({
         entity: name,
         claim: `${name}'s email is ${email}.`,
@@ -25,10 +24,8 @@ export function mapContact(item: ContactItem): Extraction {
         confidence: 0.9,
         sensitivity: "private",
       }),
-    );
-  }
-  for (const phone of item.phones) {
-    observations.push(
+    ),
+    ...item.phones.map((phone) =>
       observation({
         entity: name,
         claim: `${name}'s phone number is ${phone}.`,
@@ -36,8 +33,8 @@ export function mapContact(item: ContactItem): Extraction {
         confidence: 0.9,
         sensitivity: "private",
       }),
-    );
-  }
+    ),
+  ];
   if (item.organisation) {
     observations.push(
       observation({
@@ -70,12 +67,9 @@ export function mapContact(item: ContactItem): Extraction {
     );
   }
 
-  const relationships: Extraction["relationships"] = [];
-  if (item.organisation) {
-    relationships.push({ from: name, to: item.organisation, label: "works at" });
-  }
-
   const entities = [personEntity({ name, aliases })];
+  const relationships: Extraction["relationships"] = [];
+  // The employer becomes its own entity plus a `works at` edge from the person.
   if (item.organisation) {
     entities.push({
       name: item.organisation,
@@ -84,6 +78,7 @@ export function mapContact(item: ContactItem): Extraction {
       summary: "",
       relevance: "high",
     });
+    relationships.push({ from: name, to: item.organisation, label: "works at" });
   }
 
   return { entities, relationships, observations };

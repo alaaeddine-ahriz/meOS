@@ -3,6 +3,11 @@ import { useTheme } from "../lib/useTheme.ts";
 import { REPO_URL, SITE_NAME } from "../lib/site.ts";
 import { Logo } from "./Logo.tsx";
 
+const navLinkClass =
+  "hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-text sm:block";
+const iconButtonClass =
+  "grid size-9 place-items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-text";
+
 export function Header() {
   const { theme, toggle } = useTheme();
 
@@ -15,16 +20,10 @@ export function Header() {
         </a>
 
         <nav className="flex items-center gap-1 sm:gap-2">
-          <a
-            href="#features"
-            className="hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-text sm:block"
-          >
+          <a href="#features" className={navLinkClass}>
             Features
           </a>
-          <a
-            href="#faq"
-            className="hidden rounded-md px-3 py-2 text-sm text-muted transition-colors hover:text-text sm:block"
-          >
+          <a href="#faq" className={navLinkClass}>
             FAQ
           </a>
 
@@ -32,7 +31,7 @@ export function Header() {
             type="button"
             onClick={toggle}
             aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            className="grid size-9 place-items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-text"
+            className={iconButtonClass}
           >
             {theme === "dark" ? <Sun className="size-4.5" /> : <Moon className="size-4.5" />}
           </button>
@@ -42,7 +41,7 @@ export function Header() {
             target="_blank"
             rel="noreferrer"
             aria-label="View meOS on GitHub"
-            className="grid size-9 place-items-center rounded-md text-muted transition-colors hover:bg-surface hover:text-text"
+            className={iconButtonClass}
           >
             <Github className="size-4.5" />
           </a>

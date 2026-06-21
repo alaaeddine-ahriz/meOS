@@ -13,6 +13,13 @@ export interface WikiPageRef {
   type: string;
 }
 
+/** Shared chip styling; `clickable` toggles the hover/cursor affordance. */
+const sourceClass = (clickable: boolean) =>
+  cn(
+    "text-[13px] text-faded transition-colors",
+    clickable ? "cursor-pointer hover:text-paper" : "cursor-default",
+  );
+
 /**
  * Collapsible list of what an answer or wiki page draws on. Wiki `pages` (when
  * given — agent answers surface the [[entities]] they consulted) link to the
@@ -63,10 +70,7 @@ export function SourceList({
                 onOpenPage?.(page.slug);
               }}
               title={page.name}
-              className={cn(
-                "text-[13px] text-faded transition-colors",
-                onOpenPage ? "cursor-pointer hover:text-paper" : "cursor-default",
-              )}
+              className={sourceClass(Boolean(onOpenPage))}
             >
               <Icon className="size-3.5 shrink-0 text-lamp" />
               <span className="truncate">{page.name}</span>
@@ -108,10 +112,7 @@ export function SourceList({
                 else if (revealable) void revealInFinder(source.path!);
               }}
               title={source.path ?? undefined}
-              className={cn(
-                "text-[13px] text-faded transition-colors",
-                clickable ? "cursor-pointer hover:text-paper" : "cursor-default",
-              )}
+              className={sourceClass(clickable)}
             >
               <Icon className="size-3.5 shrink-0 text-dim" />
               <span className="truncate">{source.title}</span>

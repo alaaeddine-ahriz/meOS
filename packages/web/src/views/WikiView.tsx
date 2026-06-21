@@ -15,7 +15,9 @@ type WikiMode = "list" | "graph";
 function groupByType<T extends { type: string }>(entities: T[]) {
   const byType = new Map<string, T[]>();
   for (const entity of entities) {
-    byType.set(entity.type, [...(byType.get(entity.type) ?? []), entity]);
+    const bucket = byType.get(entity.type);
+    if (bucket) bucket.push(entity);
+    else byType.set(entity.type, [entity]);
   }
   return ENTITY_TYPE_ORDER.filter((type) => byType.has(type)).map((type) => ({
     type,

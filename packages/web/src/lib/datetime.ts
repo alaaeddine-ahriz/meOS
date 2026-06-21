@@ -24,7 +24,8 @@ export function formatTime(iso: string): string {
  * plain clock time can't convey). Falls back to an absolute date past a week.
  */
 export function formatRelative(iso: string, now: Date = new Date()): string {
-  const then = utcDate(iso).getTime();
+  const date = utcDate(iso);
+  const then = date.getTime();
   if (!Number.isFinite(then)) return "";
   const sec = Math.max(0, Math.round((now.getTime() - then) / 1000));
   if (sec < 45) return "just now";
@@ -34,13 +35,13 @@ export function formatRelative(iso: string, now: Date = new Date()): string {
   if (hr < 24) return `${hr} hr ago`;
   const day = Math.round(hr / 24);
   if (day < 7) return `${day} day${day === 1 ? "" : "s"} ago`;
-  return utcDate(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
 /** Clock time, plus the date when it isn't today, e.g. "Jun 14, 2:14 PM". */
 export function formatDateTime(iso: string, now: Date = new Date()): string {
   const d = utcDate(iso);
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const time = formatTime(iso);
   if (d.toDateString() === now.toDateString()) return time;
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`;
 }

@@ -93,7 +93,6 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { InputGroupAddon } from "@/components/ui/input-group";
 import { ENTITY_TYPES } from "@/lib/entity-meta";
 import { resolveWikiLinks, wikiSlugFromHref } from "@/lib/wikilinks";
 import { cn } from "@/lib/utils";
@@ -708,12 +707,7 @@ export function ChatView() {
       }
       if (!produced) {
         // Nothing came back (and no error frame) — drop the empty assistant bubble.
-        setMessages((current) => {
-          const last = current[current.length - 1];
-          return last && last.role === "assistant" && !last.content
-            ? current.slice(0, -1)
-            : current;
-        });
+        setMessages(dropEmptyPlaceholder);
       }
       setStatus((current) => (current === "error" ? current : "ready"));
     } catch (e) {
@@ -728,18 +722,19 @@ export function ChatView() {
     }
   };
 
+  // Drop a trailing empty assistant bubble — used when a turn ends with nothing to
+  // show (no streamed content and no error) and when a turn fails.
+  const dropEmptyPlaceholder = (current: MessageRecord[]): MessageRecord[] => {
+    const last = current[current.length - 1];
+    return last && last.role === "assistant" && !last.content ? current.slice(0, -1) : current;
+  };
+
   // Drop the empty assistant placeholder (so it stops shimmering "Consulting…")
   // and surface the error banner instead.
   const failTurn = (next: { message: string; kind?: LlmErrorKind }) => {
     setError(next);
     setStatus("error");
-    setMessages((current) =>
-      current.length > 0 &&
-      current[current.length - 1]!.role === "assistant" &&
-      !current[current.length - 1]!.content
-        ? current.slice(0, -1)
-        : current,
-    );
+    setMessages(dropEmptyPlaceholder);
   };
 
   const lastIndex = messages.length - 1;

@@ -213,6 +213,15 @@ export interface CalendarEventRef {
   htmlLink: string;
 }
 
+/** The `google:calendar` source columns needed to build a {@link CalendarEventRef}. */
+interface CalendarSourceRow {
+  id: number;
+  title: string;
+  path: string | null;
+  raw_content: string | null;
+  external_id: string | null;
+}
+
 /** Review status of an auto-suggested meeting → entity link (#26). */
 export type MeetingLinkStatus = "suggested" | "accepted" | "rejected";
 
@@ -936,67 +945,19 @@ export class KnowledgeStore {
          ORDER BY s.id DESC
          LIMIT ?`,
       )
-      .all(q, `%${q}%`, Math.max(limit * 4, limit)) as Array<{
-      id: number;
-      title: string;
-      path: string | null;
-      raw_content: string | null;
-      external_id: string | null;
-    }>;
-    const events = rows.map((r): CalendarEventRef => {
-      let start: string | null = null;
-      let attendees: string[] = [];
-      let htmlLink = r.path ?? "https://calendar.google.com/";
-      if (r.raw_content) {
-        try {
-          const e = JSON.parse(r.raw_content) as CalendarEventItem;
-          start = e.start ?? null;
-          attendees = (e.attendees ?? [])
-            .map((a) => a.name?.trim() || a.email)
-            .filter((name): name is string => Boolean(name));
-          if (e.htmlLink) htmlLink = e.htmlLink;
-        } catch {
-          /* keep title + link only */
-        }
-      }
-      return {
-        sourceId: r.id,
-        externalId: r.external_id,
-        title: r.title,
-        start,
-        attendees,
-        htmlLink,
-      };
-    });
+      .all(q, `%${q}%`, Math.max(limit * 4, limit)) as CalendarSourceRow[];
+    const events = rows.map((r) => this.toCalendarEventRef(r));
     // Sort by start (most recent / upcoming first); undated events sink to the end.
     events.sort((a, b) => (b.start ?? "").localeCompare(a.start ?? ""));
     return events.slice(0, limit);
   }
 
   /**
-   * Resolve a single `google:calendar` event source to its normalized ref (#85),
-   * for surfacing an auto-linked event in a meeting detail. Returns undefined when
-   * the source is missing or isn't a calendar event.
+   * Build a {@link CalendarEventRef} from a `google:calendar` source row, parsing
+   * the normalized {@link CalendarEventItem} out of `raw_content`. A malformed
+   * payload degrades to title + link only.
    */
-  getCalendarEventRef(sourceId: number): CalendarEventRef | undefined {
-    const row = this.db
-      .prepare(
-        `SELECT s.id AS id, s.title AS title, s.path AS path, s.raw_content AS raw_content,
-                ci.external_id AS external_id
-         FROM sources s
-         LEFT JOIN connector_items ci ON ci.source_id = s.id AND ci.kind = 'calendar'
-         WHERE s.id = ? AND s.type = 'google:calendar'`,
-      )
-      .get(sourceId) as
-      | {
-          id: number;
-          title: string;
-          path: string | null;
-          raw_content: string | null;
-          external_id: string | null;
-        }
-      | undefined;
-    if (!row) return undefined;
+  private toCalendarEventRef(row: CalendarSourceRow): CalendarEventRef {
     let start: string | null = null;
     let attendees: string[] = [];
     let htmlLink = row.path ?? "https://calendar.google.com/";
@@ -1020,6 +981,25 @@ export class KnowledgeStore {
       attendees,
       htmlLink,
     };
+  }
+
+  /**
+   * Resolve a single `google:calendar` event source to its normalized ref (#85),
+   * for surfacing an auto-linked event in a meeting detail. Returns undefined when
+   * the source is missing or isn't a calendar event.
+   */
+  getCalendarEventRef(sourceId: number): CalendarEventRef | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.id AS id, s.title AS title, s.path AS path, s.raw_content AS raw_content,
+                ci.external_id AS external_id
+         FROM sources s
+         LEFT JOIN connector_items ci ON ci.source_id = s.id AND ci.kind = 'calendar'
+         WHERE s.id = ? AND s.type = 'google:calendar'`,
+      )
+      .get(sourceId) as CalendarSourceRow | undefined;
+    if (!row) return undefined;
+    return this.toCalendarEventRef(row);
   }
 
   /**

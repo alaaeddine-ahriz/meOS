@@ -61,6 +61,22 @@ function logProfileEdit(ctx: AppContext, action: string, detail: Record<string, 
   ctx.store.logAudit("profile_edit", JSON.stringify({ action, ...detail }));
 }
 
+/** Resolve a section id, throwing the standard 404 when it isn't a known section. */
+function resolveSection(id: string) {
+  const section = profileSection(id);
+  if (!section) throw httpError.notFound("No such profile section");
+  return section;
+}
+
+/** Run an LLM-drafting step, surfacing any failure as the standard 502 upstream error. */
+async function asUpstream<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw httpError.upstream(error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** Rank that puts the entities most telling of the user's world first. */
 const TYPE_ORDER: Record<string, number> = {
   project: 0,
@@ -139,8 +155,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
-      const section = profileSection(params.id);
-      if (!section) throw httpError.notFound("No such profile section");
+      const section = resolveSection(params.id);
       const { content } = parseOrThrow(profileSchema.SaveProfileSectionBody, request.body, "body");
       saveProfileSection(ctx.config.dataDir, section.id, content ?? "");
       logProfileEdit(ctx, "edit_section", { section: section.id });
@@ -194,7 +209,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         response: profileSchema.ProfileUploadResponse,
       }),
     },
-    async (request, reply) => {
+    async (request) => {
       const stored: Array<{ title: string; text: string }> = [];
       for await (const part of request.files()) {
         const buffer = await part.toBuffer();
@@ -225,21 +240,17 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       }
       logProfileEdit(ctx, "upload_documents", { titles: stored.map((d) => d.title) });
 
-      try {
-        const proposal = await draftProfileFromContext({
+      const proposal = await asUpstream(() =>
+        draftProfileFromContext({
           llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents: stored,
-        });
-        return reply.code(200).send(
-          profileSchema.ProfileUploadResponse.parse({
-            proposal,
-            documents: stored.map((d) => d.title),
-          }),
-        );
-      } catch (error) {
-        throw httpError.upstream(error instanceof Error ? error.message : String(error));
-      }
+        }),
+      );
+      return profileSchema.ProfileUploadResponse.parse({
+        proposal,
+        documents: stored.map((d) => d.title),
+      });
     },
   );
 
@@ -263,17 +274,15 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
           "Nothing in the knowledge base yet — add some watched folders first, then generate a profile from them.",
         );
       }
-      try {
-        const proposal = await draftProfileFromKnowledge({
+      const proposal = await asUpstream(() =>
+        draftProfileFromKnowledge({
           llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           knowledge,
-        });
-        logProfileEdit(ctx, "draft_from_wiki", {});
-        return profileSchema.ProfileProposalResponse.parse({ proposal });
-      } catch (error) {
-        throw httpError.upstream(error instanceof Error ? error.message : String(error));
-      }
+        }),
+      );
+      logProfileEdit(ctx, "draft_from_wiki", {});
+      return profileSchema.ProfileProposalResponse.parse({ proposal });
     },
   );
 
@@ -294,16 +303,14 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       if (documents.length === 0) {
         throw httpError.badRequest("No uploaded context documents to draft from");
       }
-      try {
-        const proposal = await draftProfileFromContext({
+      const proposal = await asUpstream(() =>
+        draftProfileFromContext({
           llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           documents,
-        });
-        return profileSchema.ProfileProposalResponse.parse({ proposal });
-      } catch (error) {
-        throw httpError.upstream(error instanceof Error ? error.message : String(error));
-      }
+        }),
+      );
+      return profileSchema.ProfileProposalResponse.parse({ proposal });
     },
   );
 
@@ -328,17 +335,15 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
       );
       const trimmed = instruction.trim();
       if (!trimmed) throw httpError.validation("Field 'instruction' is required");
-      try {
-        const proposal = await editProfileWithInstruction({
+      const proposal = await asUpstream(() =>
+        editProfileWithInstruction({
           llm: ctx.llmFor("assistant"),
           currentProfile: loadProfile(ctx.config.dataDir),
           instruction: trimmed,
           uploadedContext: useUploaded ? uploadedContext(ctx).combined || undefined : undefined,
-        });
-        return profileSchema.ProfileProposalResponse.parse({ proposal });
-      } catch (error) {
-        throw httpError.upstream(error instanceof Error ? error.message : String(error));
-      }
+        }),
+      );
+      return profileSchema.ProfileProposalResponse.parse({ proposal });
     },
   );
 
@@ -357,8 +362,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const { id } = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
-      const section = profileSection(id);
-      if (!section) throw httpError.notFound("No such profile section");
+      const section = resolveSection(id);
       return profileSchema.ProfileHistoryResponse.parse({
         versions: listProfileHistory(ctx.config.dataDir, section.id),
       });
@@ -383,8 +387,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
         request.params,
         "params",
       );
-      const section = profileSection(id);
-      if (!section) throw httpError.notFound("No such profile section");
+      const section = resolveSection(id);
       const content = readProfileVersion(ctx.config.dataDir, section.id, version);
       if (content === null) throw httpError.notFound("No such version");
       return profileSchema.ProfileVersionContentResponse.parse({ content });
@@ -407,8 +410,7 @@ export function registerProfileRoutes(app: FastifyInstance, ctx: AppContext): vo
     },
     async (request) => {
       const params = parseOrThrow(profileSchema.ProfileIdParam, request.params, "params");
-      const section = profileSection(params.id);
-      if (!section) throw httpError.notFound("No such profile section");
+      const section = resolveSection(params.id);
       const { version } = parseOrThrow(profileSchema.RestoreProfileBody, request.body, "body");
       const content = readProfileVersion(ctx.config.dataDir, section.id, version);
       if (content === null) throw httpError.notFound("No such version");

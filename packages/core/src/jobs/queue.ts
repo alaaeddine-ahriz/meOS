@@ -100,11 +100,16 @@ export class JobQueue {
           this.pendingCount--;
           if (next.exclusive) this.exclusiveActive = false;
           this.drain();
-          if (this.running === 0 && this.waiting.length === 0) {
+          if (this.isIdle) {
             for (const resolve of this.idleResolvers.splice(0)) resolve();
           }
         });
     }
+  }
+
+  /** True when nothing is running and nothing is waiting — the queue has drained. */
+  private get isIdle(): boolean {
+    return this.running === 0 && this.waiting.length === 0;
   }
 
   get pending(): number {
@@ -118,7 +123,7 @@ export class JobQueue {
 
   /** Resolves once every job queued so far has finished. */
   onIdle(): Promise<void> {
-    if (this.running === 0 && this.waiting.length === 0) return Promise.resolve();
+    if (this.isIdle) return Promise.resolve();
     return new Promise((resolve) => this.idleResolvers.push(resolve));
   }
 }

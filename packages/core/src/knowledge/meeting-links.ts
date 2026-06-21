@@ -1,5 +1,5 @@
 import type { Extraction } from "../extract/schema.js";
-import { slugify, type KnowledgeStore, type MeetingLinkMethod } from "./store.js";
+import { slugify, type EntityRow, type KnowledgeStore, type MeetingLinkMethod } from "./store.js";
 
 /**
  * A single suggested link from a meeting note to an existing knowledge entity,
@@ -46,6 +46,18 @@ export function suggestMeetingLinks(
   void meetingSourceId; // a source is not an entity; kept for forward-compat with #17.
   const byEntityId = new Map<number, MeetingLinkSuggestion>();
 
+  const toSuggestion = (
+    entity: EntityRow,
+    method: MeetingLinkMethod,
+    rationale: string,
+  ): MeetingLinkSuggestion => ({
+    entityId: entity.id,
+    entityName: entity.name,
+    entityType: entity.type,
+    method,
+    rationale,
+  });
+
   const resolveOne = (name: string): MeetingLinkSuggestion | undefined => {
     const trimmed = name.trim();
     if (!trimmed) return undefined;
@@ -54,27 +66,23 @@ export function suggestMeetingLinks(
     const byName = store.findEntityByName(trimmed);
     if (byName && LINKABLE_TYPES.has(byName.type)) {
       const viaAlias = byName.name.toLowerCase() !== trimmed.toLowerCase();
-      return {
-        entityId: byName.id,
-        entityName: byName.name,
-        entityType: byName.type,
-        method: viaAlias ? "alias" : "name",
-        rationale: viaAlias
+      return toSuggestion(
+        byName,
+        viaAlias ? "alias" : "name",
+        viaAlias
           ? `The meeting mentions "${trimmed}", a known alias of ${byName.type} "${byName.name}".`
           : `The meeting mentions ${byName.type} "${byName.name}" by name.`,
-      };
+      );
     }
 
     // 2. Normalized slug — folds casing/whitespace/accent variants.
     const bySlug = store.getEntityBySlug(slugify(trimmed));
     if (bySlug && LINKABLE_TYPES.has(bySlug.type)) {
-      return {
-        entityId: bySlug.id,
-        entityName: bySlug.name,
-        entityType: bySlug.type,
-        method: "slug",
-        rationale: `The meeting mentions "${trimmed}", which normalizes to existing ${bySlug.type} "${bySlug.name}".`,
-      };
+      return toSuggestion(
+        bySlug,
+        "slug",
+        `The meeting mentions "${trimmed}", which normalizes to existing ${bySlug.type} "${bySlug.name}".`,
+      );
     }
     return undefined;
   };

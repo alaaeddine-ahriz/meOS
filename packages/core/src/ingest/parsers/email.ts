@@ -63,6 +63,23 @@ function addrText(value: unknown): string | undefined {
   return obj.text || undefined;
 }
 
+/** Project a parsed mailparser message down to our {@link EmailMeta} fields. */
+function metaFromMail(mail: {
+  from?: unknown;
+  to?: unknown;
+  cc?: unknown;
+  subject?: string;
+  date?: Date;
+}): EmailMeta {
+  return {
+    from: addrText(mail.from),
+    to: addrText(mail.to),
+    cc: addrText(mail.cc),
+    subject: mail.subject || undefined,
+    date: mail.date ? mail.date.toISOString() : undefined,
+  };
+}
+
 /**
  * Parse a single RFC-822 email (.eml). Headers (From/To/Cc/Subject/Date) become
  * a metadata heading block and the body is split into paragraph blocks. All
@@ -73,14 +90,7 @@ function addrText(value: unknown): string | undefined {
 export async function parseEml(buffer: Buffer): Promise<{ text: string; blocks: Block[] }> {
   const { simpleParser } = await import("mailparser");
   const mail = await simpleParser(buffer);
-  const meta: EmailMeta = {
-    from: addrText(mail.from),
-    to: addrText(mail.to),
-    cc: addrText(mail.cc),
-    subject: mail.subject || undefined,
-    date: mail.date ? mail.date.toISOString() : undefined,
-  };
-  return assemble([{ meta, body: mail.text ?? "" }]);
+  return assemble([{ meta: metaFromMail(mail), body: mail.text ?? "" }]);
 }
 
 /**
@@ -101,16 +111,7 @@ export async function parseMbox(buffer: Buffer): Promise<{ text: string; blocks:
   const parsed: Array<{ meta: EmailMeta; body: string }> = [];
   for (const rawMsg of rawMessages) {
     const mail = await simpleParser(Buffer.from(rawMsg));
-    parsed.push({
-      meta: {
-        from: addrText(mail.from),
-        to: addrText(mail.to),
-        cc: addrText(mail.cc),
-        subject: mail.subject || undefined,
-        date: mail.date ? mail.date.toISOString() : undefined,
-      },
-      body: mail.text ?? "",
-    });
+    parsed.push({ meta: metaFromMail(mail), body: mail.text ?? "" });
   }
   return assemble(parsed);
 }

@@ -38,9 +38,13 @@ export class StubLlmClient implements LlmClient {
 
   constructor(private readonly handlers: StubHandlers = {}) {}
 
+  private completionText(request: CompletionRequest): string {
+    return this.handlers.onComplete?.(request) ?? "stub response";
+  }
+
   async complete(request: CompletionRequest): Promise<string> {
     this.requests.push({ kind: "complete", request });
-    return this.handlers.onComplete?.(request) ?? "stub response";
+    return this.completionText(request);
   }
 
   async completeStructured<T>(request: StructuredRequest<T>): Promise<T> {
@@ -56,7 +60,7 @@ export class StubLlmClient implements LlmClient {
 
   async *stream(request: CompletionRequest): AsyncIterable<StreamChunk> {
     this.requests.push({ kind: "stream", request });
-    const text = this.handlers.onComplete?.(request) ?? "stub response";
+    const text = this.completionText(request);
     for (const word of text.split(/(?<=\s)/)) {
       yield { type: "text", text: word };
     }

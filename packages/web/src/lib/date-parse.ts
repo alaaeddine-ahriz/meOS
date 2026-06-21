@@ -26,6 +26,8 @@ const WEEKDAYS = [
   "saturday",
 ] as const;
 
+const WEEKDAY_ABBR = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** Format a Date as a local YYYY-MM-DD (no UTC shift). */
@@ -38,7 +40,7 @@ function toISO(date: Date): string {
 
 /** A readable label for an explicit date, e.g. "Wed, 10 Jun 2026". */
 function isoLabel(date: Date): string {
-  return `${WEEKDAYS[date.getDay()]!.slice(0, 3).replace(/^./, (c) => c.toUpperCase())}, ${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
+  return `${WEEKDAY_ABBR[date.getDay()]}, ${date.getDate()} ${MONTHS[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 function addDays(base: Date, days: number): Date {
@@ -69,9 +71,9 @@ export function parseDateQuery(query: string, now: Date = new Date()): ParsedDat
   if (weekday) {
     const target = WEEKDAYS.indexOf(weekday[2] as (typeof WEEKDAYS)[number]);
     if (target >= 0) {
-      const direction = weekday[1] ?? "next";
-      const diff = (target - today.getDay() + 7) % 7 || 7; // strictly forward
-      const date = direction === "last" ? addDays(today, diff - 7) : addDays(today, diff);
+      const forward = (target - today.getDay() + 7) % 7 || 7; // strictly forward
+      const offset = weekday[1] === "last" ? forward - 7 : forward;
+      const date = addDays(today, offset);
       return { iso: toISO(date), label: isoLabel(date) };
     }
   }

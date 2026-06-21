@@ -212,10 +212,9 @@ export function linkifyMentions(
   for (const match of matches.reverse()) {
     const token = parseMentionToken(match.label);
     // Dates/events carry their own kind+target; note/wiki labels resolve via the view.
-    const info =
-      token.kind === "date" || token.kind === "event"
-        ? { kind: token.kind, target: token.target ?? "" }
-        : resolve(token.label);
+    const info = token.kind
+      ? { kind: token.kind, target: token.target ?? "" }
+      : resolve(token.label);
     const chip = state.schema.nodes.mention!.create({
       id: info?.target || token.label,
       label: token.label,

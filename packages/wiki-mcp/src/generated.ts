@@ -51,6 +51,11 @@ function text(value: string): ToolResult {
   return { content: [{ type: "text", text: value }] };
 }
 
+/** Wrap a JSON-serializable payload as pretty-printed MCP text content. */
+function json(value: unknown): ToolResult {
+  return text(JSON.stringify(value, null, 2));
+}
+
 /** Wrap an error message as a failed MCP tool result. */
 function failure(message: string): ToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
@@ -158,28 +163,21 @@ function metaToolHandlers(baseUrl: string, manifest: ToolManifestEntry[], loaded
     const terms = (query ?? "")
       .toLowerCase()
       .split(/\s+/)
-      .map((t) => t.trim())
       .filter((t) => t.length > 0);
 
     // Empty query → a short overview: the leading slice of tools so the agent can orient.
     if (terms.length === 0) {
       const shown = manifest.slice(0, SEARCH_LIMIT);
-      return text(
-        JSON.stringify(
-          {
-            total: manifest.length,
-            shown: shown.length,
-            note:
-              manifest.length > shown.length
-                ? `Showing the first ${shown.length} of ${manifest.length} tools. ` +
-                  "Pass a `query` to narrow, then `learn_tools` for a tool's schema."
-                : "Pass a `query` to narrow, then `learn_tools` for a tool's schema.",
-            tools: shown.map(summarize),
-          },
-          null,
-          2,
-        ),
-      );
+      return json({
+        total: manifest.length,
+        shown: shown.length,
+        note:
+          manifest.length > shown.length
+            ? `Showing the first ${shown.length} of ${manifest.length} tools. ` +
+              "Pass a `query` to narrow, then `learn_tools` for a tool's schema."
+            : "Pass a `query` to narrow, then `learn_tools` for a tool's schema.",
+        tools: shown.map(summarize),
+      });
     }
 
     const ranked = manifest
@@ -188,23 +186,17 @@ function metaToolHandlers(baseUrl: string, manifest: ToolManifestEntry[], loaded
       .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name));
 
     const shown = ranked.slice(0, SEARCH_LIMIT);
-    return text(
-      JSON.stringify(
-        {
-          query: query ?? "",
-          matched: ranked.length,
-          shown: shown.length,
-          note:
-            ranked.length > shown.length
-              ? `Showing the top ${shown.length} of ${ranked.length} matches. ` +
-                "Call `learn_tools` with a name for its full input schema, then `run_tool`."
-              : "Call `learn_tools` with a name for its full input schema, then `run_tool`.",
-          tools: shown.map(({ entry }) => summarize(entry)),
-        },
-        null,
-        2,
-      ),
-    );
+    return json({
+      query: query ?? "",
+      matched: ranked.length,
+      shown: shown.length,
+      note:
+        ranked.length > shown.length
+          ? `Showing the top ${shown.length} of ${ranked.length} matches. ` +
+            "Call `learn_tools` with a name for its full input schema, then `run_tool`."
+          : "Call `learn_tools` with a name for its full input schema, then `run_tool`.",
+      tools: shown.map(({ entry }) => summarize(entry)),
+    });
   };
 
   /** Return the full input schema + method/path/summary for the named tool(s). */
@@ -233,19 +225,13 @@ function metaToolHandlers(baseUrl: string, manifest: ToolManifestEntry[], loaded
       });
     }
 
-    return text(
-      JSON.stringify(
-        {
-          tools: found,
-          unknown,
-          note:
-            "Call `run_tool` with a tool's `name` and an `args` object matching its " +
-            "inputSchema. Path parameters go in `args` alongside query/body fields.",
-        },
-        null,
-        2,
-      ),
-    );
+    return json({
+      tools: found,
+      unknown,
+      note:
+        "Call `run_tool` with a tool's `name` and an `args` object matching its " +
+        "inputSchema. Path parameters go in `args` alongside query/body fields.",
+    });
   };
 
   /** Look up the named tool and perform its original HTTP request. */

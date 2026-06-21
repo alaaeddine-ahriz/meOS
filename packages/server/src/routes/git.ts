@@ -1,6 +1,7 @@
 import { git as gitSchema } from "@meos/contracts";
 import type { FastifyInstance } from "fastify";
 import type { AppContext } from "../context.js";
+import type { GitStatus } from "../git.js";
 import { httpError, parseOrThrow } from "../errors.js";
 import { routeSchema } from "../route-schema.js";
 
@@ -15,15 +16,16 @@ function prefs(ctx: AppContext): GitPrefs {
   return { autoSync: false, ...ctx.store.getSetting<GitPrefs>("git") };
 }
 
+/** Fold the `autoSync` preference into a raw GitStatus and validate the public shape. */
+function statusResponse(ctx: AppContext, status: GitStatus): gitSchema.GitStatus {
+  return gitSchema.GitStatusSchema.parse({ ...status, autoSync: prefs(ctx).autoSync });
+}
+
 export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
   app.get(
     "/api/settings/git",
     { schema: routeSchema({ tags, summary: "Git status", response: gitSchema.GitStatusSchema }) },
-    async () =>
-      gitSchema.GitStatusSchema.parse({
-        ...(await ctx.git.status()),
-        autoSync: prefs(ctx).autoSync,
-      }),
+    async () => statusResponse(ctx, await ctx.git.status()),
   );
 
   app.post(
@@ -37,12 +39,9 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
     async () => {
       try {
-        // ctx.git.init() returns the raw GitStatus; fold in the `autoSync`
-        // preference so the response satisfies the public contract.
-        return gitSchema.GitStatusSchema.parse({
-          ...(await ctx.git.init()),
-          autoSync: prefs(ctx).autoSync,
-        });
+        // ctx.git.init() returns the raw GitStatus; statusResponse folds in the
+        // `autoSync` preference so the response satisfies the public contract.
+        return statusResponse(ctx, await ctx.git.init());
       } catch (error) {
         throw httpError.badRequest(error instanceof Error ? error.message : String(error));
       }
@@ -65,10 +64,7 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
       if (!trimmed) throw httpError.validation("Field 'url' is required");
       try {
         await ctx.git.setRemote(trimmed);
-        return gitSchema.GitStatusSchema.parse({
-          ...(await ctx.git.status()),
-          autoSync: prefs(ctx).autoSync,
-        });
+        return statusResponse(ctx, await ctx.git.status());
       } catch (error) {
         throw httpError.badRequest(error instanceof Error ? error.message : String(error));
       }
@@ -99,10 +95,7 @@ export function registerGitRoutes(app: FastifyInstance, ctx: AppContext): void {
     },
     async () => {
       try {
-        return gitSchema.GitStatusSchema.parse({
-          ...(await ctx.git.sync()),
-          autoSync: prefs(ctx).autoSync,
-        });
+        return statusResponse(ctx, await ctx.git.sync());
       } catch (error) {
         throw httpError.badRequest(error instanceof Error ? error.message : String(error));
       }

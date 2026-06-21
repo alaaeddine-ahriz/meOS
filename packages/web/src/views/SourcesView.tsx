@@ -39,19 +39,22 @@ interface SourceGroup {
  */
 function groupByKind(items: IndexedSource[], catalog: ConnectorCatalogApi): SourceGroup[] {
   const byKind = new Map<string, IndexedSource[]>();
-  for (const item of items) byKind.set(item.kind, [...(byKind.get(item.kind) ?? []), item]);
+  for (const item of items) {
+    const groupItems = byKind.get(item.kind);
+    if (groupItems) groupItems.push(item);
+    else byKind.set(item.kind, [item]);
+  }
   return [...byKind.entries()]
-    .map(([kind, groupItems]) => {
+    .map(([kind, groupItems]): SourceGroup => {
       const sourceType = groupItems[0]?.type ?? kind;
       const resolved = catalog.kindOf(sourceType);
       const brand = catalog.brandForSourceType(sourceType);
       const title = resolved
         ? resolved.kind.noun.many.charAt(0).toUpperCase() + resolved.kind.noun.many.slice(1)
         : brand.label;
-      return { kind, title, brand, items: groupItems, order: brand.order };
+      return { kind, title, brand, items: groupItems };
     })
-    .sort((a, b) => a.order - b.order)
-    .map(({ order: _order, ...group }) => group);
+    .sort((a, b) => a.brand.order - b.brand.order);
 }
 
 export function SourcesView() {
@@ -205,6 +208,8 @@ export function SourcePageView() {
   const resolvedKind = detail ? catalog.kindOf(detail.type) : undefined;
   const brand = detail ? catalog.brandForSourceType(detail.type) : undefined;
   const crumbs: Crumb[] = [{ label: "Sources", to: "/sources" }, { label: detail?.title ?? "…" }];
+  // A source is "referenced" only by entities that actually have a wiki page.
+  const referencedBy = detail?.linkedEntities.filter((e) => e.hasPage) ?? [];
 
   return (
     <Page>
@@ -245,36 +250,30 @@ export function SourcePageView() {
               <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Referenced by
               </h2>
-              {(() => {
-                const referencedBy = detail.linkedEntities.filter((e) => e.hasPage);
-                if (referencedBy.length === 0) {
-                  return (
-                    <p className="text-sm text-muted-foreground">
-                      Not yet referenced by any wiki page.
-                    </p>
-                  );
-                }
-                return (
-                  <ul className="flex flex-col gap-1">
-                    {referencedBy.map((e) => {
-                      const EntityIcon = ENTITY_TYPES[e.type]?.icon;
-                      return (
-                        <li key={e.id} className="text-sm">
-                          <Link
-                            to={`/wiki/${e.slug}`}
-                            className="flex items-center gap-2 text-primary hover:underline underline-offset-2"
-                          >
-                            {EntityIcon && (
-                              <EntityIcon className="size-4 shrink-0 text-muted-foreground" />
-                            )}
-                            {e.name}
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                );
-              })()}
+              {referencedBy.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Not yet referenced by any wiki page.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-1">
+                  {referencedBy.map((e) => {
+                    const EntityIcon = ENTITY_TYPES[e.type]?.icon;
+                    return (
+                      <li key={e.id} className="text-sm">
+                        <Link
+                          to={`/wiki/${e.slug}`}
+                          className="flex items-center gap-2 text-primary hover:underline underline-offset-2"
+                        >
+                          {EntityIcon && (
+                            <EntityIcon className="size-4 shrink-0 text-muted-foreground" />
+                          )}
+                          {e.name}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </section>
 
             {detail.relatedSources.length > 0 && (

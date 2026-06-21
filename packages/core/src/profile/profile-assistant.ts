@@ -46,11 +46,10 @@ function toProfile(raw: ProfileProposalRaw): Profile {
 
 /** Render the current profile so the model edits it rather than starting blank. */
 function renderCurrentProfile(profile: Profile): string {
-  const blocks = PROFILE_SECTIONS.map((section) => {
+  return PROFILE_SECTIONS.map((section) => {
     const content = profile[section.id]?.trim();
     return `## ${section.title} (${FIELD_BY_SECTION[section.id]})\n${content || "(empty)"}`;
-  });
-  return blocks.join("\n\n");
+  }).join("\n\n");
 }
 
 const SYSTEM_PROMPT = `You curate the user profile for MeOS, a personal second brain. The profile is the *lens* the system uses to decide what matters in everything the user captures.
@@ -69,6 +68,38 @@ Rules:
 - "summary" is one or two sentences describing what you changed and why.`;
 
 /**
+ * Run the proposal model. Every entry point shares the same system prompt,
+ * schema, and "here is the current profile" preamble; each supplies only the
+ * trailing instruction lines that make its case unique (already in the order
+ * and spacing it wants — they are appended verbatim and joined with newlines).
+ */
+async function proposeProfile(
+  llm: LlmClient,
+  currentProfile: Profile,
+  instructionLines: string[],
+): Promise<ProfileProposal> {
+  const raw = await llm.completeStructured({
+    system: SYSTEM_PROMPT,
+    schema: profileProposalSchema,
+    schemaName: "profile_proposal",
+    messages: [
+      {
+        role: "user",
+        content: [
+          "Here is the user's current profile:",
+          "",
+          renderCurrentProfile(currentProfile),
+          "",
+          ...instructionLines,
+        ].join("\n"),
+      },
+    ],
+  });
+
+  return { profile: toProfile(raw), summary: raw.summary.trim() };
+}
+
+/**
  * Propose a profile drafted (or updated) from uploaded context documents — an
  * onboarding doc, a project overview, a mission brief, an "about me" note. The
  * existing profile is preserved and extended, not discarded.
@@ -82,27 +113,11 @@ export async function draftProfileFromContext(deps: {
   const { llm, currentProfile, documents } = deps;
   const docBlock = documents.map((d) => `### Document: ${d.title}\n${d.text}`).join("\n\n");
 
-  const raw = await llm.completeStructured({
-    system: SYSTEM_PROMPT,
-    schema: profileProposalSchema,
-    schemaName: "profile_proposal",
-    messages: [
-      {
-        role: "user",
-        content: [
-          "Here is the user's current profile:",
-          "",
-          renderCurrentProfile(currentProfile),
-          "",
-          "Extract profile-relevant context from the following document(s) and propose an updated profile. Keep everything already in the profile that the documents don't contradict; weave in the new context where it belongs.",
-          "",
-          docBlock || "(no documents provided)",
-        ].join("\n"),
-      },
-    ],
-  });
-
-  return { profile: toProfile(raw), summary: raw.summary.trim() };
+  return proposeProfile(llm, currentProfile, [
+    "Extract profile-relevant context from the following document(s) and propose an updated profile. Keep everything already in the profile that the documents don't contradict; weave in the new context where it belongs.",
+    "",
+    docBlock || "(no documents provided)",
+  ]);
 }
 
 /**
@@ -120,28 +135,12 @@ export async function draftProfileFromKnowledge(deps: {
 }): Promise<ProfileProposal> {
   const { llm, currentProfile, knowledge } = deps;
 
-  const raw = await llm.completeStructured({
-    system: SYSTEM_PROMPT,
-    schema: profileProposalSchema,
-    schemaName: "profile_proposal",
-    messages: [
-      {
-        role: "user",
-        content: [
-          "Here is the user's current profile:",
-          "",
-          renderCurrentProfile(currentProfile),
-          "",
-          "Below is everything MeOS has already learned about the user's world, compiled from their notes into a wiki. Infer a first-person profile FOR THE USER from it: their key projects, the organisations and people they work with, the goals and decisions that recur, and sensible focus rules. The wiki is written in the third person — translate it into a profile the user would write about themselves.",
-          "Only state what the knowledge supports. If you cannot tell who the user is personally, keep 'aboutMe' light rather than inventing biography. Leave a section empty if there is nothing grounded to say.",
-          "",
-          knowledge || "(the knowledge base is empty)",
-        ].join("\n"),
-      },
-    ],
-  });
-
-  return { profile: toProfile(raw), summary: raw.summary.trim() };
+  return proposeProfile(llm, currentProfile, [
+    "Below is everything MeOS has already learned about the user's world, compiled from their notes into a wiki. Infer a first-person profile FOR THE USER from it: their key projects, the organisations and people they work with, the goals and decisions that recur, and sensible focus rules. The wiki is written in the third person — translate it into a profile the user would write about themselves.",
+    "Only state what the knowledge supports. If you cannot tell who the user is personally, keep 'aboutMe' light rather than inventing biography. Leave a section empty if there is nothing grounded to say.",
+    "",
+    knowledge || "(the knowledge base is empty)",
+  ]);
 }
 
 /**
@@ -158,28 +157,10 @@ export async function editProfileWithInstruction(deps: {
 }): Promise<ProfileProposal> {
   const { llm, currentProfile, instruction, uploadedContext } = deps;
 
-  const raw = await llm.completeStructured({
-    system: SYSTEM_PROMPT,
-    schema: profileProposalSchema,
-    schemaName: "profile_proposal",
-    messages: [
-      {
-        role: "user",
-        content: [
-          "Here is the user's current profile:",
-          "",
-          renderCurrentProfile(currentProfile),
-          "",
-          uploadedContext
-            ? `Reference context the instruction may draw on:\n${uploadedContext}\n`
-            : "",
-          `Apply this instruction and return the complete updated profile:\n"${instruction}"`,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      },
-    ],
-  });
-
-  return { profile: toProfile(raw), summary: raw.summary.trim() };
+  return proposeProfile(llm, currentProfile, [
+    ...(uploadedContext
+      ? [`Reference context the instruction may draw on:\n${uploadedContext}\n`]
+      : []),
+    `Apply this instruction and return the complete updated profile:\n"${instruction}"`,
+  ]);
 }

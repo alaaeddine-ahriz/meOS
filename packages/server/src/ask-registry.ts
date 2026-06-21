@@ -82,7 +82,7 @@ export function requestAsk(
     const onAbort = () => settle({ status: "cancelled", answers: [] });
     const timer = setTimeout(() => settle({ status: "timeout", answers: [] }), timeoutMs);
 
-    operation.pending.set(id, (result) => settle(result));
+    operation.pending.set(id, settle);
     operation.signal?.addEventListener("abort", onAbort, { once: true });
     operation.send({ type: "ask-user", op, id, questions });
   });

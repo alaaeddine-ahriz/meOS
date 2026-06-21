@@ -306,7 +306,7 @@ export function ForceGraph({
         ctx.strokeStyle = active ? lampColor : lineColor;
         const baseAlpha = 0.18 + conf * 0.42; // ~0.18 (weak) … ~0.6 (strong)
         ctx.globalAlpha = hover || hoverEdge ? (active ? 0.95 : 0.1) : baseAlpha;
-        ctx.lineWidth = ((active ? 1.4 : 0.6 + conf * 0.9) as number) / view.k;
+        ctx.lineWidth = (active ? 1.4 : 0.6 + conf * 0.9) / view.k;
         ctx.setLineDash(link.confirmed ? [] : [4 / view.k, 3 / view.k]);
         ctx.beginPath();
         ctx.moveTo(link.source.x, link.source.y);

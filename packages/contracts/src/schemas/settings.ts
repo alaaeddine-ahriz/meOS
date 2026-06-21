@@ -4,14 +4,16 @@ import { NumericIdParam, OkSchema } from "./common.js";
 export const LlmProviderSchema = z.enum(["anthropic", "openai", "google", "openrouter", "local"]);
 export const CloudProviderSchema = z.enum(["anthropic", "openai", "google", "openrouter"]);
 
+const CloudProviderStateSchema = z.object({ model: z.string(), hasKey: z.boolean() });
+
 /** GET / PUT /api/settings/llm */
 export const LlmSettingsSchema = z.object({
   provider: LlmProviderSchema,
   providers: z.object({
-    anthropic: z.object({ model: z.string(), hasKey: z.boolean() }),
-    openai: z.object({ model: z.string(), hasKey: z.boolean() }),
-    google: z.object({ model: z.string(), hasKey: z.boolean() }),
-    openrouter: z.object({ model: z.string(), hasKey: z.boolean() }),
+    anthropic: CloudProviderStateSchema,
+    openai: CloudProviderStateSchema,
+    google: CloudProviderStateSchema,
+    openrouter: CloudProviderStateSchema,
     local: z.object({ model: z.string(), baseUrl: z.string() }),
   }),
   maintainer: z.object({

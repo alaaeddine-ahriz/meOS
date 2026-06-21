@@ -57,6 +57,15 @@ export class Vault {
     return path.basename(full, NOTE_EXT);
   }
 
+  /** Build the lightweight metadata for a resolved note from its current contents. */
+  private metaOf(full: string, markdown: string): NoteMeta {
+    return {
+      path: this.relativePath(full),
+      title: this.titleOf(full, markdown),
+      updatedAt: fs.statSync(full).mtime.toISOString(),
+    };
+  }
+
   /** All markdown files in the vault, recursively, newest-edited first. */
   list(): NoteMeta[] {
     const notes: NoteMeta[] = [];
@@ -73,13 +82,7 @@ export class Vault {
         if (entry.isDirectory()) {
           walk(full);
         } else if (entry.isFile() && entry.name.endsWith(NOTE_EXT)) {
-          const stat = fs.statSync(full);
-          const markdown = fs.readFileSync(full, "utf8");
-          notes.push({
-            path: this.relativePath(full),
-            title: this.titleOf(full, markdown),
-            updatedAt: stat.mtime.toISOString(),
-          });
+          notes.push(this.metaOf(full, fs.readFileSync(full, "utf8")));
         }
       }
     };
@@ -91,11 +94,8 @@ export class Vault {
   read(relPath: string): NoteContents {
     const full = this.resolve(relPath);
     const markdown = fs.readFileSync(full, "utf8");
-    const stat = fs.statSync(full);
     return {
-      path: this.relativePath(full),
-      title: this.titleOf(full, markdown),
-      updatedAt: stat.mtime.toISOString(),
+      ...this.metaOf(full, markdown),
       markdown,
       backlinks: this.backlinks(full, markdown),
     };
@@ -106,12 +106,7 @@ export class Vault {
     const full = this.resolve(relPath);
     fs.mkdirSync(path.dirname(full), { recursive: true });
     fs.writeFileSync(full, markdown, "utf8");
-    const stat = fs.statSync(full);
-    return {
-      path: this.relativePath(full),
-      title: this.titleOf(full, markdown),
-      updatedAt: stat.mtime.toISOString(),
-    };
+    return this.metaOf(full, markdown);
   }
 
   /** Create an empty (titled) note only if nothing is there yet. */
@@ -152,10 +147,14 @@ export class Vault {
     const targetBase = path.basename(targetFull, NOTE_EXT).toLowerCase();
     const out: NoteMeta[] = [];
     for (const note of this.list()) {
-      if (path.resolve(this.root, note.path) === targetFull) continue;
-      const md = fs.readFileSync(path.resolve(this.root, note.path), "utf8");
-      const links = [...md.matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1]!.trim().toLowerCase());
-      if (links.some((l) => l === targetTitle || l === targetBase)) out.push(note);
+      const full = path.resolve(this.root, note.path);
+      if (full === targetFull) continue;
+      const md = fs.readFileSync(full, "utf8");
+      const linksHere = [...md.matchAll(/\[\[([^\]]+)\]\]/g)].some((m) => {
+        const link = m[1]!.trim().toLowerCase();
+        return link === targetTitle || link === targetBase;
+      });
+      if (linksHere) out.push(note);
     }
     return out;
   }

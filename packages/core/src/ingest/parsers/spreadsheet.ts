@@ -18,7 +18,9 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<{ text: string; 
   const workbook = XLSX.read(buffer, { type: "buffer", cellDates: true });
 
   const builder = new BlockBuilder();
-  const push = (block: Omit<Block, "id" | "charStart" | "charEnd">) => builder.push(block);
+  // Coerce each cell to a string; defval:"" already filled short rows, but
+  // guard null/undefined defensively (matches the original per-row mapping).
+  const toStrings = (cells: string[]) => cells.map((c) => String(c ?? ""));
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -33,7 +35,7 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<{ text: string; 
       raw: false,
     });
 
-    push({
+    builder.push({
       type: "heading",
       text: sheetName,
       headingPath: [],
@@ -42,25 +44,28 @@ export async function parseSpreadsheet(buffer: Buffer): Promise<{ text: string; 
 
     if (rows.length === 0) continue;
 
-    const header = (rows[0] ?? []).map((c) => String(c ?? ""));
+    const header = toStrings(rows[0] ?? []);
     const dataRows = rows.slice(1);
 
-    const headingText = `Table with columns: ${header.join(", ")}`;
-    push({
+    builder.push({
       type: "table",
-      text: headingText,
+      text: `Table with columns: ${header.join(", ")}`,
       headingPath: [sheetName],
       meta: { sheet: sheetName, columns: header, rowCount: dataRows.length },
     });
 
     dataRows.forEach((cells, i) => {
-      const cellStrs = (cells ?? []).map((c) => String(c ?? ""));
-      const rowText = header.map((col, c) => `${col}: ${cellStrs[c] ?? ""}`).join("; ");
+      const cellStrs = toStrings(cells ?? []);
+      // One pass builds both the human-readable row text and the structured record.
       const record: Record<string, string> = {};
-      header.forEach((col, c) => {
-        record[col] = cellStrs[c] ?? "";
-      });
-      push({
+      const rowText = header
+        .map((col, c) => {
+          const value = cellStrs[c] ?? "";
+          record[col] = value;
+          return `${col}: ${value}`;
+        })
+        .join("; ");
+      builder.push({
         type: "table",
         text: rowText,
         headingPath: [sheetName],

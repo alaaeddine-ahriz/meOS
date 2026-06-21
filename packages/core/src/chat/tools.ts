@@ -39,6 +39,9 @@ function resolveEntity(store: KnowledgeStore, name: string) {
   return store.findEntityByName(name) ?? store.getEntityBySlug(slugify(name));
 }
 
+/** The shared reply when a name the model passed isn't in the knowledge base. */
+const noSuchEntity = (name: string) => `No entity named "${name}" exists in the knowledge base.`;
+
 /** Optional extras a turn may have — today, tools contributed by connected connectors. */
 export interface ChatToolDeps {
   /**
@@ -82,7 +85,7 @@ export function buildChatTools(
       }),
       execute: async ({ entity }) => {
         const row = resolveEntity(store, entity);
-        if (!row) return `No entity named "${entity}" exists in the knowledge base.`;
+        if (!row) return noSuchEntity(entity);
         const page = store.wikiPageBody(row.id);
         if (!page || !page.body.trim()) {
           return `"${row.name}" exists but has no wiki page yet. Try get_entity for its raw facts.`;
@@ -100,7 +103,7 @@ export function buildChatTools(
       }),
       execute: async ({ name }) => {
         const entity = resolveEntity(store, name);
-        if (!entity) return `No entity named "${name}" exists in the knowledge base.`;
+        if (!entity) return noSuchEntity(name);
         const observations = store.activeObservations(entity.id).slice(0, 25);
         const relationships = store.relationshipsFor(entity.id).slice(0, 25);
         const lines = [
@@ -137,8 +140,9 @@ export function buildChatTools(
       }),
       execute: async ({ name, depth }) => {
         const entity = resolveEntity(store, name);
-        if (!entity) return `No entity named "${name}" exists in the knowledge base.`;
-        const { nodes, edges } = store.exploreSubgraph(entity.id, depth ?? 2, 50);
+        if (!entity) return noSuchEntity(name);
+        const hops = depth ?? 2;
+        const { nodes, edges } = store.exploreSubgraph(entity.id, hops, 50);
         if (edges.length === 0) return `"${entity.name}" has no recorded connections yet.`;
         // Accumulate into the turn-level traversal graph the UI draws.
         for (const node of nodes) graph.nodes.set(node.id, node);
@@ -147,7 +151,7 @@ export function buildChatTools(
         const nameOf = new Map(nodes.map((n) => [n.id, n.name]));
         const lines = edges.map((e) => `- ${nameOf.get(e.from)} ${e.label} ${nameOf.get(e.to)}`);
         return [
-          `Explored ${nodes.length} ${nodes.length === 1 ? "entity" : "entities"} within ${depth ?? 2} hops of ${entity.name}:`,
+          `Explored ${nodes.length} ${nodes.length === 1 ? "entity" : "entities"} within ${hops} hops of ${entity.name}:`,
           ...lines,
         ].join("\n");
       },

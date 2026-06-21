@@ -15,8 +15,6 @@ export function rtfToText(rtf: string): string {
   let i = 0;
   const n = rtf.length;
   let depth = 0;
-  // Groups we want to skip entirely (binary blobs, fonts, metadata).
-  const skipGroupAt: number[] = [];
   let skipDepth = -1;
 
   const skipControls = new Set([
@@ -37,14 +35,12 @@ export function rtfToText(rtf: string): string {
     const ch = rtf[i]!;
     if (ch === "{") {
       depth++;
-      skipGroupAt.push(skipDepth);
       i++;
       continue;
     }
     if (ch === "}") {
       if (skipDepth === depth) skipDepth = -1;
       depth--;
-      skipGroupAt.pop();
       i++;
       continue;
     }
@@ -105,7 +101,6 @@ export function rtfToText(rtf: string): string {
   return out
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
-    .replace(/\n/g, "\n")
     .trim();
 }
 

@@ -79,6 +79,11 @@ const delay = (ms: number): Promise<void> =>
     t.unref();
   });
 
+/** Whether a path's extension is one we know how to parse. The extension gate is
+ * checked before any stat/read, so unsupported files cost one cheap string check. */
+const isSupportedFile = (filePath: string): boolean =>
+  SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+
 /**
  * Watches the folders the user registered in Settings. Files are read in
  * place — never moved or modified — and a ledger (path + mtime + size)
@@ -298,7 +303,7 @@ export class FolderWatcher {
             continue;
           }
           if (!entry.isFile()) continue;
-          if (!SUPPORTED_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) continue;
+          if (!isSupportedFile(entry.name)) continue;
           let stat: fs.Stats;
           try {
             stat = await this.deps.fsLimit.run(() => fs.promises.stat(full));
@@ -370,7 +375,7 @@ export class FolderWatcher {
    * the content-hash dedup still short-circuits if the same bytes reappear.
    */
   private forget(filePath: string): void {
-    if (!SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return;
+    if (!isSupportedFile(filePath)) return;
     const { store, queue } = this.deps;
     queue.push(async () => {
       store.markSourceGoneByPath(filePath, "missing");
@@ -383,7 +388,7 @@ export class FolderWatcher {
    * read; a pass only means "maybe changed" — the content hash decides.
    */
   private considerStat(filePath: string, stat: fs.Stats): void {
-    if (!SUPPORTED_EXTENSIONS.has(path.extname(filePath).toLowerCase())) return;
+    if (!isSupportedFile(filePath)) return;
     if (!this.deps.store.fileNeedsIngest(filePath, stat.mtimeMs, stat.size)) return;
 
     const filename = path.basename(filePath);

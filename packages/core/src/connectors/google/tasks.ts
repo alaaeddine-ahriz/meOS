@@ -69,6 +69,12 @@ export async function listTaskLists(accessToken: string): Promise<TaskList[]> {
   return lists;
 }
 
+/** Resolve the task lists to operate on: the pinned subset, or all lists when none are pinned. */
+async function resolveLists(accessToken: string, taskListIds?: string[]): Promise<TaskList[]> {
+  const allLists = await listTaskLists(accessToken);
+  return taskListIds?.length ? allLists.filter((l) => taskListIds.includes(l.id)) : allLists;
+}
+
 /** Page through one task list, returning its tasks (changed since `updatedMin`). */
 async function fetchListTasks(
   accessToken: string,
@@ -111,10 +117,7 @@ export async function fetchTasksDelta(
   cursor?: string | null,
   opts?: { taskListIds?: string[] },
 ): Promise<DeltaResult<TaskItem>> {
-  const allLists = await listTaskLists(accessToken);
-  const wanted = opts?.taskListIds?.length
-    ? allLists.filter((l) => opts.taskListIds!.includes(l.id))
-    : allLists;
+  const wanted = await resolveLists(accessToken, opts?.taskListIds);
 
   const items: TaskItem[] = [];
   const deletions: string[] = [];
@@ -146,10 +149,7 @@ export async function listTasks(
   accessToken: string,
   opts?: { taskListIds?: string[]; includeCompleted?: boolean; max?: number },
 ): Promise<TaskItem[]> {
-  const allLists = await listTaskLists(accessToken);
-  const wanted = opts?.taskListIds?.length
-    ? allLists.filter((l) => opts.taskListIds!.includes(l.id))
-    : allLists;
+  const wanted = await resolveLists(accessToken, opts?.taskListIds);
   const includeCompleted = opts?.includeCompleted ?? false;
   const max = Math.min(Math.max(opts?.max ?? 50, 1), 100);
 
@@ -202,6 +202,17 @@ function normalizeDue(due?: string | null): string | undefined {
   return /^\d{4}-\d{2}-\d{2}$/.test(due) ? `${due}T00:00:00.000Z` : due;
 }
 
+/** Normalize a just-written task, resolving its owning list's title for a complete item. */
+async function normalizeForList(
+  accessToken: string,
+  taskListId: string,
+  task: RawTask,
+): Promise<TaskItem> {
+  const lists = await listTaskLists(accessToken);
+  const list = lists.find((l) => l.id === taskListId) ?? { id: taskListId, title: taskListId };
+  return normalize(task, list);
+}
+
 /** Create a new task in `taskListId`. Returns the created task, normalized. */
 export async function createTask(
   accessToken: string,
@@ -218,10 +229,7 @@ export async function createTask(
     "POST",
     body,
   );
-  // Resolve the owning list's title for a complete normalized item.
-  const lists = await listTaskLists(accessToken);
-  const list = lists.find((l) => l.id === taskListId) ?? { id: taskListId, title: taskListId };
-  return normalize(created, list);
+  return normalizeForList(accessToken, taskListId, created);
 }
 
 /** Mark a task completed (or reopen it). Returns the updated task, normalized. */
@@ -237,7 +245,5 @@ export async function completeTask(
     "PATCH",
     { status: completed ? "completed" : "needsAction" },
   );
-  const lists = await listTaskLists(accessToken);
-  const list = lists.find((l) => l.id === taskListId) ?? { id: taskListId, title: taskListId };
-  return normalize(updated, list);
+  return normalizeForList(accessToken, taskListId, updated);
 }

@@ -48,9 +48,9 @@ function collectFiles(dir: string, byBasename: Map<string, string[]>): void {
     if (entry.isDirectory()) {
       collectFiles(fullPath, byBasename);
     } else if (entry.isFile()) {
-      const list = byBasename.get(entry.name) ?? [];
-      list.push(fullPath);
-      byBasename.set(entry.name, list);
+      const list = byBasename.get(entry.name);
+      if (list) list.push(fullPath);
+      else byBasename.set(entry.name, [fullPath]);
     }
   }
 }

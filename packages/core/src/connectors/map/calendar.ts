@@ -12,11 +12,13 @@ import { nameFromEmail, observation, personEntity } from "./helpers.js";
 export function mapCalendarEvent(item: CalendarEventItem, self: SelfIdentity): Extraction {
   // Resolve every attendee to a display name, mapping the owner to `self.name`.
   const people = item.attendees.map((a) => {
-    const isSelf = a.self || (self.email && a.email.toLowerCase() === self.email.toLowerCase());
+    const isSelf = Boolean(
+      a.self || (self.email && a.email.toLowerCase() === self.email.toLowerCase()),
+    );
     return {
       name: isSelf ? self.name : a.name?.trim() || nameFromEmail(a.email),
       email: a.email,
-      isSelf: !!isSelf,
+      isSelf,
     };
   });
   // Dedupe by name (an attendee list can repeat the owner across calendars).

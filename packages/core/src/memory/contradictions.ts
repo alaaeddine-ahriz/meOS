@@ -45,14 +45,13 @@ export async function detectContradictions(
   if (newObservationIds.length === 0) return summary;
 
   const newIds = new Set(newObservationIds);
-  const byEntity = new Map<number, number[]>();
+  const entityIds = new Set<number>();
   for (const id of newObservationIds) {
     const observation = store.getObservation(id);
-    if (!observation) continue;
-    byEntity.set(observation.entity_id, [...(byEntity.get(observation.entity_id) ?? []), id]);
+    if (observation) entityIds.add(observation.entity_id);
   }
 
-  for (const [entityId, entityNewIds] of byEntity) {
+  for (const entityId of entityIds) {
     const all = store.activeObservations(entityId);
     const fresh = all.filter((o) => newIds.has(o.id));
     const prior = all.filter((o) => !newIds.has(o.id));

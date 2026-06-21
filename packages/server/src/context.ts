@@ -509,22 +509,18 @@ export function createContext(
   // The watcher → connectors → scheduler start ordering is preserved within each
   // role. The ingest + wiki queues are queue-driven (no start/stop of their own).
   const workers = new WorkerRegistry();
-  if (role === "app") {
-    workers.register(new WatcherWorker(watcher));
-  } else if (role === "worker") {
+  // The watcher leads (preserving the watcher → connectors → … ordering) and runs
+  // wherever fs events are handled: the UI-facing `app` process and single-process
+  // `all`, but not the `worker` host.
+  if (role !== "worker") workers.register(new WatcherWorker(watcher));
+  // The heavy executors run everywhere except the `app` process, which forwards
+  // them to the worker host. The durable extraction queue (#13) owns the
+  // persisted-job sweep: startAll triggers crash recovery + the periodic
+  // stale-job/retention timer. The embedding queue is surfaced for health only
+  // (it has no sweep of its own).
+  if (role !== "app") {
     workers.register(
       new ConnectorSyncWorker(connectors),
-      new IngestQueueWorker("ingest", store, "extraction", durableIngest),
-      new IngestQueueWorker("embedding", store, "embedding"),
-      new QueueWorker("wiki", wikiQueue, "wiki regeneration"),
-    );
-  } else {
-    workers.register(
-      new WatcherWorker(watcher),
-      new ConnectorSyncWorker(connectors),
-      // The durable extraction queue (#13) owns the persisted-job sweep: startAll
-      // triggers crash recovery + the periodic stale-job/retention timer. The
-      // embedding queue is surfaced for health only (it has no sweep of its own).
       new IngestQueueWorker("ingest", store, "extraction", durableIngest),
       new IngestQueueWorker("embedding", store, "embedding"),
       new QueueWorker("wiki", wikiQueue, "wiki regeneration"),

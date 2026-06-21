@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { NumericIdParam } from "./common.js";
 
+/** Who drove the run: the in-app maintainer, or the user's own coding agent. */
+const RunAuthorSchema = z.enum(["in-app", "agent"]);
+
 /** A single agentic wiki-maintainer run (one page regeneration). */
 export const WikiRunSchema = z.object({
   id: z.number(),
@@ -10,8 +13,7 @@ export const WikiRunSchema = z.object({
   type: z.string(),
   slug: z.string().nullable(),
   status: z.enum(["running", "done", "failed"]),
-  /** Who drove the run: the in-app maintainer, or the user's own coding agent. */
-  author: z.enum(["in-app", "agent"]),
+  author: RunAuthorSchema,
   created_at: z.string(),
   finished_at: z.string().nullable(),
 });
@@ -48,7 +50,7 @@ export const ActivityStreamEventSchema = z.discriminatedUnion("type", [
     name: z.string(),
     entityType: z.string(),
     slug: z.string(),
-    author: z.enum(["in-app", "agent"]),
+    author: RunAuthorSchema,
   }),
   z.object({
     type: z.literal("event"),

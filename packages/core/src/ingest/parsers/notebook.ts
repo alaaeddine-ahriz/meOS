@@ -15,14 +15,13 @@ interface NotebookCell {
  * valid notebook. Deterministic: cells are emitted in array order.
  */
 export function parseNotebook(raw: string): { text: string; blocks: Block[] } {
-  let doc: { cells?: NotebookCell[] };
+  let cells: NotebookCell[] = [];
   try {
-    doc = JSON.parse(raw);
+    const doc: { cells?: NotebookCell[] } = JSON.parse(raw);
+    if (Array.isArray(doc.cells)) cells = doc.cells;
   } catch {
-    const text = raw.trim();
-    return { text, blocks: blocksFromText(text) };
+    // not valid JSON; falls through to the text fallback below
   }
-  const cells = Array.isArray(doc.cells) ? doc.cells : [];
   if (cells.length === 0) {
     const text = raw.trim();
     return { text, blocks: blocksFromText(text) };
@@ -31,7 +30,7 @@ export function parseNotebook(raw: string): { text: string; blocks: Block[] } {
   const builder = new BlockBuilder();
   cells.forEach((cell, i) => {
     const source = Array.isArray(cell.source) ? cell.source.join("") : (cell.source ?? "");
-    const text = source.replace(/\s+$/, "").trim();
+    const text = source.trim();
     if (!text) return;
     if (cell.cell_type === "code") {
       builder.push({ type: "code", text, headingPath: [], meta: { cell: i } });
@@ -43,7 +42,7 @@ export function parseNotebook(raw: string): { text: string; blocks: Block[] } {
           type: sub.type,
           text: sub.text,
           headingPath: sub.headingPath ?? [],
-          ...(sub.meta ? { meta: { ...sub.meta, cell: i } } : { meta: { cell: i } }),
+          meta: { ...sub.meta, cell: i },
         });
       }
     }

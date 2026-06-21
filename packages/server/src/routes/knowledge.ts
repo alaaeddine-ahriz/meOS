@@ -95,6 +95,24 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
     return flagged;
   };
 
+  /**
+   * Resolve a write's {@link knowledge.Provenance} to a backing source. A `manual`
+   * write has none; a `source` write must name a real, existing source (its
+   * active-revision text is what `mergeExtraction` locates quotes against).
+   */
+  const resolveSource = (
+    provenance: knowledge.ProvenanceT,
+  ): { sourceId: number; text: string | undefined } | undefined => {
+    if (provenance.kind !== "source") return undefined;
+    // The schema's refine guarantees `sourceId` is present when kind is "source".
+    const sourceId = provenance.sourceId!;
+    if (!ctx.store.getSource(sourceId)) throw httpError.notFound(`No source #${sourceId}`);
+    const revision = ctx.store.activeRevision(sourceId);
+    const text =
+      revision?.normalized_content ?? ctx.store.getSourceRawContent(sourceId) ?? undefined;
+    return { sourceId, text };
+  };
+
   // --- POST /api/knowledge/entities -----------------------------------
   // Upsert: resolve (type, name) to an existing entity or create one, then apply
   // the optional summary/aliases. Idempotent — a repeated name resolves rather
@@ -168,21 +186,11 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
       }
 
       const provenance = body.provenance ?? { kind: "manual" as const };
-      // A `source` write must name a real, existing source; its text locates the
-      // quote's char span exactly as the merge does.
-      let sourceId: number | undefined;
-      let sourceText: string | undefined;
-      if (provenance.kind === "source") {
-        // The schema's refine guarantees `sourceId` is present when kind is "source".
-        const namedSourceId = provenance.sourceId!;
-        if (!ctx.store.getSource(namedSourceId)) {
-          throw httpError.notFound(`No source #${namedSourceId}`);
-        }
-        sourceId = namedSourceId;
-        const revision = ctx.store.activeRevision(namedSourceId);
-        sourceText =
-          revision?.normalized_content ?? ctx.store.getSourceRawContent(namedSourceId) ?? undefined;
-      }
+      // A `source` write names a real source; its text locates the quote's char
+      // span exactly as the merge does. A `manual` write has no backing source.
+      const source = resolveSource(provenance);
+      const sourceId = source?.sourceId;
+      const sourceText = source?.text;
 
       const { entity } = resolveRef(body.entity, { create: true });
 
@@ -254,15 +262,7 @@ export function registerKnowledgeRoutes(app: FastifyInstance, ctx: AppContext): 
       const body = parseOrThrow(knowledge.AddRelationshipBody, request.body, "body");
 
       const provenance = body.provenance ?? { kind: "manual" as const };
-      let sourceId: number | undefined;
-      if (provenance.kind === "source") {
-        // The schema's refine guarantees `sourceId` is present when kind is "source".
-        const namedSourceId = provenance.sourceId!;
-        if (!ctx.store.getSource(namedSourceId)) {
-          throw httpError.notFound(`No source #${namedSourceId}`);
-        }
-        sourceId = namedSourceId;
-      }
+      const sourceId = resolveSource(provenance)?.sourceId;
 
       const { entity: subject } = resolveRef(body.subject, { create: true });
       const { entity: object } = resolveRef(body.object, { create: true });

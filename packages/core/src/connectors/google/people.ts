@@ -47,16 +47,19 @@ function formatBirthday(b?: PersonBirthday): string | undefined {
   return d.year ? `${d.year}-${mm}-${dd}` : `${mm}-${dd}`;
 }
 
+/** Trim each `.value`, dropping the empty/missing ones, for People's repeated `{ value }[]` shapes. */
+function cleanValues(items?: Array<{ value?: string }>): string[] {
+  return (items ?? []).map((i) => i.value?.trim()).filter((v): v is string => !!v);
+}
+
 function normalize(person: Person): ContactItem {
   const id = person.resourceName.replace(/^people\//, "");
   return {
     externalId: person.resourceName,
     displayName: person.names?.[0]?.displayName?.trim() || "Unknown contact",
-    nicknames: (person.nicknames ?? []).map((n) => n.value?.trim()).filter((v): v is string => !!v),
-    emails: (person.emailAddresses ?? [])
-      .map((e) => e.value?.trim())
-      .filter((v): v is string => !!v),
-    phones: (person.phoneNumbers ?? []).map((p) => p.value?.trim()).filter((v): v is string => !!v),
+    nicknames: cleanValues(person.nicknames),
+    emails: cleanValues(person.emailAddresses),
+    phones: cleanValues(person.phoneNumbers),
     organisation: person.organizations?.[0]?.name?.trim() || undefined,
     jobTitle: person.organizations?.[0]?.title?.trim() || undefined,
     birthday: formatBirthday(person.birthdays?.[0]),
@@ -88,21 +91,20 @@ export async function searchContacts(
   limit = 10,
 ): Promise<ContactItem[]> {
   const pageSize = String(Math.min(Math.max(limit, 1), 30));
+  const search = <T>(q: string): Promise<T> => {
+    const params = new URLSearchParams({ query: q, readMask: PERSON_FIELDS, pageSize });
+    return googleGet<T>(`${BASE}/people:searchContacts?${params.toString()}`, accessToken);
+  };
   // People search is cache-backed and lazily warmed: Google documents that clients
   // should prime it with an empty-query request first, else the first real search
   // against a cold cache can return zero results — which the agent would surface as
   // "no contact matched". Fire the warmup best-effort and ignore any failure.
   try {
-    const warmup = new URLSearchParams({ query: "", readMask: PERSON_FIELDS, pageSize });
-    await googleGet<unknown>(`${BASE}/people:searchContacts?${warmup.toString()}`, accessToken);
+    await search<unknown>("");
   } catch {
     // best-effort warmup — proceed to the real query regardless
   }
-  const params = new URLSearchParams({ query, readMask: PERSON_FIELDS, pageSize });
-  const data = await googleGet<{ results?: Array<{ person?: Person }> }>(
-    `${BASE}/people:searchContacts?${params.toString()}`,
-    accessToken,
-  );
+  const data = await search<{ results?: Array<{ person?: Person }> }>(query);
   return (data.results ?? [])
     .map((r) => r.person)
     .filter((p): p is Person => Boolean(p))

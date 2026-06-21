@@ -1,3 +1,4 @@
+import { arr, asText, num, obj, str, type Rec } from "./json.js";
 import type { ClaudeAgentEvent } from "./types.js";
 
 /**
@@ -118,7 +119,7 @@ export class ClaudeStreamAdapter {
         type: "tool-result",
         toolCallId: id,
         toolName: this.toolNames.get(id) ?? "tool",
-        output: normalizeContent(block.content),
+        output: asText(block.content),
         isError: block.is_error === true,
         agentId,
       });
@@ -142,23 +143,6 @@ export class ClaudeStreamAdapter {
   }
 }
 
-type Rec = Record<string, unknown>;
-
-function obj(value: unknown): Rec | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Rec)
-    : null;
-}
-function str(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-function num(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-function arr(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
 /** The first text block's text, used to surface a synthetic-error message. */
 function firstText(content: unknown): string | undefined {
   for (const raw of arr(content)) {
@@ -166,24 +150,4 @@ function firstText(content: unknown): string | undefined {
     if (block?.type === "text") return str(block.text);
   }
   return undefined;
-}
-
-/** A tool_result's `content` may be a string, an array of blocks, or structured — render it as text. */
-function normalizeContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const texts = content
-      .map((raw) => {
-        const block = obj(raw);
-        return block?.type === "text" ? str(block.text) : undefined;
-      })
-      .filter((t): t is string => Boolean(t));
-    if (texts.length > 0) return texts.join("\n");
-  }
-  if (content === null || content === undefined) return "";
-  try {
-    return JSON.stringify(content) ?? "";
-  } catch {
-    return "[unserializable tool output]";
-  }
 }

@@ -53,6 +53,9 @@ export const SourceDiffResponse = z.object({
 
 // --- durable ingest jobs (#13) ---------------------------------------
 
+/** The two ingestion work queues a job/metric can belong to. */
+const QueueNameSchema = z.enum(["extraction", "embedding"]);
+
 /** The durable lifecycle state of an ingest job. */
 export const IngestJobStateSchema = z.enum([
   "pending",
@@ -66,7 +69,7 @@ export const IngestJobStateSchema = z.enum([
 export const IngestJobSchema = z.object({
   id: z.number(),
   kind: z.string(),
-  queue: z.enum(["extraction", "embedding"]),
+  queue: QueueNameSchema,
   stage: z.string(),
   state: IngestJobStateSchema,
   attempts: z.number(),
@@ -101,7 +104,7 @@ export const PauseResponse = z.object({ paused: z.boolean() });
 
 /** Extended per-queue metrics: #13 depth counters + retry/throughput diagnostics. */
 export const IngestQueueMetricsSchema = z.object({
-  queue: z.enum(["extraction", "embedding"]),
+  queue: QueueNameSchema,
   pending: z.number(),
   processing: z.number(),
   failed: z.number(),

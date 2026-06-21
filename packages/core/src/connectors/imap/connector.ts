@@ -125,14 +125,17 @@ const parseCursor = (cursor: string | null): ImapCursor | null => {
   return null;
 };
 
+/** An address as imapflow exposes it in an envelope header. */
+type EnvelopeAddress = { name?: string; address?: string };
+
 /** First address in an envelope header (sender/recipient), normalized. */
-const addr = (a?: { name?: string; address?: string }): EmailAddress => ({
+const addr = (a?: EnvelopeAddress): EmailAddress => ({
   name: a?.name,
   email: a?.address ?? "",
 });
 
 /** Every address in an envelope list (e.g. all To: recipients), dropping blanks. */
-const addrs = (list?: Array<{ name?: string; address?: string }>): EmailAddress[] =>
+const addrs = (list?: EnvelopeAddress[]): EmailAddress[] =>
   (list ?? []).map(addr).filter((a) => a.email);
 
 /**
@@ -165,6 +168,7 @@ function normalizeMessage(
   const from = addr(envelope.from?.[0]);
   const to = addrs(envelope.to);
   const date = envelope.date ? new Date(envelope.date).toISOString() : null;
+  const dateOnly = date ? date.slice(0, 10) : null;
   return {
     externalId: `${uidValidity}-${msg.uid}`,
     title: subject,
@@ -176,7 +180,7 @@ function normalizeMessage(
       null,
       2,
     ),
-    normalizedContent: renderMessage({ subject, from, to, date: date ? date.slice(0, 10) : null }),
+    normalizedContent: renderMessage({ subject, from, to, date: dateOnly }),
     extraction: mapEmailMessage({ subject, date: date ?? undefined, from, to }, self),
   };
 }

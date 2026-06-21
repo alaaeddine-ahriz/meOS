@@ -311,7 +311,6 @@ function ReviewDialog({
 
   if (!proposal) return null;
 
-  const contentById = Object.fromEntries(current.sections.map((s) => [s.id, s]));
   const changed = current.sections.filter(
     (s) => (proposal.profile[s.id] ?? "").trim() !== s.content.trim(),
   );

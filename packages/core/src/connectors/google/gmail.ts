@@ -290,12 +290,10 @@ export async function fetchGmailDelta(
   const excludeLabels = config?.excludeLabels;
   const seedQuery = buildQuery(null, includeLabels, excludeLabels);
   let backfill = config?.backfill ?? initialBackfill(window);
-  // A window change resets the backfill boundary so coverage tracks the new choice.
-  if (backfill.afterIso !== windowAfterIso(window) && window !== "all") {
-    // Only re-seed when the window genuinely changed (not for "all"/unbounded drift).
-    const expected = windowAfterIso(window);
-    if (backfill.afterIso !== expected && backfill.indexed === 0)
-      backfill = initialBackfill(window);
+  // A window change resets the backfill boundary so coverage tracks the new choice —
+  // but only before anything's been indexed, and not for "all"/unbounded drift.
+  if (backfill.afterIso !== windowAfterIso(window) && window !== "all" && backfill.indexed === 0) {
+    backfill = initialBackfill(window);
   }
 
   const ids = new Set<string>();
@@ -305,12 +303,19 @@ export async function fetchGmailDelta(
   if (seedQuery) seedParams.set("q", seedQuery);
   const seedUrl = `${BASE}/messages?${seedParams.toString()}`;
 
+  // Reset `ids` to the most recent messages and refresh the cursor from `profile`.
+  // Used both for the initial seed and for the stale-cursor re-seed below.
+  const seedRecent = async (): Promise<string | null> => {
+    ids.clear();
+    const list = await googleGet<ListResponse>(seedUrl, accessToken);
+    for (const m of list.messages ?? []) ids.add(m.id);
+    const profile = await googleGet<ProfileResponse>(`${BASE}/profile`, accessToken);
+    return profile.historyId ?? null;
+  };
+
   try {
     if (!syncToken) {
-      const list = await googleGet<ListResponse>(seedUrl, accessToken);
-      for (const m of list.messages ?? []) ids.add(m.id);
-      const profile = await googleGet<ProfileResponse>(`${BASE}/profile`, accessToken);
-      nextSyncToken = profile.historyId ?? null;
+      nextSyncToken = await seedRecent();
     } else {
       let pageToken: string | undefined;
       let latestHistoryId: string | undefined;
@@ -337,11 +342,7 @@ export async function fetchGmailDelta(
     // list and refresh the cursor, preserving the historical backfill in config —
     // rather than reporting a destructive full resync that would clear everything.
     if (error instanceof SyncTokenExpiredError || isHistoryGone(error)) {
-      ids.clear();
-      const list = await googleGet<ListResponse>(seedUrl, accessToken);
-      for (const m of list.messages ?? []) ids.add(m.id);
-      const profile = await googleGet<ProfileResponse>(`${BASE}/profile`, accessToken);
-      nextSyncToken = profile.historyId ?? null;
+      nextSyncToken = await seedRecent();
     } else {
       throw error;
     }

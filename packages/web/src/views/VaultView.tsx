@@ -143,18 +143,15 @@ function itemParam(sel: Selected): string {
 
 function parseItemParam(params: URLSearchParams): Selected | null {
   const item = params.get("item");
-  if (item) {
-    const idx = item.indexOf(":");
-    if (idx > 0) {
-      const kind = item.slice(0, idx);
-      const id = item.slice(idx + 1);
-      if (kind === "note" || kind === "meeting") return { kind, id };
-    }
+  const idx = item ? item.indexOf(":") : -1;
+  if (item && idx > 0) {
+    const kind = item.slice(0, idx);
+    const id = item.slice(idx + 1);
+    if (kind === "note" || kind === "meeting") return { kind, id };
   }
   // Legacy `?note=<path>` links still resolve.
   const legacy = params.get("note");
-  if (legacy) return { kind: "note", id: legacy };
-  return null;
+  return legacy ? { kind: "note", id: legacy } : null;
 }
 
 export function VaultView() {

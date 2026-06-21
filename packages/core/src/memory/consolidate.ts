@@ -135,6 +135,10 @@ export async function runConsolidation(deps: {
   const contradictions = store.unresolvedContradictions();
   const orphans = store.orphanEntities(prefs);
 
+  // Render a digest section as bullet lines, falling back to "(none)" when empty.
+  const lines = <T>(items: T[], render: (item: T) => string): string[] =>
+    items.length ? items.map(render) : ["(none)"];
+
   const digestDate = new Date().toISOString().slice(0, 10);
   const content = await llm.complete({
     system: withProfile(withSchema(DIGEST_SYSTEM_PROMPT, schema), profile),
@@ -146,30 +150,23 @@ export async function runConsolidation(deps: {
           `Generate the digest for ${digestDate}.`,
           "",
           `New sources ingested since ${since}:`,
-          ...(sources.length ? sources.map((s) => `- ${s.title} (${s.type})`) : ["(none)"]),
+          ...lines(sources, (s) => `- ${s.title} (${s.type})`),
           "",
           "New knowledge recorded:",
-          ...(observations.length
-            ? observations.slice(0, 50).map((o) => `- [${o.entity_name}] ${o.text}`)
-            : ["(none)"]),
+          ...lines(observations.slice(0, 50), (o) => `- [${o.entity_name}] ${o.text}`),
           "",
           "Facts superseded by newer information:",
-          ...(superseded.length
-            ? superseded.map((s) => `- [${s.entity_name}] "${s.old_text}" -> "${s.new_text}"`)
-            : ["(none)"]),
+          ...lines(superseded, (s) => `- [${s.entity_name}] "${s.old_text}" -> "${s.new_text}"`),
           "",
           "Unresolved contradictions needing the user's attention:",
-          ...(contradictions.length
-            ? contradictions.map(
-                (c) =>
-                  `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`,
-              )
-            : ["(none)"]),
+          ...lines(
+            contradictions,
+            (c) =>
+              `- [${c.entity_name}] "${c.text_a}" vs "${c.text_b}"${c.note ? ` (${c.note})` : ""}`,
+          ),
           "",
           "Wiki pages with no connections to the rest of the graph (possible orphans):",
-          ...(orphans.length
-            ? orphans.slice(0, 20).map((o) => `- ${o.name} (${o.type})`)
-            : ["(none)"]),
+          ...lines(orphans.slice(0, 20), (o) => `- ${o.name} (${o.type})`),
           "",
           `Maintenance: ${decayed} facts decayed, ${promoted} promoted to established facts, ${expired} expired past their validity, ${retiered} re-tiered, ${staleRegenerated} wiki pages refreshed, ${crystallized} fact(s) distilled from your chats, ${healing.flaggedForRepair} page(s) auto-repaired${healing.meanQuality !== null ? `, mean wiki quality ${healing.meanQuality.toFixed(2)}` : ""}.`,
         ].join("\n"),

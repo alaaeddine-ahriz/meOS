@@ -4,6 +4,9 @@ import { createLogger } from "@meos/core";
 
 const log = createLogger("worker-host");
 
+/** Connector actions the app process can forward to the worker host. */
+export type ConnectorAction = "enqueueSync" | "reschedule" | "syncAllEnabled";
+
 /**
  * Process isolation (#94). The app process serves the UI and only enqueues work;
  * a forked **worker host** runs the heavy background workers (ingest executor,
@@ -23,7 +26,7 @@ export type WorkerMessage =
   | { type: "event"; name: "onSessionEnd"; payload: { conversationId: number } }
   | {
       type: "connector";
-      action: "enqueueSync" | "reschedule" | "syncAllEnabled";
+      action: ConnectorAction;
       args?: { provider?: string; kind?: string };
     }
   | { type: "consolidate" }
@@ -36,10 +39,7 @@ export interface WorkerBridge {
   /** Forward an app-emitted event to the worker's event bus. */
   forwardEvent(name: "onSessionEnd", payload: { conversationId: number }): void;
   /** Forward a connector action to the worker (sync execution lives there). */
-  forwardConnector(
-    action: "enqueueSync" | "reschedule" | "syncAllEnabled",
-    args?: { provider?: string; kind?: string },
-  ): void;
+  forwardConnector(action: ConnectorAction, args?: { provider?: string; kind?: string }): void;
   /** Forward a consolidation run to the worker (it merges into the graph). */
   forwardConsolidate(): void;
 }
@@ -143,10 +143,7 @@ export class WorkerSupervisor implements WorkerBridge {
     this.send({ type: "event", name, payload });
   }
 
-  forwardConnector(
-    action: "enqueueSync" | "reschedule" | "syncAllEnabled",
-    args?: { provider?: string; kind?: string },
-  ): void {
+  forwardConnector(action: ConnectorAction, args?: { provider?: string; kind?: string }): void {
     this.send({ type: "connector", action, args });
   }
 

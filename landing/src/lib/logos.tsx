@@ -1,4 +1,4 @@
-import { Contact, Cpu, FileText, NotebookPen, Plus } from "lucide-react";
+import { Contact, Cpu, FileText, type LucideIcon, NotebookPen, Plus } from "lucide-react";
 import { type Brand, BRAND_SVGS } from "./brandSvgs.ts";
 
 // Real, full-colour brand logos (Gmail, Calendar, Keep, the 4-colour Google G,
@@ -33,11 +33,15 @@ export const OpenAILogo = () => (
 );
 
 // No official colour mark exists for these — plain line icons, theme-coloured.
-export const LocalLogo = () => <Cpu className="size-full" strokeWidth={1.6} />;
-export const ContactsLogo = () => <Contact className="size-full" strokeWidth={1.6} />;
-export const NotesLogo = () => <NotebookPen className="size-full" strokeWidth={1.6} />;
-export const FilesLogo = () => <FileText className="size-full" strokeWidth={1.6} />;
-export const AnyToolLogo = () => <Plus className="size-full" strokeWidth={2} />;
+const line =
+  (Icon: LucideIcon, strokeWidth = 1.6) =>
+  () => <Icon className="size-full" strokeWidth={strokeWidth} />;
+
+export const LocalLogo = line(Cpu);
+export const ContactsLogo = line(Contact);
+export const NotesLogo = line(NotebookPen);
+export const FilesLogo = line(FileText);
+export const AnyToolLogo = line(Plus, 2);
 
 export type LogoItem = { name: string; Logo: () => React.ReactNode };
 

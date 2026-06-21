@@ -54,11 +54,15 @@ export function collectText(node: XmlNode): string {
   return out;
 }
 
+/** Load a zip buffer into a JSZip instance (lazily importing jszip). */
+async function loadZip(buffer: Buffer) {
+  const JSZip = (await import("jszip")).default;
+  return JSZip.loadAsync(buffer);
+}
+
 /** Read one entry from a zip buffer as a UTF-8 string, or undefined if absent. */
 export async function readZipEntry(buffer: Buffer, name: string): Promise<string | undefined> {
-  const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(buffer);
-  const file = zip.file(name);
+  const file = (await loadZip(buffer)).file(name);
   return file ? file.async("string") : undefined;
 }
 
@@ -67,8 +71,7 @@ export async function listZipEntries(
   buffer: Buffer,
   match: (name: string) => boolean,
 ): Promise<Array<{ name: string; text: () => Promise<string> }>> {
-  const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(buffer);
+  const zip = await loadZip(buffer);
   const out: Array<{ name: string; text: () => Promise<string> }> = [];
   zip.forEach((relativePath, file) => {
     if (!file.dir && match(relativePath)) {

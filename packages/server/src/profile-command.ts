@@ -79,11 +79,12 @@ async function applyInstruction(ctx: AppContext, instruction: string): Promise<s
   const applied: string[] = [];
   const patches: string[] = [];
   for (const section of PROFILE_SECTIONS) {
-    const next = profile[section.id];
-    if (typeof next !== "string") continue;
-    if (next.trim() === (current[section.id] ?? "").trim()) continue;
-    patches.push(buildPatch(section.title, current[section.id] ?? "", next.trim()));
-    saveProfileSection(dataDir, section.id, next);
+    const raw = profile[section.id];
+    if (typeof raw !== "string") continue;
+    const next = raw.trim();
+    if (next === current[section.id].trim()) continue;
+    patches.push(buildPatch(section.title, current[section.id], next));
+    saveProfileSection(dataDir, section.id, raw);
     applied.push(section.title);
   }
 

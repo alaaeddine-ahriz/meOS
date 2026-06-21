@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { BlockBuilder } from "./parsers/builder.js";
+
 /**
  * The kind of a document block. Deliberately open-ended at the edges ("other")
  * so future multimodal parsers (image/audio captions, embeds) can slot in
@@ -189,39 +191,24 @@ export function parseCsv(raw: string): { text: string; blocks: Block[] } {
 
   const header = rows[0]!;
   const dataRows = rows.slice(1);
-  const blocks: Block[] = [];
-  const lines: string[] = [];
-  let cursor = 0;
+  const builder = new BlockBuilder();
 
-  const headingText = `Table with columns: ${header.join(", ")}`;
-  lines.push(headingText);
-  pushBlock(blocks, {
+  builder.push({
     type: "table",
-    text: headingText,
-    charStart: cursor,
-    charEnd: cursor + headingText.length,
+    text: `Table with columns: ${header.join(", ")}`,
     meta: { columns: header, rowCount: dataRows.length },
   });
-  cursor += headingText.length + 2; // for the "\n\n" join
 
   dataRows.forEach((cells, i) => {
     const rowText = header.map((col, c) => `${col}: ${cells[c] ?? ""}`).join("; ");
-    lines.push(rowText);
     const record: Record<string, string> = {};
     header.forEach((col, c) => {
       record[col] = cells[c] ?? "";
     });
-    pushBlock(blocks, {
-      type: "table",
-      text: rowText,
-      charStart: cursor,
-      charEnd: cursor + rowText.length,
-      meta: { columns: header, row: i, record },
-    });
-    cursor += rowText.length + 2;
+    builder.push({ type: "table", text: rowText, meta: { columns: header, row: i, record } });
   });
 
-  return { text: lines.join("\n\n"), blocks };
+  return builder.result();
 }
 
 /** RFC-4180-ish CSV row splitter: handles quoted fields, "" escapes, CRLF. */
@@ -283,20 +270,9 @@ export function parseJson(raw: string): { text: string; blocks: Block[] } {
     return { text, blocks: blocksFromText(text) };
   }
 
-  const blocks: Block[] = [];
-  const lines: string[] = [];
-  let cursor = 0;
-  const emit = (text: string, meta: Record<string, unknown>) => {
-    lines.push(text);
-    pushBlock(blocks, {
-      type: "table",
-      text,
-      charStart: cursor,
-      charEnd: cursor + text.length,
-      meta,
-    });
-    cursor += text.length + 2;
-  };
+  const builder = new BlockBuilder();
+  const emit = (text: string, meta: Record<string, unknown>) =>
+    builder.push({ type: "table", text, meta });
 
   if (Array.isArray(parsed)) {
     const keys = collectKeys(parsed);
@@ -322,7 +298,7 @@ export function parseJson(raw: string): { text: string; blocks: Block[] } {
     emit(renderJsonValue(parsed), {});
   }
 
-  return { text: lines.join("\n\n"), blocks };
+  return builder.result();
 }
 
 function itemKeys(item: unknown): string[] {
@@ -377,24 +353,13 @@ export async function parseDocument(
     // mergePages:false gives us per-page text so each block can carry its page.
     const { text: pages } = await extractText(pdf, { mergePages: false });
     const pageTexts = Array.isArray(pages) ? pages : [pages];
-    const blocks: Block[] = [];
-    const parts: string[] = [];
-    let cursor = 0;
+    const builder = new BlockBuilder();
     pageTexts.forEach((pageText, i) => {
       const trimmed = (pageText ?? "").trim();
       if (!trimmed) return;
-      parts.push(trimmed);
-      pushBlock(blocks, {
-        type: "paragraph",
-        text: trimmed,
-        page: i + 1,
-        charStart: cursor,
-        charEnd: cursor + trimmed.length,
-        meta: { page: i + 1 },
-      });
-      cursor += trimmed.length + 2;
+      builder.push({ type: "paragraph", text: trimmed, page: i + 1, meta: { page: i + 1 } });
     });
-    return { title, text: parts.join("\n\n"), blocks };
+    return { title, ...builder.result() };
   }
 
   if (ext === ".docx") {
@@ -456,18 +421,15 @@ export async function parseDocument(
  * predictable output of block-level <h1..6>/<p>/<ul>/<ol>/<table> elements.
  */
 export function blocksFromDocxHtml(html: string): { text: string; blocks: Block[] } {
-  const blocks: Block[] = [];
-  const parts: string[] = [];
+  const builder = new BlockBuilder();
   const headingStack: Array<{ level: number; title: string }> = [];
-  let cursor = 0;
 
   // Match each top-level block element mammoth emits.
   const elementRe = /<(h[1-6]|p|ul|ol|table)\b[^>]*>([\s\S]*?)<\/\1>/gi;
   let m: RegExpExecArray | null;
   while ((m = elementRe.exec(html)) !== null) {
     const tag = m[1]!.toLowerCase();
-    const inner = m[2]!;
-    const text = decodeHtml(stripTags(inner)).trim();
+    const text = decodeHtml(stripTags(m[2]!)).trim();
     if (!text) continue;
 
     const headingPath = headingStack.map((h) => h.title);
@@ -476,34 +438,17 @@ export function blocksFromDocxHtml(html: string): { text: string; blocks: Block[
       while (headingStack.length > 0 && headingStack[headingStack.length - 1]!.level >= level) {
         headingStack.pop();
       }
-      parts.push(text);
-      pushBlock(blocks, {
-        type: "heading",
-        text,
-        headingPath,
-        charStart: cursor,
-        charEnd: cursor + text.length,
-        meta: { level },
-      });
+      builder.push({ type: "heading", text, headingPath, meta: { level } });
       headingStack.push({ level, title: text });
-      cursor += text.length + 2;
       continue;
     }
 
     const type: BlockType =
       tag === "ul" || tag === "ol" ? "list" : tag === "table" ? "table" : "paragraph";
-    parts.push(text);
-    pushBlock(blocks, {
-      type,
-      text,
-      headingPath,
-      charStart: cursor,
-      charEnd: cursor + text.length,
-    });
-    cursor += text.length + 2;
+    builder.push({ type, text, headingPath });
   }
 
-  return { text: parts.join("\n\n"), blocks };
+  return builder.result();
 }
 
 function stripTags(html: string): string {

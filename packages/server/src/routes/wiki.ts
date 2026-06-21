@@ -8,6 +8,15 @@ import { routeSchema } from "../route-schema.js";
 const tags = ["wiki"];
 
 export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void {
+  // The wiki index/graph only surface entities that actually have a page: people
+  // known only from a connector stay searchable but are kept out of the wiki.
+  // Returns both the id set (to also drop dangling edges) and the filtered entities.
+  const pageBackedEntities = () => {
+    const withPages = ctx.store.wikiPageEntityIds();
+    const entities = ctx.store.listEntities().filter((entity) => withPages.has(entity.id));
+    return { withPages, entities };
+  };
+
   // Likely-duplicate entities (human-gated dedup): detection only — the user
   // confirms a merge, which is destructive, via POST /api/entities/merge.
   app.get(
@@ -95,9 +104,8 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
     },
   );
 
-  // The wiki index/graph only lists entities that actually have a page: people
-  // known only from a connector (contact/email/calendar) stay searchable but are
-  // kept out of the wiki so they don't add noise (they'd 404 anyway).
+  // Connector-only people (contact/email/calendar) are pageless, so they're
+  // omitted here — they stay searchable but would 404 in the wiki.
   app.get(
     "/api/wiki",
     {
@@ -109,22 +117,17 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
         mcp: { expose: true, safety: "read" },
       }),
     },
-    async () => {
-      const withPages = ctx.store.wikiPageEntityIds();
-      return wiki.ListEntitiesResponse.parse({
-        entities: ctx.store
-          .listEntities()
-          .filter((entity) => withPages.has(entity.id))
-          .map((entity) => ({
-            id: entity.id,
-            type: entity.type,
-            name: entity.name,
-            slug: entity.slug,
-            summary: entity.summary,
-            updatedAt: entity.updated_at,
-          })),
-      });
-    },
+    async () =>
+      wiki.ListEntitiesResponse.parse({
+        entities: pageBackedEntities().entities.map((entity) => ({
+          id: entity.id,
+          type: entity.type,
+          name: entity.name,
+          slug: entity.slug,
+          summary: entity.summary,
+          updatedAt: entity.updated_at,
+        })),
+      }),
   );
 
   app.get(
@@ -139,23 +142,20 @@ export function registerWikiRoutes(app: FastifyInstance, ctx: AppContext): void 
       }),
     },
     async () => {
-      const withPages = ctx.store.wikiPageEntityIds();
+      const { withPages, entities } = pageBackedEntities();
       // Per-edge provenance loaded once (#89): a representative source id to open
       // the evidence behind a link, and the distinct-source count that drives the
       // confirmed-vs-generated idiom.
       const sourceStats = ctx.store.relationshipSourceStats();
       return wiki.WikiGraphResponse.parse({
-        nodes: ctx.store
-          .listEntities()
-          .filter((entity) => withPages.has(entity.id))
-          .map((entity) => ({
-            id: entity.id,
-            type: entity.type,
-            name: entity.name,
-            slug: entity.slug,
-            // Powers the focus/inspect panel without a second round-trip.
-            summary: entity.summary,
-          })),
+        nodes: entities.map((entity) => ({
+          id: entity.id,
+          type: entity.type,
+          name: entity.name,
+          slug: entity.slug,
+          // Powers the focus/inspect panel without a second round-trip.
+          summary: entity.summary,
+        })),
         // Drop edges to a hidden (pageless) endpoint so the graph has no dangling links.
         links: ctx.store
           .allRelationships()

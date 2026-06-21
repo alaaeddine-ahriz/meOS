@@ -49,15 +49,6 @@ const CREDIT_SIGNALS = [
   "purchase",
 ];
 
-/** Words that mean "slow down" rather than "you're out of money". */
-const RATE_LIMIT_SIGNALS = [
-  "rate limit",
-  "rate_limit",
-  "too many requests",
-  "overloaded",
-  "try again",
-];
-
 function contains(haystack: string, needles: string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
 }
@@ -147,10 +138,8 @@ export function normalizeLlmError(error: unknown, provider?: string): LlmError {
   }
 
   if (APICallError.isInstance(error)) {
-    const apiError = error;
-    const status = apiError.statusCode;
-    const haystack = `${apiError.message}\n${apiError.responseBody ?? ""}`.toLowerCase();
-    return classifyApiError(apiError, status, haystack, who, provider);
+    const haystack = `${error.message}\n${error.responseBody ?? ""}`.toLowerCase();
+    return classifyApiError(error, error.statusCode, haystack, who, provider);
   }
 
   // Connection failures (local Ollama down, DNS/offline) surface as plain
@@ -279,7 +268,7 @@ function classifyApiError(
       { cause: error },
     );
   }
-  if (status === 402 || (status === 429 && creditsHit) || creditsHit) {
+  if (status === 402 || creditsHit) {
     return new LlmError(
       `Your ${who} account is out of credits or has hit its quota. Add credits in your ${who} account, or switch provider in Settings.`,
       "credits",

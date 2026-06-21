@@ -73,6 +73,18 @@ export function WikiPageView({
     if (!embedded && slug && page) setTrail(pushWikiTrail(slug, page.entity.name));
   }, [embedded, slug, page]);
 
+  // The side panel's close button — identical in the loading and loaded chrome.
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      title="Close"
+      className="rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper"
+    >
+      <X className="size-4" />
+    </button>
+  );
+
   if (error) {
     const back = embedded ? (
       <button type="button" className="text-lamp hover:underline" onClick={onClose}>
@@ -101,14 +113,7 @@ export function WikiPageView({
       <div className="flex h-full flex-col">
         <header className="flex items-center gap-2 border-b border-line px-4 py-3">
           <span className="min-w-0 flex-1 truncate text-sm text-dim">Loading…</span>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper"
-          >
-            <X className="size-4" />
-          </button>
+          {closeButton}
         </header>
       </div>
     );
@@ -278,14 +283,7 @@ export function WikiPageView({
         >
           <Maximize2 className="size-4" />
         </Link>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close"
-          className="rounded-md p-1 text-dim transition-colors hover:bg-card hover:text-paper"
-        >
-          <X className="size-4" />
-        </button>
+        {closeButton}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">{body}</div>
     </div>
