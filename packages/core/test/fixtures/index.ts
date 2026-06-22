@@ -9,8 +9,15 @@
  * (`../../core/test/fixtures/index.js`). Keeping the canonical shapes here stops
  * suites from re-declaring the same `sampleExtraction` / source-revision setup.
  */
+import type {
+  AgentEvent,
+  AgentRunInput,
+  CodingAgentDefinition,
+} from "../../src/coding-agent/types.js";
 import { HashEmbedder } from "../../src/embedding/embedder.js";
+import { CodingAgentLlmClient } from "../../src/llm/coding-agent-client.js";
 import { StubLlmClient } from "../../src/llm/stub.js";
+import type { LlmClient } from "../../src/llm/types.js";
 
 // ---------------------------------------------------------------------------
 // Documents — raw inputs an ingest run consumes.
@@ -206,4 +213,89 @@ export function makeExtractionStub(): StubLlmClient {
 /** A deterministic, offline embedder for retrieval tests (no native ONNX). */
 export function makeEmbedder(): HashEmbedder {
   return new HashEmbedder();
+}
+
+// ---------------------------------------------------------------------------
+// Agent-backend contract harness — drive the REAL CodingAgentLlmClient method
+// paths offline, with NO CLI spawn, so per-feature backend-parity tests can
+// assert the agent backend returns correct output the same way the live tests
+// do against a real CLI (`live-agent-ingest.test.ts`).
+// ---------------------------------------------------------------------------
+
+/**
+ * A scripted, in-process {@link CodingAgentDefinition} for offline agent-backend
+ * contract tests. Each `run` records the prompt it received and replays whatever
+ * its `reply` returns as a single terminal `result` event — exactly the shape
+ * {@link CodingAgentLlmClient} collects an answer from. For a `completeStructured`
+ * feature, return a JSON string; for `complete`, return the plain answer text.
+ */
+export class ScriptedAgent implements CodingAgentDefinition {
+  id = "claude" as const;
+  label = "Scripted";
+  bin = "scripted";
+  installHint = "";
+  models = [{ value: "scripted-model", label: "Scripted" }];
+  defaultModel = "scripted-model";
+  streaming = true;
+  supportsResume = false;
+  /** Every prompt the client sent, in order (lets a test assert retry/schema prompts). */
+  readonly prompts: string[] = [];
+  private call = 0;
+
+  constructor(private readonly reply: (input: AgentRunInput, call: number) => string) {}
+
+  async *run(input: AgentRunInput): AsyncIterable<AgentEvent> {
+    this.prompts.push(input.prompt);
+    const text = this.reply(input, this.call++);
+    yield {
+      type: "result",
+      sessionId: "scripted",
+      isError: false,
+      subtype: "success",
+      text,
+      costUsd: 0,
+      numTurns: 1,
+      durationMs: 0,
+    };
+  }
+}
+
+/**
+ * An {@link LlmClient} whose every method rejects — wired as the
+ * {@link CodingAgentLlmClient} fallback so an agent-backend contract test proves
+ * the AGENT ITSELF produced the answer: if the cloud fallback is ever reached
+ * (e.g. the agent never returned valid JSON), the test fails loudly instead of
+ * silently passing on the backstop. Mirrors `live-agent-ingest.test.ts`.
+ */
+export function failingFallback(): LlmClient {
+  const reject = (method: string) => () =>
+    Promise.reject(new Error(`fallback.${method} used — agent path failed`));
+  return {
+    complete: reject("complete"),
+    completeStructured: reject("completeStructured"),
+    // eslint-disable-next-line require-yield
+    stream: async function* () {
+      throw new Error("fallback.stream used — agent path failed");
+    },
+    runAgent: reject("runAgent"),
+    // eslint-disable-next-line require-yield
+    streamAgent: async function* () {
+      throw new Error("fallback.streamAgent used — agent path failed");
+    },
+  };
+}
+
+/**
+ * Build a {@link CodingAgentLlmClient} (the AGENT backend) over a
+ * {@link ScriptedAgent}, for offline per-feature contract tests. The fallback
+ * throws by default, so a passing test means the scripted agent's own output
+ * flowed through the real client method path (schema-in-prompt → extract JSON →
+ * validate, for structured calls). Pass a real fallback to test the fallback path.
+ */
+export function makeAgentClient(
+  scratchDir: string,
+  reply: (input: AgentRunInput, call: number) => string,
+  fallback: LlmClient = failingFallback(),
+): CodingAgentLlmClient {
+  return new CodingAgentLlmClient({ agent: new ScriptedAgent(reply), scratchDir, fallback });
 }
