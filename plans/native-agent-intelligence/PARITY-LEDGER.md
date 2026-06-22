@@ -79,6 +79,36 @@ agent) AND, where feasible, live.
 3. Repo typecheck + full offline suite pass, AND the entire `MEOS_LIVE_AGENT=1`
    suite passes against a real agent.
 
+## ✅ STATUS: COMPLETE (verified iter 12)
+
+All 10 rows are ✅ on both backends (row 6 = ✅/✅\* explicit documented OCR
+fallback; row 10 = ✅/🚫 code-enforced forced-API probe). Final audit, all
+verified in one iteration:
+
+1. **Every row proven** — rows 1–9 prove the real method path returns correct
+   output through `CodingAgentLlmClient` (offline scripted-agent contract + a real
+   `claude` live test each); row 6's agent path is an explicit, asserted delegation
+   to the cloud fallback; row 10's forced-API is code-enforced.
+2. **Fresh audit = ZERO bypasses, ZERO unledgered features** — `graphify query`
+   - greps (`generateText|streamText|generateObject|streamObject|createOpenRouter|
+@ai-sdk/*|@anthropic-ai/sdk|new Anthropic|new OpenAI|embedMany|generateImage`)
+     found NO direct provider SDK use outside the seam (`llm/ai-sdk.ts`,
+     `llm/index.ts`). `createLlmClient(` appears only in the seam + the known server
+     boot/swap/probe wiring (`context.ts:210,300,388`, `routes/settings.ts:69`). The
+     complete set of `LlmClient` method-call sites is exactly the 10 ledger rows:
+     extractor:42, meeting-detect:154, contradictions:61, crystallize:83,
+     consolidate:143, image:22, profile-assistant:81, writer:576 (runAgent),
+     chat:123 (streamAgent), context:418 (probe).
+3. **Green** — `pnpm -r typecheck` ✅; `pnpm -r test` ✅ (core 441 passed/10 skipped,
+   server 181, wiki-mcp 11; the 10 skips are the gated live tests); whole live suite
+   `MEOS_LIVE_AGENT=1 … vitest run live-agent-` → **9 files, 10 tests passed**
+   against the real `claude` CLI (2.1.172).
+
+Test artifacts added on `feat/ai-backend-parity`: shared harness
+(`test/fixtures/index.ts`: `ScriptedAgent`, `failingFallback`, `makeAgentClient`,
+meeting fixtures) + 9 `*-parity.test.ts` contract files + 9 `live-agent-*.test.ts`
+gated live files; strengthened `server/test/intelligence-routing.test.ts`.
+
 ## Iteration log
 
 - **Iter 1 (bootstrap)** — Built this inventory from design §6 + a full graphify/grep
@@ -161,3 +191,10 @@ agent) AND, where feasible, live.
   IS an `AiSdkClient` (not just "not agent") and that groups DID switch to the agent
   under the same routing. `pnpm --filter @meos/server exec vitest run test/intelligence-routing.test.ts`
   → 5/5. Row 10 confirmed ✅/🚫 (code-enforced). Next: FINAL STOP audit.
+- **Iter 12 (final STOP audit)** — All 10 rows ✅/✅\*/🚫. Fresh audit (graphify +
+  provider/SDK greps + `createLlmClient(` callers + every LlmClient method-call site)
+  → ZERO bypasses, ZERO unledgered features (the 10 call sites map 1:1 to the rows).
+  `pnpm -r typecheck` green; `pnpm -r test` green (core 441/10-skipped, server 181,
+  wiki-mcp 11); whole live suite `MEOS_LIVE_AGENT=1 pnpm --filter @meos/core exec
+vitest run live-agent-` → **9 files / 10 tests passed** against real claude (241s
+  model time). All STOP conditions satisfied → **DONE: ai-backend-parity complete**.
