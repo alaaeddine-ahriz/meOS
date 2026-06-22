@@ -54,7 +54,7 @@ jobs:
             label: Linux
             bundles: appimage
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       # Tauri's Linux bundler (WebKitGTK + AppImage tooling) needs system libs.
       # linuxdeploy is itself an AppImage, so libfuse2 and extract-and-run support
