@@ -43,6 +43,48 @@ export const adaDocumentReprise: TextDocumentFixture = {
   text: "Further notes: Ada Lovelace worked on the Analytical Engine.",
 };
 
+/**
+ * A clear meeting note — section headers, attendee roster, decisions, actions —
+ * that scores well above the heuristic floor so meeting detection reaches the LLM.
+ * Shared by the meeting-detection contract + live parity tests.
+ */
+export const meetingNoteDocument: TextDocumentFixture = {
+  kind: "text",
+  title: "Orion weekly sync",
+  text: `# Orion weekly sync
+
+**Date:** 2026-03-04
+
+## Attendees
+- Dana Lee
+- Sam Patel
+
+## Decisions
+We decided to ship Project Orion in Q3.
+
+## Action items
+- Dana will prepare the rollout plan.
+
+## Risks
+Risk: the migration could slip past Q3.`,
+};
+
+/**
+ * The `meeting_detection` classification a faithful model returns for
+ * {@link meetingNoteDocument}. Matches `MeetingClassificationSchema`; the date +
+ * attendees are LLM-only outputs (the heuristic never produces them), so a test
+ * asserting them proves the classification flowed through the model, not the
+ * heuristic fallback.
+ */
+export const meetingClassification = {
+  isMeeting: true,
+  confidence: 0.95,
+  title: "Orion weekly sync",
+  date: "2026-03-04",
+  attendees: ["Dana Lee", "Sam Patel"],
+  reasoning: "Records attendees, a decision, and an action item — clearly a meeting.",
+};
+
 // ---------------------------------------------------------------------------
 // Knowledge extractions — the structured output a real LLM would return.
 // ---------------------------------------------------------------------------
