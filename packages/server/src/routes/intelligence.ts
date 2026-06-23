@@ -70,6 +70,15 @@ export function registerIntelligenceRoutes(app: FastifyInstance, ctx: AppContext
       ctx.store.setSetting(INTELLIGENCE_ROUTING_KEY, routing);
       await applyIntelligenceRouting(ctx);
 
+      // Switching the backend is a deliberate choice of a (hopefully working)
+      // intelligence path, exactly like changing the cloud provider/key — so drop
+      // any provider hold (#circuit) and let the stalled backlog drain on the new
+      // backend. Without this, a hold engaged by a dead API key (e.g. out of
+      // credits) keeps ingestion frozen even after switching to a local agent,
+      // because the hold's auto-recovery probe is cloud-only and never succeeds.
+      // No-op when nothing is held; if the new backend is also broken it re-trips.
+      ctx.durableIngest.clearProviderHold();
+
       return currentRouting();
     },
   );
