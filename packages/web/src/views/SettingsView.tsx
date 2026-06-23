@@ -1260,8 +1260,8 @@ function IntelligenceRoutingSection() {
         <PanelIntro>
           Run everything on MeOS&apos;s <span className="font-mono text-faded">API</span> or on a
           local coding <span className="font-mono text-faded">agent</span>. Agent runs are{" "}
-          <span className="text-paper">free on your subscription</span>, not billed to MeOS&apos;s API
-          budget.
+          <span className="text-paper">free on your subscription</span>, not billed to MeOS&apos;s
+          API budget.
         </PanelIntro>
         <p className="font-mono text-[11px] text-dim">
           {installedCount === 0

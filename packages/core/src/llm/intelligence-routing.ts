@@ -64,7 +64,9 @@ export function defaultIntelligenceRouting(): IntelligenceRouting {
  * single-backend model and is simply dropped to API. A junk/forward-incompatible
  * value can therefore never strand the app on a broken backend.
  */
-export function withRoutingDefaults(stored?: Partial<IntelligenceRouting> | null): IntelligenceRouting {
+export function withRoutingDefaults(
+  stored?: Partial<IntelligenceRouting> | null,
+): IntelligenceRouting {
   if (stored?.backend === "agent") {
     return {
       backend: "agent",

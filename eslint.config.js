@@ -108,7 +108,17 @@ export default tseslint.config(
   {
     files: ["packages/**/test/**/*.ts", "packages/**/*.test.ts"],
     extends: [tseslint.configs.disableTypeChecked],
+    // `disableTypeChecked` only turns rules off; unlike the `recommended`
+    // presets it does not register the @typescript-eslint plugin. Register it
+    // here so the @typescript-eslint/* rules below can resolve.
+    plugins: {
+      "@typescript-eslint": tseslint.plugin,
+    },
     languageOptions: {
+      // The type-aware block above sets the TS parser for core/server files
+      // (including their test files), but test files in packages it does not
+      // cover — e.g. wiki-mcp — only match here, so set the parser explicitly.
+      parser: tseslint.parser,
       parserOptions: {
         projectService: false,
         project: null,
@@ -118,6 +128,10 @@ export default tseslint.config(
       },
     },
     rules: {
+      // The TS `recommended` presets turn the core rule off in favour of the
+      // @typescript-eslint version; `disableTypeChecked` does not, so do it
+      // here to avoid both rules double-reporting on these test files.
+      "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
@@ -168,7 +182,12 @@ export default tseslint.config(
       // Barrel re-export cycles abound in the vendored tiptap-ui components;
       // keep as a warning. Hooks/rules-of-hooks errors are still enforced.
       "import/no-cycle": "warn",
-      "import/no-unresolved": "error",
+      "import/no-unresolved": [
+        "error",
+        // @meos/* workspace packages resolve to their built dist/ output,
+        // which is absent before `pnpm build`; skip to avoid build-order flakiness.
+        { ignore: ["^@meos/"] },
+      ],
       "react/prop-types": "off",
       "react/no-unescaped-entities": "warn",
       // react-hooks v7 ships several new experimental, error-level lints that
