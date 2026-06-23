@@ -1,0 +1,200 @@
+# AI Backend Parity Ledger
+
+> Single source of truth for: **does every AI-powered feature work under BOTH
+> intelligence backends** — `{backend:"api"}` (metered cloud key) and
+> `{backend:"agent"}` (local coding-agent CLI) — and is it **proven by tests**?
+>
+> The whole app runs on one global switch: `IntelligenceRouting.backend` in
+> `packages/core/src/llm/intelligence-routing.ts`. `resolveGroupClient(group,
+config, routing, installedAgents, mcpServers?)` returns the cloud
+> `createLlmClient(config)` (→ `AiSdkClient`) for `"api"`, or a
+> `CodingAgentLlmClient` (`packages/core/src/llm/coding-agent-client.ts`) for
+> `"agent"`. Every feature must obtain its client through this seam
+> (`ctx.llm` / `ctx.llmFor(group)` / a passed-in `llm` param tracing back to a
+> group client) — never a directly-constructed provider/AI-SDK client.
+
+## Status legend
+
+- ⬜ todo · 🟡 wip / partial coverage · ✅ proven this run (passing run quoted in the iteration report) · ✅\* proven, where the agent backend works by an EXPLICIT, asserted delegation to the cloud fallback (documented design decision, e.g. multimodal OCR) · 🚫 documented N/A (code-enforced)
+
+## Bootstrap finding (iteration 1)
+
+A full audit (`graphify query` + greps for `@ai-sdk`, `createOpenRouter`,
+`generateText`, `streamText`, `generateObject`, `anthropic`, `openai`, `google`,
+`createLlmClient(` outside the seam) found:
+
+- **ZERO direct-SDK bypasses.** Every `generateText`/`generateObject`/`streamText`
+  lives inside the seam body `packages/core/src/llm/ai-sdk.ts`. Provider SDK
+  imports (`@ai-sdk/anthropic|google|openai`) appear only in `llm/index.ts`.
+  `createLlmClient(` is called outside `intelligence-routing.ts` only in the
+  server boot/swap/probe wiring (`server/src/context.ts:210,300,388`,
+  `server/src/routes/settings.ts:69`) — all legitimate.
+- **Every feature already routes through the seam.** No row needs the §2a
+  "reroute through the switch" fix. `CodingAgentLlmClient` already implements all
+  five `LlmClient` methods (`complete`, `completeStructured` w/ schema-in-prompt
+  - retry×2 + API fallback, `stream`, `runAgent` w/ sandbox bridge, `streamAgent`).
+- **Therefore the remaining work is PROOF, not rerouting.** Each row needs (i) an
+  ungated offline CONTRACT test that the feature's real method path returns correct
+  output through the routed client on BOTH backends (api via a conforming stub /
+  cloud-shaped client; agent via `CodingAgentLlmClient` over a scripted fake agent),
+  and (ii) a LIVE test in the `MEOS_LIVE_AGENT=1` family running the real agent.
+
+`api` column convention: existing offline suites drive each feature with
+`StubLlmClient` (a deterministic stand-in for a well-behaved structured cloud
+client). That proves the api-side method-path wiring; it is marked 🟡 until
+re-verified in that feature's iteration, then ✅. The real cloud `AiSdkClient` is
+the shipped default and is not exercised offline (needs a key).
+
+`agent` column convention: ✅ requires the feature's real method path returning
+correct output through `CodingAgentLlmClient` — proven offline (scripted fake
+agent) AND, where feasible, live.
+
+## Ledger
+
+| #   | Feature                 | Call site (file:fn:line)                                                                                        | Method                  | api | agent | contract test                                            | live test                            | notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | ----------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------- | --- | ----- | -------------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Knowledge extraction    | `core/src/extract/extractor.ts:extractKnowledge:42` (+ map-reduce wrapper `extract/map-reduce.ts:167`)          | `completeStructured`    | ✅  | ✅    | `extraction-parity.test.ts` (api+agent)                  | `live-agent-ingest.test.ts` ✓        | background. PROVEN iter 2: offline contract `extraction-parity.test.ts` (3/3) — api via conforming stub, agent via `CodingAgentLlmClient` over a scripted agent (raw JSON + ```json-fence recovery, throwing fallback). Live `live-agent-ingest.test.ts`(2/2, real claude 2.1.172). New shared harness`fixtures/index.ts:makeAgentClient/ScriptedAgent/failingFallback`.                                                                                                                                                                                                                                                                                                                |
+| 2   | Meeting detection       | `core/src/ingest/meeting-detect.ts:detectMeeting:154`                                                           | `completeStructured`    | ✅  | ✅    | `meeting-detect-parity.test.ts` (api+agent)              | `live-agent-meeting.test.ts` ✓       | background. PROVEN iter 3: contract `meeting-detect-parity.test.ts` (2/2) + live `live-agent-meeting.test.ts` (1/1, real claude, 16.5s). detectMeeting SWALLOWS LLM errors → heuristic-only, so tests assert LLM-only outputs (date + attendees) to prove the model classification flowed through, not the heuristic/fallback. Shared fixtures: `meetingNoteDocument`, `meetingClassification`.                                                                                                                                                                                                                                                                                         |
+| 3   | Contradiction judgement | `core/src/memory/contradictions.ts:detectContradictions:61`                                                     | `completeStructured`    | ✅  | ✅    | `contradiction-parity.test.ts` (api+agent)               | `live-agent-contradiction.test.ts` ✓ | background. PROVEN iter 4: contract `contradiction-parity.test.ts` (2/2) + live `live-agent-contradiction.test.ts` (1/1, real claude, 17.8s). Seeds Dana Paris→Berlin supersession. Feature does NOT swallow LLM errors → throwing fallback surfaces failures, so agent must produce schema-valid JSON referencing the prompt's numeric ids. Two wiring points (nightly `consolidate.ts:73`, per-ingest `context.ts:368`); same fn.                                                                                                                                                                                                                                                     |
+| 4   | Session crystallization | `core/src/memory/crystallize.ts:crystallizeSession:83`                                                          | `completeStructured`    | ✅  | ✅    | `crystallize-parity.test.ts` (api+agent)                 | `live-agent-crystallize.test.ts` ✓   | background. PROVEN iter 5: contract `crystallize-parity.test.ts` (2/2) + live `live-agent-crystallize.test.ts` (1/1, real claude, 71.7s). Makes TWO sequential structured calls (session_digest → knowledge_extraction); agent scripted reply branches on the schema name in the prompt, throwing fallback proves the agent produced valid JSON for BOTH.                                                                                                                                                                                                                                                                                                                               |
+| 5   | Nightly digest          | `core/src/memory/consolidate.ts:runConsolidation:143`                                                           | `complete`              | ✅  | ✅    | `digest-parity.test.ts` (api+agent)                      | `live-agent-digest.test.ts` ✓        | background. Plain text output. PROVEN iter 6: contract `digest-parity.test.ts` (2/2) + live `live-agent-digest.test.ts` (1/1, real claude, 18.3s). Isolated the digest `complete` by omitting embedder (skip crystallizeChat) + `regenerateWiki:false` (skip wiki runAgent); assert the routed client's own text is persisted as the digest (store + disk), throwing fallback. First non-structured `complete` row.                                                                                                                                                                                                                                                                     |
+| 6   | Image OCR               | `core/src/extract/image.ts:readImage:22`                                                                        | `complete` (multimodal) | ✅  | ✅\*  | `image-ocr-parity.test.ts` (api+agent)                   | `live-agent-image.test.ts` ✓         | background. PROVEN iter 7. ✅\* = agent backend works by EXPLICIT, asserted delegation to the cloud `fallback` (design §4.1 — a CLI can't ingest an image), NOT a silent API-only feature. Contract `image-ocr-parity.test.ts` (2/2): api transcribes a multimodal complete; agent uses a scripted agent that THROWS if spawned + a fallback returning OCR, asserting the agent is never run (prompts empty) and the fallback text returns. Live-family `live-agent-image.test.ts` (1/1) confirms the REAL claude client delegates without spawning. No real-agent OCR exists by design; true model OCR runs on the API backend (cloud).                                                |
+| 7   | Profile assistant ×3    | `core/src/profile/profile-assistant.ts:proposeProfile:81` (draft-from-context/knowledge, edit-with-instruction) | `completeStructured`    | ✅  | ✅    | `profile-assistant-parity.test.ts` (api+agent)           | `live-agent-profile.test.ts` ✓       | assistant group. All 3 entry points share `proposeProfile`. PROVEN iter 8: contract `profile-assistant-parity.test.ts` (4/4 — api + all 3 entry points on agent) + live `live-agent-profile.test.ts` (1/1, real claude, 20.4s). Throwing fallback proves the agent produced schema-valid profile_proposal JSON.                                                                                                                                                                                                                                                                                                                                                                         |
+| 8   | Wiki maintainer         | `core/src/wiki/writer.ts:WikiWriter.regenerate:576`                                                             | `runAgent`              | ✅  | ✅    | `wiki-maintainer-parity.test.ts` (api+agent)             | `live-agent-wiki.test.ts` ✓          | wiki group; server supplies meos MCP servers. PROVEN iter 9: contract `wiki-maintainer-parity.test.ts` (2/2) + live `live-agent-wiki.test.ts` (1/1, real claude, 35.1s). WikiWriter never ships an empty page (deterministic fallback body), so both tests assert the AGENT's OWN marker is in the persisted `store.wikiPageBody`. Agent path: a scripted agent writes the page in its cwd and the runAgent sandbox bridge mirrors it back; live test runs real claude and asserts created+non-empty page + captured agent activity.                                                                                                                                                    |
+| 9   | Agentic chat            | `core/src/chat/chat.ts:ChatService.respond:123`                                                                 | `streamAgent`           | ✅  | ✅    | `chat-parity.test.ts` (api+agent)                        | `live-agent-chat.test.ts` ✓          | rides background client. Per-message `agent` toggle path. PROVEN iter 10: contract `chat-parity.test.ts` (2/2) + live `live-agent-chat.test.ts` (1/1, real claude, 14.2s). Backend difference (by design): API mode runs in-process AI-SDK tools (sources/graph collectors fire); agent mode is an external CLI reaching meOS tools over MCP, so streamAgent ignores in-process `tools` and the agent emits its own tool transcript. Both stream reasoning + tool-call/result + text reply through respond and persist the turn. Live asserts real agent text streamed via delta events + persisted verbatim (no answer-content assertion — the KB persona declines without MCP tools). |
+| 10  | Health / circuit probe  | `server/src/context.ts:probe:418`                                                                               | `complete`              | ✅  | 🚫    | `server/test/intelligence-routing.test.ts` (probe block) | n/a                                  | **Forced API by design** (a CLI "ping" is absurd). CODE-ENFORCED + PROVEN iter 11: `applyIntelligenceRouting` rebuilds `llmProbe` via `createLlmClient(config)` UNCONDITIONALLY (`context.ts:210`); the dedicated `probeClient` (`context.ts:388`) is never a group client and `probe()` calls `probeClient.complete` (`context.ts:418`). Test `server/test/intelligence-routing.test.ts` "provider-health probe" (5/5): under `{backend:"agent",claude}` the groups switched to `CodingAgentLlmClient` while `llmProbe.unwrap()` stays `AiSdkClient` (not agent). 🚫 agent by design — never a silent API-only feature.                                                                |
+
+## Out of scope (not LLM inference through the seam)
+
+| Concern                   | Where                                                                                    | Why N/A                                                                                                                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 🚫 Embeddings             | `core/src/embedding/embedder.ts` (`LocalEmbedder` ONNX worker; `HashEmbedder` for tests) | On-device vector generation, no network, not an `LlmClient` call. Parallel intelligence path; not backend-switched.                                                                                                           |
+| 🚫 Connector `agentTools` | `core/src/connectors/{google,github,template}`                                           | `AgentToolContext` has `{store, embedder, enabledKinds, getAccessToken}` — no `LlmClient`. Tools call provider REST / local store; they do NOT perform inference. The LLM that drives them is the chat `streamAgent` (row 9). |
+
+## Definition of done
+
+1. Every ledger row ✅, or 🚫 documented AND code-enforced, on BOTH backends.
+2. A fresh audit surfaces ZERO LLM call sites outside the seam and ZERO features
+   missing from this ledger.
+3. Repo typecheck + full offline suite pass, AND the entire `MEOS_LIVE_AGENT=1`
+   suite passes against a real agent.
+
+## ✅ STATUS: COMPLETE (verified iter 12)
+
+All 10 rows are ✅ on both backends (row 6 = ✅/✅\* explicit documented OCR
+fallback; row 10 = ✅/🚫 code-enforced forced-API probe). Final audit, all
+verified in one iteration:
+
+1. **Every row proven** — rows 1–9 prove the real method path returns correct
+   output through `CodingAgentLlmClient` (offline scripted-agent contract + a real
+   `claude` live test each); row 6's agent path is an explicit, asserted delegation
+   to the cloud fallback; row 10's forced-API is code-enforced.
+2. **Fresh audit = ZERO bypasses, ZERO unledgered features** — `graphify query`
+   - greps (`generateText|streamText|generateObject|streamObject|createOpenRouter|
+@ai-sdk/*|@anthropic-ai/sdk|new Anthropic|new OpenAI|embedMany|generateImage`)
+     found NO direct provider SDK use outside the seam (`llm/ai-sdk.ts`,
+     `llm/index.ts`). `createLlmClient(` appears only in the seam + the known server
+     boot/swap/probe wiring (`context.ts:210,300,388`, `routes/settings.ts:69`). The
+     complete set of `LlmClient` method-call sites is exactly the 10 ledger rows:
+     extractor:42, meeting-detect:154, contradictions:61, crystallize:83,
+     consolidate:143, image:22, profile-assistant:81, writer:576 (runAgent),
+     chat:123 (streamAgent), context:418 (probe).
+3. **Green** — `pnpm -r typecheck` ✅; `pnpm -r test` ✅ (core 441 passed/10 skipped,
+   server 181, wiki-mcp 11; the 10 skips are the gated live tests); whole live suite
+   `MEOS_LIVE_AGENT=1 … vitest run live-agent-` → **9 files, 10 tests passed**
+   against the real `claude` CLI (2.1.172).
+
+Test artifacts added on `feat/ai-backend-parity`: shared harness
+(`test/fixtures/index.ts`: `ScriptedAgent`, `failingFallback`, `makeAgentClient`,
+meeting fixtures) + 9 `*-parity.test.ts` contract files + 9 `live-agent-*.test.ts`
+gated live files; strengthened `server/test/intelligence-routing.test.ts`.
+
+## Iteration log
+
+- **Iter 1 (bootstrap)** — Built this inventory from design §6 + a full graphify/grep
+  audit. Branch `feat/ai-backend-parity` created. Finding: seam is clean (no
+  bypasses); `CodingAgentLlmClient` complete; remaining work is per-feature proof.
+  No fixes this iteration. Next: row 1 (knowledge extraction) — add an offline
+  agent-backed contract test (scripted fake agent) to complement the existing live test.
+- **Iter 2 (row 1: knowledge extraction)** — Added shared offline agent harness
+  (`ScriptedAgent`, `failingFallback`, `makeAgentClient`) to `test/fixtures/index.ts`
+  and `test/extraction-parity.test.ts` proving `extractKnowledge` on both backends.
+  Contract: `pnpm --filter @meos/core exec vitest run test/extraction-parity.test.ts`
+  → 3/3 passed. Live: `MEOS_LIVE_AGENT=1 … test/live-agent-ingest.test.ts` → 2/2
+  passed (real claude 2.1.172, 81s). Row 1 🟡/🟡 → ✅/✅. Next: row 2 (meeting detection).
+- **Iter 3 (row 2: meeting detection)** — Added shared meeting fixtures
+  (`meetingNoteDocument`, `meetingClassification`), `test/meeting-detect-parity.test.ts`
+  (both backends), and `test/live-agent-meeting.test.ts`. Contract:
+  `pnpm --filter @meos/core exec vitest run test/meeting-detect-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-meeting.test.ts` → 1/1 (real claude, 16.5s).
+  Key: detectMeeting swallows LLM errors to heuristic-only, so the proof asserts
+  LLM-only outputs (date + attendees). Row 2 🟡/⬜ → ✅/✅. Next: row 3 (contradiction judgement).
+- **Iter 4 (row 3: contradiction judgement)** — Added `test/contradiction-parity.test.ts`
+  (both backends) and `test/live-agent-contradiction.test.ts`, seeding the Dana
+  Paris→Berlin supersession in a real KnowledgeStore. Contract:
+  `pnpm --filter @meos/core exec vitest run test/contradiction-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-contradiction.test.ts` → 1/1 (real claude, 17.8s).
+  Feature doesn't swallow LLM errors, so the throwing fallback guarantees the agent
+  produced schema-valid JSON. Row 3 🟡/⬜ → ✅/✅. Next: row 4 (session crystallization).
+- **Iter 5 (row 4: session crystallization)** — Added `test/crystallize-parity.test.ts`
+  (both backends) and `test/live-agent-crystallize.test.ts`. Feature makes two
+  sequential structured calls (session_digest → knowledge_extraction); the agent
+  scripted reply branches on the schema name in the prompt. Contract:
+  `pnpm --filter @meos/core exec vitest run test/crystallize-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-crystallize.test.ts` → 1/1 (real claude, 71.7s).
+  Row 4 🟡/⬜ → ✅/✅. Next: row 5 (nightly digest, `complete`, plain text).
+- **Iter 6 (row 5: nightly digest)** — Added `test/digest-parity.test.ts` (both
+  backends) and `test/live-agent-digest.test.ts`. Isolated the digest `complete`
+  call (omit embedder → skip crystallizeChat; `regenerateWiki:false` → skip wiki
+  runAgent). Asserts the routed client's own text is persisted as the digest.
+  Contract: `pnpm --filter @meos/core exec vitest run test/digest-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-digest.test.ts` → 1/1 (real claude, 18.3s).
+  Row 5 🟡/⬜ → ✅/✅. Next: row 6 (image OCR — multimodal complete, agent→API fallback by design).
+- **Iter 7 (row 6: image OCR)** — Added `test/image-ocr-parity.test.ts` (both backends)
+  and `test/live-agent-image.test.ts`. Multimodal: the agent CLI can't ingest images,
+  so `CodingAgentLlmClient.complete()` delegates to the cloud fallback by design (§4.1).
+  Agent proof asserts EXPLICIT delegation: a scripted agent that throws-if-spawned +
+  a fallback returning OCR, asserting the agent never ran (prompts empty). Contract:
+  `pnpm --filter @meos/core exec vitest run test/image-ocr-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-image.test.ts` → 1/1 (real claude client
+  delegates without spawning). Row 6 🟡/🟫 → ✅/✅\* (explicit documented fallback).
+  Next: row 7 (profile assistant ×3, completeStructured).
+- **Iter 8 (row 7: profile assistant ×3)** — Added `test/profile-assistant-parity.test.ts`
+  (api + all 3 entry points on agent) and `test/live-agent-profile.test.ts`. All 3
+  entry points share `proposeProfile` → completeStructured (profile_proposal). Contract:
+  `pnpm --filter @meos/core exec vitest run test/profile-assistant-parity.test.ts` → 4/4.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-profile.test.ts` → 1/1 (real claude, 20.4s).
+  Row 7 🟡/⬜ → ✅/✅. Next: row 8 (wiki maintainer, runAgent — sandbox bridge at WikiWriter level).
+- **Iter 9 (row 8: wiki maintainer)** — Added `test/wiki-maintainer-parity.test.ts`
+  (both backends) and `test/live-agent-wiki.test.ts`. runAgent is the sandbox-bridge
+  method; WikiWriter falls back to a deterministic body, so both tests assert the
+  AGENT's own marker is in the persisted `store.wikiPageBody`. Agent backend: a
+  scripted agent writes the page in its cwd → bridge mirrors it back. Contract:
+  `pnpm --filter @meos/core exec vitest run test/wiki-maintainer-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-wiki.test.ts` → 1/1 (real claude, 35.1s).
+  Row 8 🟡/⬜ → ✅/✅. Next: row 9 (agentic chat, streamAgent).
+- **Iter 10 (row 9: agentic chat)** — Added `test/chat-parity.test.ts` (both backends)
+  and `test/live-agent-chat.test.ts`. streamAgent: API mode runs in-process tools;
+  agent mode is an external CLI (streamAgent ignores in-process `tools`, agent emits
+  its own tool transcript). Both stream reasoning + tool-call/result + reply through
+  respond and persist the turn. Contract:
+  `pnpm --filter @meos/core exec vitest run test/chat-parity.test.ts` → 2/2.
+  Live: `MEOS_LIVE_AGENT=1 … test/live-agent-chat.test.ts` → 1/1 (real claude, 14.2s).
+  (First live run failed on a bad `contains("4")` assertion — the KB-persona system
+  prompt declines general questions without MCP tools; corrected to assert real text
+  streamed via delta + persisted verbatim, which is the actual streamAgent proof.)
+  Row 9 🟡/⬜ → ✅/✅. Next: row 10 (health probe — 🚫 forced-API, verify code-enforced).
+- **Iter 11 (row 10: health probe)** — Verified the forced-API probe is code-enforced
+  (`applyIntelligenceRouting` rebuilds `llmProbe` via `createLlmClient` unconditionally,
+  `context.ts:210`; dedicated `probeClient` never a group client). Strengthened
+  `server/test/intelligence-routing.test.ts` probe block to assert `llmProbe.unwrap()`
+  IS an `AiSdkClient` (not just "not agent") and that groups DID switch to the agent
+  under the same routing. `pnpm --filter @meos/server exec vitest run test/intelligence-routing.test.ts`
+  → 5/5. Row 10 confirmed ✅/🚫 (code-enforced). Next: FINAL STOP audit.
+- **Iter 12 (final STOP audit)** — All 10 rows ✅/✅\*/🚫. Fresh audit (graphify +
+  provider/SDK greps + `createLlmClient(` callers + every LlmClient method-call site)
+  → ZERO bypasses, ZERO unledgered features (the 10 call sites map 1:1 to the rows).
+  `pnpm -r typecheck` green; `pnpm -r test` green (core 441/10-skipped, server 181,
+  wiki-mcp 11); whole live suite `MEOS_LIVE_AGENT=1 pnpm --filter @meos/core exec
+vitest run live-agent-` → **9 files / 10 tests passed** against real claude (241s
+  model time). All STOP conditions satisfied → **DONE: ai-backend-parity complete**.

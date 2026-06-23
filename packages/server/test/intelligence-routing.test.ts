@@ -1,5 +1,5 @@
 import { ErrorEnvelopeSchema, intelligence } from "@meos/contracts";
-import { CodingAgentLlmClient, SwitchableLlmClient } from "@meos/core";
+import { AiSdkClient, CodingAgentLlmClient, SwitchableLlmClient } from "@meos/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { INTELLIGENCE_ROUTING_KEY } from "../src/context.js";
 import { buildTestServer, type TestServer } from "./helpers/test-server.js";
@@ -67,9 +67,8 @@ describe("PUT /api/intelligence-routing", () => {
     expect(parsed.routing).toMatchObject({ backend: "agent", agentId: "claude", model: "opus" });
 
     // Persisted under the settings key.
-    const stored = server.ctx.store.getSetting<intelligence.IntelligenceRouting>(
-      INTELLIGENCE_ROUTING_KEY,
-    );
+    const stored =
+      server.ctx.store.getSetting<intelligence.IntelligenceRouting>(INTELLIGENCE_ROUTING_KEY);
     expect(stored?.backend).toBe("agent");
 
     // The PUT triggered a re-resolve of EVERY group off the one global backend.
@@ -110,8 +109,18 @@ describe("provider-health probe", () => {
     });
     expect(res.statusCode).toBe(200);
     // The probe must test the API provider's credentials — never a local agent
-    // that would always "succeed" and mask a broken key.
+    // that would always "succeed" and mask a broken key. It is code-enforced:
+    // applyIntelligenceRouting rebuilds llmProbe via createLlmClient(config)
+    // unconditionally (context.ts:210), so it stays the cloud AiSdkClient even
+    // while every task group has switched to the coding agent.
     expect(server.ctx.llmProbe).toBeInstanceOf(SwitchableLlmClient);
+    expect(server.ctx.llmProbe.unwrap()).toBeInstanceOf(AiSdkClient);
     expect(server.ctx.llmProbe.unwrap()).not.toBeInstanceOf(CodingAgentLlmClient);
+    // Contrast: under the SAME agent routing, the task groups DID switch to the
+    // agent (when claude is installed) — so the probe's exemption is meaningful,
+    // not just "agent never resolves".
+    if (claudeInstalled) {
+      expect(innerOf("background")).toBeInstanceOf(CodingAgentLlmClient);
+    }
   });
 });
