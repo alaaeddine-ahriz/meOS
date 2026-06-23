@@ -15,18 +15,25 @@ system is shaped this way, see
 
 ```
 packages/
-├── core/    domain logic, no HTTP — the bounded contexts below
-├── server/  Fastify API + background workers, wires core into a running process
-├── web/     React + Vite UI, talks to the server over the typed HTTP boundary
-└── desktop/ Tauri 2 shell — native window + server lifecycle (Rust)
+├── contracts/ shared Zod schemas + inferred types — the web↔server API contract
+├── core/      domain logic, no HTTP — the bounded contexts below
+├── server/    Fastify API + background workers, wires core into a running process
+├── web/       React + Vite UI, talks to the server over the typed HTTP boundary
+├── desktop/   Tauri 2 shell — native window + server lifecycle (Rust)
+└── wiki-mcp/  MCP server exposing the generated wiki to external coding agents
 ```
 
 `@meos/core` holds all domain logic and is runtime-agnostic (no HTTP, no
-process orchestration). `@meos/server` depends on `core` and turns it into a
-running process: it exposes a Fastify API and runs the background workers.
-`@meos/web` is a standalone SPA that reaches the server only through the typed
-fetch client in `src/api.ts`. `@meos/desktop` is a thin Rust shell that owns the
-native window and the server's lifecycle.
+process orchestration). `@meos/contracts` defines the request/response Zod
+schemas (and the `ErrorCode` envelope); both `server` and `web` import it so the
+HTTP boundary is typed end to end. `@meos/server` depends on `core` (plus
+`contracts` and `wiki-mcp`) and turns it into a running process: it exposes a
+Fastify API and runs the background workers. `@meos/web` is a standalone SPA
+that reaches the server only over HTTP — it imports `@meos/contracts` for types
+but never `core` or `server`. `@meos/desktop` is a thin Rust shell that owns the
+native window and the server's lifecycle. `@meos/wiki-mcp` is a small MCP server
+that lets an external coding agent maintain the wiki through the same status
+ledger as the in-app maintainer.
 
 ## Bounded contexts
 
@@ -160,10 +167,13 @@ brief, dependency graph, entity timeline, meeting brief).
 ### LLM provider — `core/src/llm/`
 
 One client, every provider. `ai-sdk.ts` wraps the Vercel AI SDK
-(Anthropic / OpenAI / Google / local OpenAI-compatible); `stub.ts` is the
-test client; `switchable.ts` (`SwitchableLlmClient`) lets Settings swap
-provider/model/key at runtime; `discover.ts` lists models. Everything sits
-behind a single `LlmClient` interface so tests run with no network.
+(Anthropic / OpenAI / Google / OpenRouter / local OpenAI-compatible — the last
+two reuse the OpenAI client); `index.ts` builds the per-provider clients;
+`stub.ts` is the test client; `switchable.ts` (`SwitchableLlmClient`) lets
+Settings swap provider/model/key at runtime; `discover.ts` lists models.
+Everything sits behind a single `LlmClient` interface so tests run with no
+network. `intelligence-routing.ts` + `coding-agent-client.ts` can additionally
+route work to a local coding agent — see [llm-providers.md](./llm-providers.md).
 
 ## Server: process wiring — `packages/server/`
 
@@ -176,15 +186,22 @@ The server is the only place HTTP and process orchestration live. It depends on
   wires the event bus (contradictions, nightly schedule, session
   crystallization). Everything downstream receives this `AppContext`.
 - `server.ts` + `routes/` — Fastify API. One route module per surface:
-  `chat.ts`, `wiki.ts`, `ingest.ts`, `vault.ts`, `profile.ts`, `settings.ts`,
-  `connectors.ts`, `connector-catalog.ts`, `activity.ts`, `digest.ts`, `git.ts`,
-  `outputs.ts`. Routes are the typed boundary the web UI consumes. Connector
-  endpoints are keyed by a `:provider` path param
-  (`/api/connectors/:provider/...`), and `GET /api/connectors/catalog` is the
-  secret-free projection the web renders its connector UI from.
-- **Background workers**:
+  `chat.ts`, `wiki.ts`, `wiki-agent.ts`, `ingest.ts`, `sources.ts`,
+  `source-health.ts`, `knowledge.ts`, `meetings.ts`, `calendar.ts`, `vault.ts`,
+  `profile.ts`, `settings.ts`, `intelligence.ts`, `connectors.ts`,
+  `connector-catalog.ts`, `agent-tools.ts`, `activity.ts`, `digest.ts`,
+  `outputs.ts`, `git.ts`, and `runtime.ts` (worker health). Routes are the typed
+  boundary the web UI consumes. Connector endpoints are keyed by a `:provider`
+  path param (`/api/connectors/:provider/...`), and `GET /api/connectors/catalog`
+  is the secret-free projection the web renders its connector UI from.
+- **Background workers** (each wrapped behind a uniform `Worker` interface; full
+  model, health surface, and the opt-in process split are in
+  [runtime.md](./runtime.md)):
   - `watcher.ts` (`FolderWatcher`) — chokidar watch-folder ingestion, content-
-    hash change detection, pushes onto the ingest queue.
+    hash change detection, enqueues onto the ingest queue.
+  - `durable-ingest.ts` (`DurableIngest`) — the crash-safe ingest queue backed
+    by the persisted `ingest_jobs` table (executed by `core`'s `JobQueue`), with
+    startup recovery and stale-job/retention sweeps.
   - `scheduler.ts` (`startScheduler`) — `croner` nightly consolidation/digest.
   - `connector-manager.ts` (`ConnectorManager`) — per-kind sync intervals for
     connected accounts, riding the same ingest queue.
@@ -246,5 +263,6 @@ file / connector item
 chat: question → retrieval (hybrid) → context pack → LLM → cited answer
 ```
 
-All of this runs in one process (the server), exposed over HTTP to the web UI,
-optionally wrapped by the desktop shell.
+All of this runs in one process (the server) by default, exposed over HTTP to
+the web UI, optionally wrapped by the desktop shell. An opt-in split can move the
+heavy workers into a forked worker host — see [runtime.md](./runtime.md).
