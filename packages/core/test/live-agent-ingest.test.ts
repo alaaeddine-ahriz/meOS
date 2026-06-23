@@ -53,78 +53,74 @@ const failingFallback: LlmClient = {
 
 describe.runIf(RUN)("live: knowledge extraction + ingestion via a real coding agent", () => {
   const agentLlm = (scratchDir: string) =>
-    new CodingAgentLlmClient({ agent: getCodingAgent("claude"), scratchDir, fallback: failingFallback });
+    new CodingAgentLlmClient({
+      agent: getCodingAgent("claude"),
+      scratchDir,
+      fallback: failingFallback,
+    });
 
-  it(
-    "extracts structured knowledge from a document through the agent (no API fallback)",
-    async () => {
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-live-extract-"));
-      try {
-        const source = {
-          title: "Ada Lovelace",
-          text:
-            "Ada Lovelace was a 19th-century mathematician who collaborated with Charles " +
-            "Babbage on the Analytical Engine. She is regarded as the first computer " +
-            "programmer for writing an algorithm intended for the machine to compute " +
-            "Bernoulli numbers.",
-        };
-        const extraction = await extractKnowledge(agentLlm(tmpDir), source);
-        // eslint-disable-next-line no-console
-        console.log(
-          "[live-agent] extraction:",
-          JSON.stringify(
-            {
-              entities: extraction.entities.map((e) => ({
-                name: e.name,
-                type: e.type,
-                relevance: e.relevance,
-              })),
-              observations: extraction.observations.length,
-              relationships: extraction.relationships.length,
-            },
-            null,
-            2,
-          ),
-        );
-        // The agent returned valid schema-constrained JSON (fallback never threw)
-        // and actually found the people/things in the text.
-        expect(extraction.entities.length).toBeGreaterThan(0);
-        const names = extraction.entities.map((e) => e.name.toLowerCase());
-        expect(names.some((n) => n.includes("ada") || n.includes("lovelace"))).toBe(true);
-      } finally {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      }
-    },
-    240_000,
-  );
+  it("extracts structured knowledge from a document through the agent (no API fallback)", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-live-extract-"));
+    try {
+      const source = {
+        title: "Ada Lovelace",
+        text:
+          "Ada Lovelace was a 19th-century mathematician who collaborated with Charles " +
+          "Babbage on the Analytical Engine. She is regarded as the first computer " +
+          "programmer for writing an algorithm intended for the machine to compute " +
+          "Bernoulli numbers.",
+      };
+      const extraction = await extractKnowledge(agentLlm(tmpDir), source);
 
-  it(
-    "runs the full ingestion pipeline end to end on the agent backend",
-    async () => {
-      const db: MeosDatabase = openDatabase(":memory:");
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-live-ingest-"));
-      try {
-        const store = new KnowledgeStore(db);
-        const embedder = makeEmbedder();
-        // Wiki rewriting stays on the offline stub so the only LIVE call is the
-        // pipeline's extraction (completeStructured over the agent).
-        const wiki = new WikiWriter(store, makeExtractionStub(), tmpDir);
-        const pipeline = new IngestionPipeline({
-          store,
-          llm: agentLlm(path.join(tmpDir, "scratch")),
-          embedder,
-          wiki,
-        });
-        // The pipeline drives real extraction over the agent; it must complete
-        // cleanly (whether the relevance gate persists entities depends on the
-        // doc/profile — see the file header — so we assert the run, not the count).
-        const outcome = await pipeline.ingest(adaDocument);
-        expect(outcome.status).toBe("done");
-      } finally {
-        db.close();
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      }
-    },
-    240_000,
-  );
+      console.log(
+        "[live-agent] extraction:",
+        JSON.stringify(
+          {
+            entities: extraction.entities.map((e) => ({
+              name: e.name,
+              type: e.type,
+              relevance: e.relevance,
+            })),
+            observations: extraction.observations.length,
+            relationships: extraction.relationships.length,
+          },
+          null,
+          2,
+        ),
+      );
+      // The agent returned valid schema-constrained JSON (fallback never threw)
+      // and actually found the people/things in the text.
+      expect(extraction.entities.length).toBeGreaterThan(0);
+      const names = extraction.entities.map((e) => e.name.toLowerCase());
+      expect(names.some((n) => n.includes("ada") || n.includes("lovelace"))).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 240_000);
+
+  it("runs the full ingestion pipeline end to end on the agent backend", async () => {
+    const db: MeosDatabase = openDatabase(":memory:");
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "meos-live-ingest-"));
+    try {
+      const store = new KnowledgeStore(db);
+      const embedder = makeEmbedder();
+      // Wiki rewriting stays on the offline stub so the only LIVE call is the
+      // pipeline's extraction (completeStructured over the agent).
+      const wiki = new WikiWriter(store, makeExtractionStub(), tmpDir);
+      const pipeline = new IngestionPipeline({
+        store,
+        llm: agentLlm(path.join(tmpDir, "scratch")),
+        embedder,
+        wiki,
+      });
+      // The pipeline drives real extraction over the agent; it must complete
+      // cleanly (whether the relevance gate persists entities depends on the
+      // doc/profile — see the file header — so we assert the run, not the count).
+      const outcome = await pipeline.ingest(adaDocument);
+      expect(outcome.status).toBe("done");
+    } finally {
+      db.close();
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  }, 240_000);
 });
