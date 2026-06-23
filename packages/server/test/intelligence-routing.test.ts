@@ -124,3 +124,28 @@ describe("provider-health probe", () => {
     }
   });
 });
+
+describe("switching the backend clears a provider hold", () => {
+  it("drops an ingest hold so a backlog stalled by a dead API key drains on the new backend", async () => {
+    // Simulate the trap: a cloud-provider outage (out of credits) engaged the
+    // circuit hold, freezing the ingest queue. The user then switches to a local
+    // agent to keep working.
+    server.ctx.store.setIngestHold(
+      "Your OpenRouter account is out of credits or has hit its quota.",
+      "credits",
+    );
+    expect(server.ctx.store.getIngestHold()).not.toBeNull();
+
+    const res = await server.app.inject({
+      method: "PUT",
+      url: "/api/intelligence-routing",
+      payload: { backend: "agent", agentId: "claude" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // Switching the backend must clear the hold (its auto-recovery probe is
+    // cloud-only and would never succeed on the dead key), so the queue drains on
+    // the agent instead of staying frozen forever.
+    expect(server.ctx.store.getIngestHold()).toBeNull();
+  });
+});
