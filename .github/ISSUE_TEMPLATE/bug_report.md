@@ -24,7 +24,7 @@ What you expected instead.
 - MeOS mode: web (`pnpm dev`) / desktop (Tauri)
 - OS + version:
 - Node version (`node -v`):
-- LLM provider (Anthropic / OpenAI / Google / local):
+- LLM provider (Anthropic / OpenAI / Google / OpenRouter / local):
 
 ## Logs / screenshots
 

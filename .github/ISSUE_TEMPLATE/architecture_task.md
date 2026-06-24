@@ -15,10 +15,12 @@ The technical direction. Note trade-offs and alternatives.
 
 ## Affected packages
 
+- [ ] contracts
 - [ ] core
 - [ ] server
 - [ ] web
 - [ ] desktop
+- [ ] wiki-mcp
 
 ## ADR
 
