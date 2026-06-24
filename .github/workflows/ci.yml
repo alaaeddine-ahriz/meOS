@@ -37,7 +37,7 @@ jobs:
     name: build-and-test
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up pnpm
         # Pin pnpm to the repo's packageManager version (package.json) so
@@ -84,7 +84,7 @@ jobs:
     name: lint
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up pnpm
         # Pin pnpm to the repo's packageManager version (package.json) so
@@ -125,7 +125,7 @@ jobs:
     name: boundaries
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up pnpm
         # Pin pnpm to the repo's packageManager version (package.json) so
@@ -173,7 +173,7 @@ jobs:
     env:
       MEOS_LLM_PROVIDER: stub
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up pnpm
         # Pin pnpm to the repo's packageManager version (package.json) so
