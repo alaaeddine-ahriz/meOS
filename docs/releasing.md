@@ -224,13 +224,13 @@ Compatibility rules:
   `package.json`. With Corepack enabled (`corepack enable`), contributors and CI
   automatically use the exact pnpm version, keeping `pnpm-lock.yaml` stable.
 - **Node** is pinned to `22` in [`.nvmrc`](../.nvmrc). Run `nvm use` to match.
-  The workspace itself only requires Node `>=20` (root `package.json`
-  `engines`), but the desktop build **must** run on Node **22**: the runtime
-  bundler ([`scripts/bundle-runtime.mjs`](../scripts/bundle-runtime.mjs)) ships
-  Node `22.12.0` and `better-sqlite3`'s prebuilt binary is ABI-bound to that
-  major version. The script aborts if the host Node major differs from the
-  bundled one, and CI's `setup-node` is pinned to `22` for the same reason.
-  Standardising local dev on `22` via `.nvmrc` avoids that mismatch.
+  The workspace requires Node `>=22 <23` (root `package.json` `engines`,
+  enforced by `engine-strict` in `.npmrc`), and the desktop build in particular
+  **must** run on Node **22**: the runtime bundler
+  ([`scripts/bundle-runtime.mjs`](../scripts/bundle-runtime.mjs)) ships Node
+  `22.12.0` and `better-sqlite3`'s prebuilt binary is ABI-bound to that major
+  version. The script aborts if the host Node major differs from the bundled
+  one, and CI's `setup-node` is pinned to `22` for the same reason.
 
 ## Release process: Release Please (not Changesets)
 
