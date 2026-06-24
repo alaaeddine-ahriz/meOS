@@ -4,6 +4,11 @@ This is the **non-desktop** path: it runs the API server and the web dev loop
 inside a single Node 22 container, so a contributor can boot the app without
 installing Node, pnpm, or native build tools on the host.
 
+**Prerequisite:** [Docker](https://docs.docker.com/get-docker/) (Docker Desktop,
+or Docker Engine with the Compose v2 plugin). `pnpm dev:container` is just a
+shortcut for the `docker compose` command below; to avoid installing pnpm on the
+host, run that `docker compose` command directly.
+
 ```sh
 pnpm dev:container
 # equivalent to:
