@@ -96,8 +96,10 @@ Tauri resource, so it must exist before `pnpm desktop:build`.
 
 **Release packages for every platform** are built in CI:
 `.github/workflows/desktop-build.yml` runs the steps above on a macOS (Apple
-Silicon + Intel) / Windows / Linux matrix — each on its own native runner — and
-uploads a `.dmg` / `.exe` / `.AppImage` per platform. Trigger it from the
+Silicon) / Windows / Linux matrix — each on its own native runner — and uploads
+a `.dmg` / `.exe` / `.AppImage` (Linux falls back to `.deb`) per platform.
+(macOS Intel is intentionally not built — `onnxruntime-node` ships no darwin-x64
+prebuild; see [`docs/desktop-packaging.md`](docs/desktop-packaging.md).) Trigger it from the
 **Actions** tab (_Run workflow_) or by pushing a `v*` tag, then download the
 artifacts from the run summary. Builds are unsigned for now: on first open,
 macOS users run `xattr -dr com.apple.quarantine /Applications/MeOS.app`, Windows
