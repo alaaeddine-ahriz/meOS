@@ -16,9 +16,10 @@ This package depends only on `zod`, keeping the dependency graph acyclic:
 ## Layout
 
 - `src/error.ts` — `ErrorEnvelopeSchema` + the `ErrorCode` enum.
-- `src/schemas/<group>.ts` — request/response schemas, one file per route group
-  (activity, calendar, chat, connectors, digest, git, ingest, meetings, outputs,
-  profile, runtime, settings, stale-facts, vault, wiki, common).
+- `src/schemas/<group>.ts` — request/response schemas, one file per route group:
+  activity, agent-tools, calendar, chat, common, connectors, digest, git, ingest,
+  intelligence, knowledge, meetings, outputs, preferences, profile, runtime,
+  settings, source-health, sources, stale-facts, vault, wiki, wiki-agent.
 - `src/index.ts` — namespaced re-exports (`wiki.*`, `chat.*`, …) plus the
   directly-inferred types the web client consumes.
 

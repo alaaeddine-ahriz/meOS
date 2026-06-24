@@ -7,8 +7,9 @@ identity + branding, the data **kinds** it syncs, its **auth model**, and the
 (the catalog the UI renders from, the privacy defaults, the sync schedule, the
 routes) is derived from that manifest, so a new connector **appears in every view
 automatically**. Code lives in
-[`packages/core/src/connectors/`](../packages/core/src/connectors/); Google is the
-reference implementation.
+[`packages/core/src/connectors/`](../packages/core/src/connectors/). Three
+connectors ship today — **Google**, **GitHub**, and **Email (IMAP)** — with
+Google as the reference implementation.
 
 ## Adding a connector
 
@@ -63,6 +64,29 @@ read/write (the agent can create tasks).
   contributes the `fetch_email_threads` **agent tool**, so the assistant can read
   the contents of correspondence on demand.
 - **Tasks** → your to-dos, with a write path to create new ones.
+
+**Agent tools** (live, on-demand, each present only when its service is
+connected): `fetch_email_threads` reads real email bodies (they aren't in the
+knowledge base); `search_calendar` queries events by text/time window, including
+future ones; `list_tasks` reads and `create_task` writes Google Tasks;
+`lookup_contact` fetches a person's live details.
+
+## GitHub
+
+OAuth2. "Index your repositories and the issues & PRs that involve you."
+
+- **Repositories** → project entities in your graph (private repos produce
+  private, on-device facts).
+- **Issues & PRs** → issues and pull requests assigned to, opened by, or
+  mentioning you (open ones map to tasks, closed ones to facts).
+
+## Email (IMAP)
+
+Basic auth — the connector collects host / username / password (no OAuth consent
+screen), for any IMAP mailbox.
+
+- **Email** → messages indexed like any other correspondence, `private` by
+  default.
 
 ## Background sync
 

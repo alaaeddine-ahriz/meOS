@@ -6,8 +6,18 @@ green build and an open PR. For what each part of the system does, see
 
 ## Prerequisites
 
-- **Node** ≥ 20 (the desktop runtime is pinned to Node 22.x — see below).
-- **pnpm** 10 (the repo is a pnpm workspace; `corepack enable` will provide it).
+- **Node** `>=22 <23` — use Node 22. A [`.nvmrc`](.nvmrc) pins it, so `nvm use`
+  selects the right version. Installs are **engine-strict** (`.npmrc`): pnpm
+  refuses any other major, because the native modules (`better-sqlite3`) are
+  ABI-bound to the Node version. Install via
+  [nvm](https://github.com/nvm-sh/nvm#installing-and-updating) or
+  [nodejs.org](https://nodejs.org/en/download).
+- **pnpm** `10.20.x` — pinned via `packageManager` in `package.json`. Run
+  [`corepack enable`](https://pnpm.io/installation) and pnpm uses the pinned
+  version automatically.
+- **Git** — <https://git-scm.com/downloads>
+
+Check your versions: `node -v` (expect `v22.x`) and `pnpm -v` (expect `10.20.x`).
 
 ## Native (web) development
 
@@ -21,14 +31,15 @@ and the Vite web UI in parallel. Open <http://localhost:5173>; the Vite dev
 server proxies `/api` to the API server on `:4321`.
 
 Pick an LLM provider in **Settings (⌘,)** and paste an API key, or export
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` before launch as a
-fallback. See [`docs/llm-providers.md`](docs/llm-providers.md).
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`
+before launch as a fallback. See [`docs/llm-providers.md`](docs/llm-providers.md).
 
 ## Desktop development (Tauri)
 
 Prerequisites:
 
-- The [Rust toolchain](https://rustup.rs) (stable).
+- The [Rust toolchain](https://rustup.rs) (stable) plus your platform's
+  [Tauri prerequisites](https://tauri.app/start/prerequisites/).
 - **Linux** also needs the system WebKit/AppImage libraries —
   `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`,
   `libxdo-dev`, `libssl-dev`, `patchelf`, `libfuse2` (see the exact list in
@@ -51,8 +62,13 @@ major version to match.
 ```sh
 pnpm test        # vitest across packages; LLM + network are stubbed
 pnpm typecheck   # tsc --noEmit across packages
+pnpm lint        # eslint across the repo
+pnpm boundaries  # dependency-cruiser: enforce package boundaries
 pnpm build       # tsc + vite build across packages
 ```
+
+`task check` runs the full pre-merge gate (typecheck + test + lint + boundaries)
+in one command.
 
 Tests never call a real LLM or the network — provider calls are stubbed behind
 the `LlmClient` interface, so the suite is deterministic and offline.
@@ -64,8 +80,7 @@ the `LlmClient` interface, so the suite is deterministic and offline.
 - **One PR per issue.** Keep PRs focused; if a change grows, split it.
 - Use conventional-ish commit subjects: `feat(connectors): …`,
   `fix(wiki): …`, `docs: …`.
-- Before opening a PR, make sure `pnpm typecheck`, `pnpm test`, and `pnpm build`
-  pass.
+- Before opening a PR, run the full pre-merge gate (`task check`) plus `pnpm build`. A pre-commit hook (`lint-staged` → eslint + prettier) auto-formats staged files, so commits stay clean.
 - Open the PR with `gh pr create`, reference the issue (`Closes #N`), and fill
   out the PR template.
 
@@ -74,8 +89,11 @@ the `LlmClient` interface, so the suite is deterministic and offline.
 - **Strict TypeScript.** `strict` and `noUncheckedIndexedAccess` are on
   (`tsconfig.base.json`). Don't loosen them; fix the types.
 - **No deep cross-package imports.** Depend on a sibling package through its
-  public entry (`@meos/core`), never by reaching into its `src/`. The dependency
-  direction is `web`/`server` → `core`; `core` has no HTTP and no UI deps.
+  public entry (`@meos/core`), never by reaching into its `src/`. The boundaries
+  (enforced by `pnpm boundaries`): `server → core` (plus `contracts` and
+  `wiki-mcp`); `web` imports only `@meos/contracts` and reaches the server over
+  HTTP — never `core` or `server`; `desktop` (the Tauri shell) spawns the server
+  and shares no TypeScript with the workspace. `core` has no HTTP and no UI deps.
 - **`core` stays runtime-agnostic.** Domain logic, the knowledge store,
   extraction, the wiki writer, connectors, and embeddings live in `core` with no
   Fastify/React imports.

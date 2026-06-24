@@ -39,10 +39,13 @@ can do is produce weak prose — which `wiki_check` catches and you can redo.
    tool (call it with `{ mode: "external" }`) or change it in meOS settings. The
    default is `in-app`, so nothing changes until you opt in.
 
-2. **Add the meOS MCP server** to your coding agent. With Claude Code:
+2. **Add the meOS MCP server** to your coding agent. It isn't published to npm
+   yet, so register it from this repo (see
+   [`packages/wiki-mcp/README.md`](../packages/wiki-mcp/README.md) for all
+   options). With Claude Code, from the repo root:
 
    ```sh
-   claude mcp add meos -- npx -y @meos/wiki-mcp
+   claude mcp add meos -- pnpm --filter @meos/wiki-mcp dev
    ```
 
    The meOS app **must be running** — the MCP server is a thin proxy over the
@@ -100,8 +103,8 @@ hallucinated or mis-quoted fact is rejected before it can enter the graph — so
 
 ## Shared status and idempotency
 
-The work queue is shared. `wiki_stale` is the same ledger the in-app path uses,
-so whichever path runs, the other won't redo the same page:
+The work queue is shared. `wiki_stale_sources` is the same ledger the in-app path
+uses, so whichever path runs, the other won't redo the same page:
 
 - Each committed page records a `body_hash`. If a page's body is unchanged since
   the last commit, it's **skipped** — `wiki_commit` reports it as `unchanged`

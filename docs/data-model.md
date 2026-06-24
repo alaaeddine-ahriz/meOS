@@ -44,12 +44,18 @@ fusion at query time.
 
 ## Operational tables
 
-`inbox_items` (file-centric ingest feed), `ingested_files` (mtime/size +
-content-hash ledger for change detection), `conversations`/`messages`/
-`message_sources` (chat + citations), `digests`, `settings` (LLM provider, keys,
-git prefs), `audit_log`, `wiki_runs`/`wiki_run_events` (agentic writer
-transcripts), and the `connector_*` tables (see
-[`connectors.md`](connectors.md)):
+`watched_folders` (the folders ingestion watches), `inbox_items` (file-centric
+ingest feed), `ingested_files` (mtime/size + content-hash ledger for change
+detection), `ingest_jobs` (the durable ingest queue — see
+[`runtime.md`](runtime.md)), `source_revisions` (per-source version history),
+`meeting_notes` + `meeting_link_suggestions` (notes/meetings),
+`conversations`/`messages`/`message_sources` (chat + citations) with
+`message_agent_meta` (agent-run telemetry), `digests`, `dismissed_duplicates`
+(review decisions), `settings` (LLM provider, keys, git prefs), `audit_log`,
+`wiki_runs`/`wiki_run_events` (agentic writer transcripts), `wiki_stale_sources`
+(pages flagged for regeneration), `wiki_commits`/`wiki_commit_changes` (git
+commit history), `worker_health` (background-worker status), and the
+`connector_*` tables (see [`connectors.md`](connectors.md)):
 
 - `connector_accounts` — one row per connected provider (`UNIQUE(provider)`),
   holding its OAuth tokens or basic credentials.

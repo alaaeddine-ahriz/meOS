@@ -10,16 +10,20 @@ Closes #
 
 ## Affected packages
 
+- [ ] contracts
 - [ ] core
 - [ ] server
 - [ ] web
 - [ ] desktop
+- [ ] wiki-mcp
 - [ ] docs
 
 ## Checklist
 
 - [ ] `pnpm typecheck` passes
 - [ ] `pnpm test` passes
+- [ ] `pnpm lint` passes
+- [ ] `pnpm boundaries` passes
 - [ ] `pnpm build` passes
 - [ ] One PR per issue, branched off `main`
 - [ ] No deep cross-package imports (depend on `@meos/core`, not its `src/`)

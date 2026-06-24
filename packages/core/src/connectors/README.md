@@ -1,7 +1,8 @@
 # Connector framework / SDK
 
-A **connector** is meOS's product primitive for an external integration (Google,
-and, by this same interface, Notion / IMAP / a local folder / …). It is a
+A **connector** is meOS's product primitive for an external integration. Three
+ship today — **Google**, **GitHub**, and **IMAP** — and the same interface fits
+any other provider (Notion, a local folder, …). It is a
 self-contained plugin that declares, in one **manifest**, who it is, the data
 **kinds** it syncs, its **auth model**, and the **agent tools** it gives the chat
 assistant. Everything downstream is _derived_ from that manifest — the catalog the
@@ -15,13 +16,15 @@ persists and **materializes** it. Neither side reaches across that line.
 
 ## The pieces
 
-| File                    | Role                                                                                                                                                                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `framework.ts`          | The `Connector` interface: `ConnectorManifest`, `KindManifest`, `AuthManifest`, `OAuthProvider`, `NormalizedItem`, `AgentToolContext`.                                                                                       |
-| `registry.ts`           | `ConnectorRegistry` — look up by id, and the derivation surface (`list`, `sourceTypes`, `privateSourceTypes`). `connectorRegistry` ships with Google registered; `register()` also injects the connector's privacy defaults. |
-| `google/connector.ts`   | `GoogleConnector` — the reference implementation (sync + agent tools + OAuth).                                                                                                                                               |
-| `sync.ts`               | The provider-agnostic orchestrator (`syncConnector`, `ensureAccessToken`).                                                                                                                                                   |
-| `template.connector.ts` | A copy-paste skeleton for a new connector.                                                                                                                                                                                   |
+| File                    | Role                                                                                                                                                                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `framework.ts`          | The `Connector` interface: `ConnectorManifest`, `KindManifest`, `AuthManifest`, `OAuthProvider`, `NormalizedItem`, `AgentToolContext`.                                                                                                                               |
+| `registry.ts`           | `ConnectorRegistry` — look up by id, and the derivation surface (`list`, `sourceTypes`, `privateSourceTypes`). `connectorRegistry` ships with the built-in connectors registered (Google, IMAP, GitHub); `register()` also injects the connector's privacy defaults. |
+| `google/connector.ts`   | `GoogleConnector` — the reference implementation (sync + agent tools + OAuth).                                                                                                                                                                                       |
+| `imap/`, `github/`      | Additional shipped connectors (IMAP mail; GitHub) built on the same interface.                                                                                                                                                                                       |
+| `sync.ts`               | The provider-agnostic orchestrator (`syncConnector`, `ensureAccessToken`).                                                                                                                                                                                           |
+| `map/`                  | Deterministic item → `Extraction` mappers (`helpers.ts` + per-kind files).                                                                                                                                                                                           |
+| `template.connector.ts` | A copy-paste skeleton for a new connector.                                                                                                                                                                                                                           |
 
 The catalog endpoint (`GET /api/connectors/catalog`, built in
 `server/routes/connector-catalog.ts`) is the secret-free projection of the registry
@@ -43,10 +46,12 @@ up the UI with no frontend list edits.
   `OAuthProvider` (build auth URL → exchange code → refresh → revoke; Google's is in
   `google/oauth.ts`), or `{ kind: "basic", fields }` declaring the credential form a
   service like IMAP collects (and no `oauth` member).
-- **Emitted item format** — `fetchDelta` returns `NormalizedItem`s: the `externalId`
-  (ledger key), `title`, a deep-link `path`, the **raw** provider payload (kept
-  verbatim for reprocessing), the **normalized** human-readable text (what gets
-  chunked / indexed / extracted), and the deterministic `extraction`.
+- **Emitted item format** — `fetchDelta` returns a `NormalizedDelta`: a batch of
+  `NormalizedItem`s plus the next cursor (and optional `nextConfig`). Each
+  `NormalizedItem` carries the `externalId` (ledger key), `title`, a deep-link
+  `path`, the **raw** provider payload (kept verbatim for reprocessing), the
+  **normalized** human-readable text (what gets chunked / indexed / extracted),
+  and the deterministic `extraction`.
 - **Agent tools** (optional) — `agentTools(ctx)` returns the chat-agent tools the
   connector contributes when its account is connected; `promptHint` is the one-line
   description appended to the system prompt. The `ctx` provides the store, the

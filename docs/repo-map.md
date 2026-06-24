@@ -3,14 +3,16 @@
 A practical guide for finding the right home for new code. For the bigger
 picture, read [architecture.md](./architecture.md) first.
 
-The monorepo is a pnpm workspace with four packages:
+The monorepo is a pnpm workspace with six packages:
 
-| Package                              | What it is                                                             |
-| ------------------------------------ | ---------------------------------------------------------------------- |
-| `@meos/core` (`packages/core`)       | Domain logic, runtime-agnostic. No HTTP, no process orchestration.     |
-| `@meos/server` (`packages/server`)   | Fastify API + background workers. Wires `core` into a running process. |
-| `@meos/web` (`packages/web`)         | React + Vite SPA. Talks to the server over a typed HTTP boundary.      |
-| `@meos/desktop` (`packages/desktop`) | Tauri 2 Rust shell. Owns the native window and server lifecycle.       |
+| Package                                  | What it is                                                             |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `@meos/contracts` (`packages/contracts`) | Shared Zod schemas + inferred types — the web↔server API contract.     |
+| `@meos/core` (`packages/core`)           | Domain logic, runtime-agnostic. No HTTP, no process orchestration.     |
+| `@meos/server` (`packages/server`)       | Fastify API + background workers. Wires `core` into a running process. |
+| `@meos/web` (`packages/web`)             | React + Vite SPA. Talks to the server over a typed HTTP boundary.      |
+| `@meos/desktop` (`packages/desktop`)     | Tauri 2 Rust shell. Owns the native window and server lifecycle.       |
+| `@meos/wiki-mcp` (`packages/wiki-mcp`)   | MCP server exposing the generated wiki to external coding agents.      |
 
 ## Where does new code go?
 
@@ -78,26 +80,31 @@ server needs from `core/src/index.ts` — that barrel is `core`'s public API.
 
 ## Package ownership table
 
-| Package         | Responsibility                                                                                                                                                                     | Allowed dependencies                                                                                           | Forbidden dependencies                                                                                        |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `@meos/core`    | All domain logic: ingestion, extraction, knowledge store, memory, embeddings, wiki writer, chat/retrieval, connectors, vault, profile, jobs, LLM client. Runtime-agnostic.         | Third-party libs (`ai`, `zod`, `better-sqlite3`, `@huggingface/transformers`, `bash-tool`, …). Node built-ins. | `@meos/server`, `@meos/web`, `@meos/desktop`. No HTTP framework. No process orchestration (watch/cron/spawn). |
-| `@meos/server`  | Fastify API (`routes/`), composition root (`context.ts`), background workers (watcher, scheduler, connector-manager), git sync, activity bus. Turns `core` into a running process. | `@meos/core` (via its public barrel `core/src/index.ts`), Fastify, `chokidar`, `croner`, Node built-ins.       | `@meos/web`, `@meos/desktop`. Deep imports into `core` internals (e.g. `@meos/core/src/...`).                 |
-| `@meos/web`     | React + Vite SPA: views, components, hooks. The only consumer of the API contract, via the typed fetch client `src/api.ts`.                                                        | The server's HTTP API through `src/api.ts`. React, Vite, UI libs, Tauri JS plugins.                            | `@meos/core`, `@meos/server` (no source imports — talk over HTTP only). Server internals.                     |
-| `@meos/desktop` | Tauri 2 Rust shell: native window + server lifecycle (spawn/health-check/teardown, per-user paths).                                                                                | Tauri, the built web UI and server bundle as resources.                                                        | Any domain logic. Importing `core`/`server`/`web` source.                                                     |
+| Package           | Responsibility                                                                                                                                                                                     | Allowed dependencies                                                                                                                   | Forbidden dependencies                                                                                        |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `@meos/contracts` | Shared API contract: request/response Zod schemas + inferred types, the `ErrorCode` envelope. Imported by both `server` and `web` so the HTTP boundary is typed end to end.                        | `zod` only. Nothing else.                                                                                                              | Every other `@meos/*` package. It is the leaf both sides share, so it depends on none of them.                |
+| `@meos/core`      | All domain logic: ingestion, extraction, knowledge store, memory, embeddings, wiki writer, chat/retrieval, connectors, vault, profile, jobs, LLM client. Runtime-agnostic.                         | Third-party libs (`ai`, `zod`, `better-sqlite3`, `@huggingface/transformers`, `bash-tool`, …). Node built-ins.                         | `@meos/server`, `@meos/web`, `@meos/desktop`. No HTTP framework. No process orchestration (watch/cron/spawn). |
+| `@meos/server`    | Fastify API (`routes/`), composition root (`context.ts`), background workers (watcher, durable ingest, scheduler, connector-manager), git sync, activity bus. Turns `core` into a running process. | `@meos/core` (via its barrel `core/src/index.ts`), `@meos/contracts`, `@meos/wiki-mcp`, Fastify, `chokidar`, `croner`, Node built-ins. | `@meos/web`, `@meos/desktop`. Deep imports into `core` internals (e.g. `@meos/core/src/...`).                 |
+| `@meos/web`       | React + Vite SPA: views, components, hooks. The only consumer of the API contract, via the typed fetch client `src/api.ts`.                                                                        | `@meos/contracts` (types only). The server's HTTP API through `src/api.ts`. React, Vite, UI libs, Tauri JS plugins.                    | `@meos/core`, `@meos/server` (no source imports — talk over HTTP only). Server internals.                     |
+| `@meos/desktop`   | Tauri 2 Rust shell: native window + server lifecycle (spawn/health-check/teardown, per-user paths).                                                                                                | Tauri, the built web UI and server bundle as resources.                                                                                | Any domain logic. Importing `core`/`server`/`web` source.                                                     |
+| `@meos/wiki-mcp`  | Standalone MCP server that lets an external coding agent maintain the wiki over the meOS HTTP API (shared status ledger). The `server` locates and runs its built entry.                           | `@modelcontextprotocol/sdk`, `zod`. Reaches meOS over HTTP — no source imports.                                                        | Every other `@meos/*` package (it shares no source).                                                          |
 
 ## The cross-package dependency rule
 
 The layering is one-directional and the boundaries are public APIs, not
 internals:
 
+- **`contracts` is the shared leaf.** Request/response types only; it depends on
+  no other `@meos/*` package, so both `server` and `web` can import it without
+  creating a cycle.
 - **`core` is domain/runtime-agnostic.** It knows nothing about HTTP, the web
   UI, or the desktop shell. It must not import from any other `@meos/*` package.
-- **`server` may depend on `core`** — and only `core`. It consumes `core`
-  through the public barrel (`core/src/index.ts`); it does not reach into
-  `core`'s internal files.
-- **`web` uses the typed API/client boundary, not server internals.** All
-  server communication goes through `web/src/api.ts` (HTTP `fetch`). The web
-  package imports no `@meos/*` source.
+- **`server` depends on `core` (its public barrel `core/src/index.ts`), plus
+  `contracts` and `wiki-mcp`.** It does not reach into `core`'s internal files,
+  and it must not import `web` or `desktop`.
+- **`web` talks over HTTP, sharing only types.** All server communication goes
+  through `web/src/api.ts` (HTTP `fetch`). The only `@meos/*` package it imports
+  is `@meos/contracts` (types, erased at build) — never `core` or `server`.
 - **`desktop` owns shell/lifecycle only.** It manages the window and the
   server process; it contains no domain logic and imports no other package's
   source (it consumes the built server/web as bundled resources).
@@ -105,5 +112,7 @@ internals:
   surface (`@meos/core`'s `index.ts` barrel; the server's HTTP routes), never
   on a path inside another package (`@meos/core/src/knowledge/store.js`).
 
-In short: `desktop → (spawns) server → core`, and `web → (HTTP) → server`.
-Dependencies point inward toward `core`; nothing points back out.
+In short: `desktop → (spawns) server → core`, and `web → (HTTP) → server`, with
+`contracts` shared by `server` and `web` as the typed boundary. Dependencies
+point inward toward `core`; nothing points back out. These rules are enforced by
+`pnpm boundaries` (`dependency-cruiser`).
