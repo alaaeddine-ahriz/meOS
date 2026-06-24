@@ -11,6 +11,8 @@ streaming / tool-use.
 - **Anthropic** (default)
 - **OpenAI**
 - **Google**
+- **OpenRouter** — one key, hundreds of models (`vendor/model` slugs). Reaches
+  models over OpenAI-compatible Chat Completions, so it reuses the OpenAI client.
 - **Local, OpenAI-compatible** servers (LM Studio, llama.cpp, Ollama's `/v1`) —
   point at the endpoint (e.g. `http://localhost:1234/v1`), no API key, nothing
   leaves the machine. Driven by the OpenAI client.
@@ -23,8 +25,25 @@ files. Changes apply immediately, no restart.
 
 Fallbacks, used only when no key was set in Settings:
 
-- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` — env API keys.
+- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` —
+  env API keys.
 - `MEOS_LLM_PROVIDER` — overrides the provider per run.
+
+## Backend: cloud API or local coding agent
+
+The whole app's intelligence runs on **one** global backend, a binary choice:
+
+- **`api`** (default) — the cloud provider configured above.
+- **`agent`** — a local **coding-agent CLI** (Claude Code by default; also Codex,
+  Cursor, Gemini, Copilot when detected). The CLI's own subscription does the
+  inference, so AI features cost nothing against an API key.
+
+The runtime keeps a client per **task group** — `background` (extraction,
+contradiction detection, consolidation, OCR, crystallization), `wiki` (the
+agentic maintainer), and `assistant` (profile drafting) — but all groups run on
+the single chosen backend (`intelligence-routing.ts`). The backend is selected in
+Settings; anything unset resolves to the safe `api` default. Available agents are
+discovered via `GET /api/coding-agents`.
 
 ## Local embeddings
 
