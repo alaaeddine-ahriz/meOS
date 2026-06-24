@@ -42,7 +42,10 @@ Concretely:
    sync, and decoupled wiki regeneration — coordinated by in-process queues
    (`JobQueue`) and an in-process event bus (`MeosEvents`). `server/src/context.ts`
    is the composition root that wires it all together. There is no external
-   broker, no separate worker tier, no network hop between stages.
+   broker, no separate worker tier, no network hop between stages. (This is the
+   default; an opt-in split — `MEOS_WORKER_PROCESS=1` — can move the heavy workers
+   into a forked worker host without changing the boundaries, see
+   [runtime.md](../runtime.md).)
 
 2. **On-device by default.** Storage is in-process `better-sqlite3`. Embeddings
    always run locally (transformers.js). Vector search is brute-force cosine
@@ -59,9 +62,11 @@ Concretely:
    everything runs in one process, the packages form a one-directional
    dependency graph: `desktop → server → core`, and `web → (HTTP) → server`.
    `core` is domain logic with no HTTP and no knowledge of the other packages;
-   `server` depends only on `core`'s public barrel; `web` talks to the server
-   only through the typed `api.ts` fetch client; no deep imports cross package
-   public APIs. See [../repo-map.md](../repo-map.md) for the full rule.
+   `server` depends on `core`'s public barrel (plus the shared `contracts` types
+   and `wiki-mcp`); `web` talks to the server only through the typed `api.ts`
+   fetch client (importing `@meos/contracts` for types only); no deep imports
+   cross package public APIs. See [../repo-map.md](../repo-map.md) for the full
+   rule.
 
 This gives us the boundaries a service-oriented design would give — the contexts
 are separable and independently testable — without paying the operational tax of
