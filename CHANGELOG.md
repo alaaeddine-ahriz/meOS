@@ -10,6 +10,101 @@ convention, and the per-release checklist. From the 0.1.0 release onward this
 file is generated from Conventional Commits by
 [Release Please](https://github.com/googleapis/release-please-action).
 
+## [0.2.0](https://github.com/alaaeddine-ahriz/meOS/compare/v0.1.0...v0.2.0) (2026-06-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **tasks:** remove the scheduled agent-tasks feature
+
+### Added
+
+* **#86:** simplify Entity types settings — drop presets, add info tooltips ([c0dcd6c](https://github.com/alaaeddine-ahriz/meOS/commit/c0dcd6cfb51f0384d43caa2129a0c080ee386a60))
+* **activity:** bulk retry / clear dead-letter ingest jobs from the Health tab ([#98](https://github.com/alaaeddine-ahriz/meOS/issues/98)) ([#102](https://github.com/alaaeddine-ahriz/meOS/issues/102)) ([1145f0a](https://github.com/alaaeddine-ahriz/meOS/commit/1145f0a5ff3eb01d00c01e954d46335930ffe4e2))
+* **activity:** per-job controls + ingest pause/resume in the Health tab ([#98](https://github.com/alaaeddine-ahriz/meOS/issues/98)) ([#105](https://github.com/alaaeddine-ahriz/meOS/issues/105)) ([6e2e599](https://github.com/alaaeddine-ahriz/meOS/commit/6e2e599517f4829423addacc1c72e836e7cd4230))
+* **activity:** record + show the precise pipeline step a failed ingest broke at ([#110](https://github.com/alaaeddine-ahriz/meOS/issues/110)) ([44cf23e](https://github.com/alaaeddine-ahriz/meOS/commit/44cf23e1672880bb4afc8eb7dded5c9ac0f3baa6))
+* **activity:** show why a document failed when its row is clicked ([#92](https://github.com/alaaeddine-ahriz/meOS/issues/92)) ([0e61d76](https://github.com/alaaeddine-ahriz/meOS/commit/0e61d763e9c33cb91f441011a534824482d4b672))
+* **agents:** persist run metadata + scheduled agent tasks ([#2](https://github.com/alaaeddine-ahriz/meOS/issues/2)-4, [#7](https://github.com/alaaeddine-ahriz/meOS/issues/7)) ([#137](https://github.com/alaaeddine-ahriz/meOS/issues/137)) ([2558c47](https://github.com/alaaeddine-ahriz/meOS/commit/2558c4705c9a52519e6e1ffad3ee596505e59b98))
+* **chat:** agent mid-run questions — agent pauses to ask, you answer in chat ([#134](https://github.com/alaaeddine-ahriz/meOS/issues/134)) ([dfc3732](https://github.com/alaaeddine-ahriz/meOS/commit/dfc37326e61a918bec7f7189f57c0e3563d5818f))
+* **chat:** agent mode — model picker, meOS knowledge tools, grounded citations, interleaved trace ([#129](https://github.com/alaaeddine-ahriz/meOS/issues/129)) ([e35181c](https://github.com/alaaeddine-ahriz/meOS/commit/e35181c38faf8d770f72f4dff03cf0b26f451e3c))
+* **chat:** agent mode — run Claude Code in chat, streamed natively ([#126](https://github.com/alaaeddine-ahriz/meOS/issues/126)) ([a15b1dc](https://github.com/alaaeddine-ahriz/meOS/commit/a15b1dcdfadfe6485b2d29258c56f63ebb691698))
+* **chat:** agent mode reuses meOS connector auth — no second login ([#132](https://github.com/alaaeddine-ahriz/meOS/issues/132)) ([93fa6d3](https://github.com/alaaeddine-ahriz/meOS/commit/93fa6d303cb627f3eb04ac384ce83d59c4145c39))
+* **chat:** multi-agent mode — detect & run Codex/Cursor/Gemini/Copilot, not just Claude ([#133](https://github.com/alaaeddine-ahriz/meOS/issues/133)) ([7ef8678](https://github.com/alaaeddine-ahriz/meOS/commit/7ef86785384f805826be8eee9dce7afae31239bf))
+* **connectors:** add GitHub connector ([2a0eed9](https://github.com/alaaeddine-ahriz/meOS/commit/2a0eed96acab7d19e98d4dc0612fe85b4f14f35d))
+* **connectors:** connector platform — define once, appear everywhere ([#114](https://github.com/alaaeddine-ahriz/meOS/issues/114)) ([22b4ea8](https://github.com/alaaeddine-ahriz/meOS/commit/22b4ea8113a9037010ac5df6cafd759a3683f6b2))
+* **connectors:** google agent tools — live calendar/tasks/contacts fetch & search in chat ([#130](https://github.com/alaaeddine-ahriz/meOS/issues/130)) ([d0f8305](https://github.com/alaaeddine-ahriz/meOS/commit/d0f8305befe6fbb03e2e9f4032c4d9ba9de949be))
+* **connectors:** group Google services under one provider block ([ee0ef4f](https://github.com/alaaeddine-ahriz/meOS/commit/ee0ef4fe403fba42d7a8a50787580d7e552deafe))
+* **connectors:** IMAP email connector + basic-auth support ([#116](https://github.com/alaaeddine-ahriz/meOS/issues/116)) ([228b331](https://github.com/alaaeddine-ahriz/meOS/commit/228b331bc24dd60cb925130d3e806bbeb948cd90))
+* **connectors:** Sources tab + per-kind index/wiki mode ([a83c5e3](https://github.com/alaaeddine-ahriz/meOS/commit/a83c5e3948a4251b82f499fa2f1c5c96d9eaa01e))
+* **connectors:** Sources tab, per-kind index/wiki mode, Gmail sync fixes ([6e4bfd7](https://github.com/alaaeddine-ahriz/meOS/commit/6e4bfd76230022ba5668d2896966b29ae9252bb3))
+* **durable:** make the SQLite durable-ingest layer multi-process safe ([#95](https://github.com/alaaeddine-ahriz/meOS/issues/95)) ([6d60d7f](https://github.com/alaaeddine-ahriz/meOS/commit/6d60d7f61b1441cd560b2132a0a79a9673cacdfd))
+* **graph:** combobox search, drop confidence selector and focus chip ([572f133](https://github.com/alaaeddine-ahriz/meOS/commit/572f133548f35f889e82236138bc31dc5ab31aa8))
+* **graph:** inline, simplified graph toolbar with a clickable legend ([25b5c2a](https://github.com/alaaeddine-ahriz/meOS/commit/25b5c2a4565286194e9a268693db5062e613fdb7))
+* **graph:** restore text search with keyboard navigation ([f676a4d](https://github.com/alaaeddine-ahriz/meOS/commit/f676a4db85c442e9fe7bcd4a53113d2724b5b9e6))
+* **health:** merge the health screens into one section under Sources ([#107](https://github.com/alaaeddine-ahriz/meOS/issues/107)) ([bae5a9c](https://github.com/alaaeddine-ahriz/meOS/commit/bae5a9ce7f00f11080e10cab23ef0952dc1ba6f8))
+* **health:** show the Google account + branded service logos in Connected services ([#109](https://github.com/alaaeddine-ahriz/meOS/issues/109)) ([23a350d](https://github.com/alaaeddine-ahriz/meOS/commit/23a350d2f7b73a8b53eaac5990c7b2f4639a5d7d))
+* **ingest:** hash-skip unchanged files + provider circuit-breaker ([#113](https://github.com/alaaeddine-ahriz/meOS/issues/113)) ([6337c35](https://github.com/alaaeddine-ahriz/meOS/commit/6337c3573ba3e9cd83491234bb19488e6c3db8df))
+* **intelligence:** inject meOS knowledge MCP into the wiki/agent path ([44f0b96](https://github.com/alaaeddine-ahriz/meOS/commit/44f0b9601557511bd86a1abc148f387b316f9d68))
+* **knowledge:** granular HTTP write primitives over the canonical merge path ([3c870ca](https://github.com/alaaeddine-ahriz/meOS/commit/3c870ca47c12069e4330003ea88af9f20a62c58a))
+* **knowledge:** meeting detection, entity presets, source health, coverage controls, graph map ([c83133e](https://github.com/alaaeddine-ahriz/meOS/commit/c83133eabb17fda8e84578263ddd4197d8d178ba))
+* **knowledge:** meeting detection, entity presets, source health, coverage controls, graph map ([#85](https://github.com/alaaeddine-ahriz/meOS/issues/85)–[#89](https://github.com/alaaeddine-ahriz/meOS/issues/89)) ([3ba60eb](https://github.com/alaaeddine-ahriz/meOS/commit/3ba60eb5469d1a86787eb2a162650c3d5f009211))
+* **llm:** add OpenRouter as a provider ([#111](https://github.com/alaaeddine-ahriz/meOS/issues/111)) ([8cb7c33](https://github.com/alaaeddine-ahriz/meOS/commit/8cb7c33b1f2d839a11300a44773495ef4b1d3d1f))
+* **llm:** back LlmClient with a local coding-agent CLI ([0ccd299](https://github.com/alaaeddine-ahriz/meOS/commit/0ccd299b0ba7e5667c1f2f0a897cd828e49bc8c1))
+* **llm:** route each task group to the cloud API or a local coding agent ([a7e1fa1](https://github.com/alaaeddine-ahriz/meOS/commit/a7e1fa1cad9d1ccc9807d2eff2475d115677f244))
+* **logging:** structured Pino logger across core + server ([6c82a7f](https://github.com/alaaeddine-ahriz/meOS/commit/6c82a7f3152091828277eb6dcc230cec8876986b))
+* **logging:** structured Pino logger across core + server ([1dee857](https://github.com/alaaeddine-ahriz/meOS/commit/1dee857b1725771b83f109abad551cc96f9d7b26))
+* **mcp:** generate the MCP tool surface from the annotated HTTP API ([4299bb5](https://github.com/alaaeddine-ahriz/meOS/commit/4299bb536edbcbfd02286d8eb089b103ee7a51e5))
+* **runtime:** run heavy workers in a forked process so the UI stays responsive ([#100](https://github.com/alaaeddine-ahriz/meOS/issues/100)) ([29f69ac](https://github.com/alaaeddine-ahriz/meOS/commit/29f69ac8f3fb58347dc62c1285ba290d93488080))
+* **server:** annotate HTTP routes with MCP opt-in to expose real capabilities ([9d17825](https://github.com/alaaeddine-ahriz/meOS/commit/9d17825537217ddc63487bc970a94946850abc79))
+* **settings:** add concise info tooltips to every settings section ([8bec494](https://github.com/alaaeddine-ahriz/meOS/commit/8bec49473d31869c6757137c5dcc2039b86c3687))
+* **settings:** drop in-panel descriptive paragraphs, make Reset button primary ([94cc66a](https://github.com/alaaeddine-ahriz/meOS/commit/94cc66ad122f5f1ab75eba6a7d0f13f6cf67419b))
+* **tasks:** editable workflow Agent Tasks with auto connector detection ([#138](https://github.com/alaaeddine-ahriz/meOS/issues/138)) ([c49486e](https://github.com/alaaeddine-ahriz/meOS/commit/c49486e9583380119ddc17badccea0e26a3e3b50))
+* **tasks:** remove the scheduled agent-tasks feature ([33fcfd7](https://github.com/alaaeddine-ahriz/meOS/commit/33fcfd7845e4222c9e37a67f673eb0a694be4a93))
+* **tasks:** text-only Agent Tasks with derived schedule and live run chat ([#139](https://github.com/alaaeddine-ahriz/meOS/issues/139)) ([a9a404d](https://github.com/alaaeddine-ahriz/meOS/commit/a9a404da541230731efba806816da1097b80c0a1))
+* **web:** open watched folders from Settings ([#82](https://github.com/alaaeddine-ahriz/meOS/issues/82)) ([ae27d24](https://github.com/alaaeddine-ahriz/meOS/commit/ae27d246f97c5730fc61937de09fc60fc556bf5e))
+* **web:** route each task group to the cloud API or a local agent from Settings ([338a036](https://github.com/alaaeddine-ahriz/meOS/commit/338a036da9824d761000774af5aee1ab76dc34ae))
+* **wiki-mcp:** progressive tool disclosure for the generated MCP surface ([c2bbf24](https://github.com/alaaeddine-ahriz/meOS/commit/c2bbf24f34ad2f19c0bbdc3e37079ec86be84b8a))
+* **wiki, connectors:** revamp wiki page + Google connector UI ([f5cb7a9](https://github.com/alaaeddine-ahriz/meOS/commit/f5cb7a982c53642e52e88c388eb9b7d4952543ec))
+* **wiki:** external wiki maintenance via your own coding agent (MCP) ([#118](https://github.com/alaaeddine-ahriz/meOS/issues/118)) ([218afe7](https://github.com/alaaeddine-ahriz/meOS/commit/218afe7d87cde02918fbe81f8a6d4b6e359d6a80))
+* **wiki:** recover the stale-wiki backlog on startup ([#97](https://github.com/alaaeddine-ahriz/meOS/issues/97)) ([#103](https://github.com/alaaeddine-ahriz/meOS/issues/103)) ([c6f29a2](https://github.com/alaaeddine-ahriz/meOS/commit/c6f29a275b93acc5b67d3776b0d3f9d96e0097a8))
+* **wiki:** relevance-gated wiki — a page for entities that matter, not every mention ([#125](https://github.com/alaaeddine-ahriz/meOS/issues/125)) ([870e7fc](https://github.com/alaaeddine-ahriz/meOS/commit/870e7fcf8777f02f2676fb6adf9e7eb43e6ed735))
+* **wiki:** revamp page layout ([d337433](https://github.com/alaaeddine-ahriz/meOS/commit/d337433c459b136413b8dc5be323833966158982))
+
+
+### Fixed
+
+* **#86:** malformed JSON from enum-keyed record in knowledge prefs response ([73963c8](https://github.com/alaaeddine-ahriz/meOS/commit/73963c81865d3b0f100317565ca1b702db76b259))
+* **bundle:** retry flaky network fetches in runtime bundler ([#91](https://github.com/alaaeddine-ahriz/meOS/issues/91)) ([cad9fbd](https://github.com/alaaeddine-ahriz/meOS/commit/cad9fbda3b662f85ab02654f7400ad655e54927d))
+* **chat:** agent mode aborted instantly — wire abort to reply.raw, not request.raw ([#128](https://github.com/alaaeddine-ahriz/meOS/issues/128)) ([90337cb](https://github.com/alaaeddine-ahriz/meOS/commit/90337cb6022affbba6b037bcd10d796bcbc35f0a))
+* **ci:** make desktop release-attach step work on macOS Bash 3.2 ([277b2ac](https://github.com/alaaeddine-ahriz/meOS/commit/277b2ac47cd305a87fa9f1e2543ab22630dabb8f))
+* **connectors:** bound Gmail fetch, surface errors, clarify sources ([a1ca221](https://github.com/alaaeddine-ahriz/meOS/commit/a1ca221c765e729542f41433f0f241e830dcc2dc))
+* **connectors:** correctness fixes for google agent tools from review ([#131](https://github.com/alaaeddine-ahriz/meOS/issues/131)) ([faedc06](https://github.com/alaaeddine-ahriz/meOS/commit/faedc06226d62ceb034f499aa26b237fbba1ef05))
+* desktop dev setup on clean checkout + surface real LLM error reasons ([62a9e74](https://github.com/alaaeddine-ahriz/meOS/commit/62a9e746e69d7812ad275d3090e5bf9dfdfe8d58))
+* **desktop:** assemble the runtime payload in desktop:build ([#136](https://github.com/alaaeddine-ahriz/meOS/issues/136)) ([33a7d44](https://github.com/alaaeddine-ahriz/meOS/commit/33a7d44fb93c3dc15e5d36e2e2d4dcf3ade587ae))
+* **desktop:** drop macOS Intel from release builds and harden release attach ([#141](https://github.com/alaaeddine-ahriz/meOS/issues/141)) ([f60123d](https://github.com/alaaeddine-ahriz/meOS/commit/f60123d91970b612c6d060d7a9499c68526f1dd3))
+* **desktop:** make Tauri dev work on a clean checkout ([5216e7a](https://github.com/alaaeddine-ahriz/meOS/commit/5216e7a08fb2a47c1e95c7dbc4fb373cc93fc301))
+* **desktop:** run the packaged server windowless on Windows ([#140](https://github.com/alaaeddine-ahriz/meOS/issues/140)) ([b35647a](https://github.com/alaaeddine-ahriz/meOS/commit/b35647af6612a01a25fc2150cdd3c16d2e7aaee2))
+* **dev:** pin Node 22 and surface native-ABI / port startup failures ([#135](https://github.com/alaaeddine-ahriz/meOS/issues/135)) ([302ff0f](https://github.com/alaaeddine-ahriz/meOS/commit/302ff0f6bf03b2b6dfd45d94cd970cd36eda25c8))
+* **ingest:** stop the watch path leaking node_modules + cap FD use to prevent EMFILE ([#106](https://github.com/alaaeddine-ahriz/meOS/issues/106)) ([2e33aef](https://github.com/alaaeddine-ahriz/meOS/commit/2e33aef5b338cbbe16cf62a89ca3f4f079264c64))
+* **ingest:** surface the real failing stage + error on extraction failures ([#108](https://github.com/alaaeddine-ahriz/meOS/issues/108)) ([9c2bcf0](https://github.com/alaaeddine-ahriz/meOS/commit/9c2bcf09117c5b9f705d291eaa7759794ad65202))
+* **intelligence:** clear provider hold when switching the backend ([#147](https://github.com/alaaeddine-ahriz/meOS/issues/147)) ([d738c08](https://github.com/alaaeddine-ahriz/meOS/commit/d738c08555bab7d48e1178670b84c5eadd785367))
+* **lint:** make `pnpm lint` runnable by fixing ESLint flat config gaps ([#148](https://github.com/alaaeddine-ahriz/meOS/issues/148)) ([7087fbb](https://github.com/alaaeddine-ahriz/meOS/commit/7087fbb5c3286a4cafc8507846b6a4b93e4a7d50))
+* **llm:** surface provider's real error reason on 400/unknown ([1f26f3c](https://github.com/alaaeddine-ahriz/meOS/commit/1f26f3ccabb07b87df336bc22fd5a16da9ea25fb))
+* **watcher:** replace per-file watch with native recursive fs.watch + back-pressured scan ([f60a51e](https://github.com/alaaeddine-ahriz/meOS/commit/f60a51ecb6bb25f3f70e11ddaa95108ec9b9a89c))
+* **wiki:** let the page body use full width ([6fd2d24](https://github.com/alaaeddine-ahriz/meOS/commit/6fd2d2454c33b4b7448667c8edca9a0bd3168032))
+
+
+### Changed
+
+* code-simplifier sweep across all packages ([1c11f9a](https://github.com/alaaeddine-ahriz/meOS/commit/1c11f9ad41761e83417b1cff02646505808263ad))
+* **connectors:** update docs for the connector platform + add /new-connector skill ([#115](https://github.com/alaaeddine-ahriz/meOS/issues/115)) ([a9b6d05](https://github.com/alaaeddine-ahriz/meOS/commit/a9b6d05487ca4af122ad08d04d56f5ba1bdd4b59))
+* **intelligence:** single global backend (agent | api) for routing ([bb437fc](https://github.com/alaaeddine-ahriz/meOS/commit/bb437fcf017c354c91a45811e760e80713264f4f))
+* **readme:** update nav shortcuts and connectors section ([975e8e6](https://github.com/alaaeddine-ahriz/meOS/commit/975e8e6f1715c399544a0affd439c45d14fb101e))
+* refresh all documentation to match the current app ([#149](https://github.com/alaaeddine-ahriz/meOS/issues/149)) ([d81d56a](https://github.com/alaaeddine-ahriz/meOS/commit/d81d56a30a2098bee53e1341cfe39aadc6596a42))
+* **tasks:** use shared Page chrome and match run preview to wiki preview ([ba7b7c6](https://github.com/alaaeddine-ahriz/meOS/commit/ba7b7c684add46491daca536bdce903b1a7cc6ee))
+* **web:** deprecate notes/meeting feature in UI ([#81](https://github.com/alaaeddine-ahriz/meOS/issues/81)) ([e59284d](https://github.com/alaaeddine-ahriz/meOS/commit/e59284d7dd5ff9182af0914c948d8360de9fb0ea))
+* **wiki:** remove the "Linked" tab and its backend slice ([063419b](https://github.com/alaaeddine-ahriz/meOS/commit/063419bae61bde4a92da198d7c3e726ba215ac9e))
+
 ## 0.1.0 (2026-06-16)
 
 ### Added
