@@ -8,11 +8,13 @@ if that fails, the server and web never start. Run `pnpm build` and read the
 
 **The UI loads but every action errors / "no provider".** No LLM provider is
 configured. Open **Settings (⌘,)**, pick a provider and paste a key, or export
-`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` before launch. See
-[`llm-providers.md`](llm-providers.md).
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` / `OPENROUTER_API_KEY`
+before launch. See [`llm-providers.md`](llm-providers.md).
 
 **Port already in use.** The API server uses `:4321` and Vite uses `:5173`. Stop
-the other process, or set `MEOS_PORT` for the server.
+the other process (`lsof -ti:4321 | xargs kill`), or change `server.port` in a
+`meos.config.json` at the repo root. (`MEOS_PORT` only affects the desktop shell,
+not the standalone server.)
 
 **First run downloads a model.** Embeddings use a local `all-MiniLM-L6-v2`
 model fetched once to the cache; the first ingest waits on that download. It's
@@ -20,10 +22,14 @@ cached afterwards (and pre-seeded in packaged desktop builds).
 
 ## Ingestion
 
-**A file isn't being absorbed.** Only readable types are ingested
-(`.md .txt .csv .json .org .pdf .docx .png .jpg .gif .webp`) and only inside a
-folder you added in Settings. Change detection is content-based (mtime + size,
-confirmed by a SHA-256 hash), so a metadata-only touch is intentionally skipped.
+**A file isn't being absorbed.** Only readable types are ingested — text & notes
+(`.md`, `.markdown`, `.txt`, `.text`, `.org`), data & code (`.csv`, `.json`,
+`.yaml`/`.yml`, `.toml`, `.ini`, `.sql`, `.log`), documents (`.pdf`, `.docx`,
+`.rtf`, `.odt`, `.html`/`.htm`), spreadsheets (`.xlsx`, `.xls`, `.ods`),
+presentations (`.pptx`), email (`.eml`, `.mbox`), notebooks (`.ipynb`), and
+images (`.png`, `.jpg`/`.jpeg`, `.gif`, `.webp`) — and only inside a folder you
+added in Settings. Change detection is content-based (mtime + size, confirmed by
+a SHA-256 hash), so a metadata-only touch is intentionally skipped.
 
 **Wiki pages look empty or stale.** Wiki regeneration runs decoupled in the
 background after ingestion; give the Activity → Feed a moment. A page only shows
