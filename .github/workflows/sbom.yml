@@ -23,10 +23,10 @@ jobs:
       contents: write # to attach the SBOM to the GitHub release
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -34,7 +34,7 @@ jobs:
         # Pin pnpm to the repo's packageManager version (package.json) so
         # action-setup installs it deterministically rather than via its flaky
         # self-installer inference (#93). Keep in sync with package.json.
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@v6.0.9
         with:
           version: 10.20.0
 
